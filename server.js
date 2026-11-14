@@ -225,6 +225,72 @@ async function fetchModels({ baseUrl, apiKey }) {
   }
 }
 
+async function chatReply({ baseUrl, apiKey, model, persona, history, message }) {
+  const endpoint = chatEndpoint(baseUrl);
+  if (!endpoint) {
+    return { ok: false, reason: '接口地址不能为空', hints: ['填写服务商提供的 Base URL，例如 https://api.deepseek.com 或 https://api.openai.com/v1'] };
+  }
+  if (!apiKey) {
+    return { ok: false, reason: 'API Key 不能为空', hints: ['在设置页粘贴你的 API Key'] };
+  }
+  if (!model) {
+    return { ok: false, reason: '模型名不能为空', hints: ['在设置页选择或填写模型名'] };
+  }
+  if (!message || !String(message).trim()) {
+    return { ok: false, reason: '消息不能为空', hints: ['输入你想说的话'] };
+  }
+
+  const messages = [];
+  if (persona && String(persona).trim()) {
+    messages.push({ role: 'system', content: String(persona).trim() });
+  }
+  if (Array.isArray(history)) {
+    history.forEach((m) => {
+      if (!m) return;
+      const role = m.role === 'assistant' ? 'assistant' : 'user';
+      const content = m.content ? String(m.content) : '';
+      if (content.trim()) messages.push({ role, content });
+    });
+  }
+  messages.push({ role: 'user', content: String(message) });
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TEST_TIMEOUT_MS);
+  const started = Date.now();
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey },
+      body: JSON.stringify({ model, messages, max_tokens: 1000, stream: false }),
+      signal: controller.signal,
+    });
+    const latency = Date.now() - started;
+    const text = await res.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch (_) { data = null; }
+
+    if (res.ok) {
+      const reply = (data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+      if (!String(reply).trim()) {
+        return { ok: false, reason: '模型返回了空内容', hints: ['换个模型或稍后重试'] };
+      }
+      return { ok: true, status: res.status, latency, reply: String(reply) };
+    }
+
+    const errMsg = (data && (data.error && (data.error.message || data.error.code))) || (data && data.message) || text || ('HTTP ' + res.status);
+    const c = classifyStatus(res.status);
+    return { ok: false, status: res.status, reason: c.reason, message: String(errMsg).slice(0, 500), hints: c.hints };
+  } catch (err) {
+    if (err && err.name === 'AbortError') {
+      return { ok: false, reason: '请求超时（15 秒未响应）', hints: ['服务商可能较慢或繁忙', '稍后重试'] };
+    }
+    return classifyNetwork(err);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
 
@@ -267,6 +333,31 @@ const server = http.createServer(async (req, res) => {
       try { payload = JSON.parse(body || '{}'); } catch (_) { payload = {}; }
       const result = await fetchModels({ baseUrl: payload.baseUrl, apiKey: payload.apiKey });
       console.log('[api/models]', result.ok ? 'success (' + (result.models ? result.models.length : 0) + ' 个模型)' : 'failed', result.reason || '');
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify(result));
+    });
+    return;
+  }
+
+  // 角色聊天接口
+  if (req.method === 'POST' && url.pathname === '/api/chat') {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+      if (body.length > 5e6) req.destroy();
+    });
+    req.on('end', async () => {
+      let payload = {};
+      try { payload = JSON.parse(body || '{}'); } catch (_) { payload = {}; }
+      const result = await chatReply({
+        baseUrl: payload.baseUrl,
+        apiKey: payload.apiKey,
+        model: payload.model,
+        persona: payload.persona,
+        history: payload.history,
+        message: payload.message,
+      });
+      console.log('[api/chat]', result.ok ? 'success' : 'failed', result.reason || '');
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify(result));
     });
