@@ -317,16 +317,47 @@ function characterRow(c, isActive) {
   return row;
 }
 
+// 表单里的抽屉：标题行常驻，内容点击才展开
+function formDrawer(title) {
+  const d = document.createElement('details');
+  d.className = 'drawer drawer-form';
+  const head = document.createElement('summary');
+  head.className = 'drawer-head';
+  const t = document.createElement('span');
+  t.className = 'drawer-title';
+  t.textContent = title;
+  const arrow = document.createElement('span');
+  arrow.className = 'drawer-arrow';
+  head.appendChild(t);
+  head.appendChild(arrow);
+  d.appendChild(head);
+  const body = document.createElement('div');
+  body.className = 'drawer-body';
+  d.appendChild(body);
+  return { root: d, body };
+}
+
 // 渲染「新建 / 编辑角色」表单；character 为空表示新增
-function renderCharacterForm(character, avatarUrl) {
+function renderCharacterForm(character, avatarUrl, refImageUrl) {
   const box = $('character-form');
   box.innerHTML = '';
   box.hidden = false;
+
+  const voice = (character && character.voice) || { enabled: false, voiceId: '', model: '' };
+  const image = (character && character.image) || { enabled: false, prompt: '', referenceImageId: null };
 
   const title = document.createElement('div');
   title.className = 'memory-form-title';
   title.textContent = character ? '编辑角色' : '新建角色';
   box.appendChild(title);
+
+  const name = document.createElement('input');
+  name.id = 'char-name-input';
+  name.className = 'wb-input';
+  name.type = 'text';
+  name.placeholder = '角色名字，例如：小助手';
+  name.value = (character && character.name) || '';
+  box.appendChild(name);
 
   const avatarRow = document.createElement('div');
   avatarRow.className = 'avatar-row';
@@ -351,16 +382,9 @@ function renderCharacterForm(character, avatarUrl) {
   avatarRow.appendChild(clearBtn);
   box.appendChild(avatarRow);
 
-  const name = document.createElement('input');
-  name.id = 'char-name-input';
-  name.className = 'wb-input';
-  name.type = 'text';
-  name.placeholder = '角色名字，例如：小助手';
-  name.value = (character && character.name) || '';
   name.addEventListener('input', () => {
     if (!preview.querySelector('img')) preview.innerHTML = charAvatarHTML('', name.value);
   });
-  box.appendChild(name);
 
   const persona = document.createElement('textarea');
   persona.id = 'char-persona-input';
@@ -369,6 +393,95 @@ function renderCharacterForm(character, avatarUrl) {
   persona.placeholder = '角色人设，例如：你是一个温柔耐心的助手，用中文回复…';
   persona.value = (character && character.persona) || '';
   box.appendChild(persona);
+
+  // 语音绑定抽屉
+  const voiceDrawer = formDrawer('语音绑定' + (voice.enabled ? '（已启用）' : ''));
+  const voiceEnabled = document.createElement('label');
+  voiceEnabled.className = 'wb-check';
+  const voiceChk = document.createElement('input');
+  voiceChk.type = 'checkbox';
+  voiceChk.id = 'char-voice-enabled';
+  voiceChk.checked = !!voice.enabled;
+  const voiceChkText = document.createElement('span');
+  voiceChkText.textContent = '为此角色启用语音';
+  voiceEnabled.appendChild(voiceChk);
+  voiceEnabled.appendChild(voiceChkText);
+  voiceDrawer.body.appendChild(voiceEnabled);
+
+  const voiceId = document.createElement('input');
+  voiceId.id = 'char-voice-id';
+  voiceId.className = 'wb-input';
+  voiceId.type = 'text';
+  voiceId.placeholder = '音色 / Voice ID，留空用设置里的默认音色';
+  voiceId.value = voice.voiceId || '';
+  voiceDrawer.body.appendChild(voiceId);
+
+  const voiceModel = document.createElement('input');
+  voiceModel.id = 'char-voice-model';
+  voiceModel.className = 'wb-input';
+  voiceModel.type = 'text';
+  voiceModel.placeholder = '语音模型，留空用设置里的默认模型';
+  voiceModel.value = voice.model || '';
+  voiceDrawer.body.appendChild(voiceModel);
+
+  const voiceHint = document.createElement('span');
+  voiceHint.className = 'field-hint';
+  voiceHint.textContent = '接口地址与 Key 在「设置 → 语音服务」里配置。';
+  voiceDrawer.body.appendChild(voiceHint);
+  box.appendChild(voiceDrawer.root);
+
+  // 生图绑定抽屉
+  const imageDrawer = formDrawer('生图绑定' + (image.enabled ? '（已启用）' : ''));
+  const imageEnabled = document.createElement('label');
+  imageEnabled.className = 'wb-check';
+  const imageChk = document.createElement('input');
+  imageChk.type = 'checkbox';
+  imageChk.id = 'char-image-enabled';
+  imageChk.checked = !!image.enabled;
+  const imageChkText = document.createElement('span');
+  imageChkText.textContent = '为此角色启用外观生图';
+  imageEnabled.appendChild(imageChk);
+  imageEnabled.appendChild(imageChkText);
+  imageDrawer.body.appendChild(imageEnabled);
+
+  const prompt = document.createElement('textarea');
+  prompt.id = 'char-image-prompt';
+  prompt.className = 'wb-textarea';
+  prompt.rows = 3;
+  prompt.placeholder = '外观提示词，例如：银色长发、红色眼睛、黑色风衣…';
+  prompt.value = image.prompt || '';
+  imageDrawer.body.appendChild(prompt);
+
+  const refRow = document.createElement('div');
+  refRow.className = 'avatar-row';
+  const refPreview = document.createElement('span');
+  refPreview.className = 'ref-preview';
+  refPreview.id = 'char-ref-preview';
+  refPreview.innerHTML = refImageUrl
+    ? '<img class="msg-avatar-img" src="' + refImageUrl + '" alt="" />'
+    : '<span>无</span>';
+  refRow.appendChild(refPreview);
+
+  const refUpload = document.createElement('button');
+  refUpload.type = 'button';
+  refUpload.className = 'fetch-btn';
+  refUpload.textContent = '上传参考图';
+  refUpload.addEventListener('click', () => $('file-char-ref').click());
+  refRow.appendChild(refUpload);
+
+  const refClear = document.createElement('button');
+  refClear.type = 'button';
+  refClear.className = 'fetch-btn';
+  refClear.textContent = '清除';
+  refClear.addEventListener('click', clearCharacterRefImageForm);
+  refRow.appendChild(refClear);
+  imageDrawer.body.appendChild(refRow);
+
+  const imageHint = document.createElement('span');
+  imageHint.className = 'field-hint';
+  imageHint.textContent = '外观提示词和参考图会随角色保存；接口地址与 Key 在「设置 → 生图服务」里配置。';
+  imageDrawer.body.appendChild(imageHint);
+  box.appendChild(imageDrawer.root);
 
   const btns = document.createElement('div');
   btns.className = 'wb-form-actions';
@@ -387,15 +500,14 @@ function renderCharacterForm(character, avatarUrl) {
   box.appendChild(btns);
 }
 
-// ===== 头像图片处理（返回 Blob，交给 store.js 存入 IndexedDB） =====
-function fileToAvatar(file) {
+// ===== 头像 / 参考图处理（返回 Blob，交给 store.js 存入 IndexedDB） =====
+function fileToImage(file, max) {
   return new Promise((resolve, reject) => {
     if (!file || !file.type.startsWith('image/')) { reject(new Error('请选择图片文件')); return; }
     const reader = new FileReader();
     reader.onload = () => {
       const img = new Image();
       img.onload = () => {
-        const max = 200;
         let w = img.width;
         let h = img.height;
         if (w > max || h > max) {
@@ -418,6 +530,14 @@ function fileToAvatar(file) {
     reader.onerror = () => reject(new Error('文件读取失败'));
     reader.readAsDataURL(file);
   });
+}
+
+function fileToAvatar(file) {
+  return fileToImage(file, 200);
+}
+
+function fileToReferenceImage(file) {
+  return fileToImage(file, 512);
 }
 
 // ===== 记忆应用渲染 =====
@@ -520,17 +640,17 @@ function renderMemoryForm(entry) {
 }
 
 // ===== 世界书渲染 =====
-function renderWorldbookTabs(scopes, active) {
-  const box = $('wb-tabs');
-  box.innerHTML = '';
+// 世界书当前列表：用下拉选择全局 / 某个角色，避免角色多时顶栏挤满
+function renderWorldbookScopeSelect(scopes, active) {
+  const sel = $('wb-scope-select');
+  sel.innerHTML = '';
   scopes.forEach((s) => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'wb-tab' + (s.key === active ? ' active' : '');
-    btn.textContent = s.label;
-    btn.addEventListener('click', () => switchWorldbookScope(s.key));
-    box.appendChild(btn);
+    const opt = document.createElement('option');
+    opt.value = s.key;
+    opt.textContent = s.label;
+    sel.appendChild(opt);
   });
+  sel.value = active;
 }
 
 function wbChip(text, kind) {
@@ -595,8 +715,8 @@ function renderWorldbookList(entries) {
   entries.forEach((e) => list.appendChild(worldbookEntryRow(e)));
 }
 
-// 渲染「新建 / 编辑」表单；entry 为空表示新增
-function renderWorldbookForm(entry) {
+// 渲染「新建 / 编辑」表单；entry 为空表示新增；characters 用于「绑定角色」下拉
+function renderWorldbookForm(entry, characters, defaultBind) {
   const box = $('wb-form');
   box.innerHTML = '';
   box.hidden = false;
@@ -605,6 +725,34 @@ function renderWorldbookForm(entry) {
   title.className = 'memory-form-title';
   title.textContent = entry ? '编辑条目' : '新建条目';
   box.appendChild(title);
+
+  // 绑定角色：选择全局或已创建好的角色
+  const bindRow = document.createElement('div');
+  bindRow.className = 'wb-inline';
+  const bindLabel = document.createElement('span');
+  bindLabel.className = 'wb-label';
+  bindLabel.textContent = '绑定';
+  const bind = document.createElement('select');
+  bind.id = 'wb-bind';
+  bind.className = 'wb-select';
+  const globalOpt = document.createElement('option');
+  globalOpt.value = 'global';
+  globalOpt.textContent = '全局（所有角色）';
+  bind.appendChild(globalOpt);
+  (characters || []).forEach((c) => {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = '角色：' + (c.name || '未命名角色');
+    bind.appendChild(opt);
+  });
+  const currentBind = entry
+    ? (entry.scope === 'character' ? entry.characterId : 'global')
+    : (defaultBind || 'global');
+  bind.value = currentBind;
+  if (!bind.value) bind.value = 'global';
+  bindRow.appendChild(bindLabel);
+  bindRow.appendChild(bind);
+  box.appendChild(bindRow);
 
   const ta = document.createElement('textarea');
   ta.id = 'wb-content';

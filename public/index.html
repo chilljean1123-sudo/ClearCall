@@ -72,100 +72,178 @@
         </header>
 
         <div class="settings-body">
-          <h2 class="settings-title">AI 接口设置</h2>
-          <p class="settings-note">配置只保存在你本机浏览器里，不会上传到服务器，也不会写进日志。</p>
+          <p class="settings-note">配置只保存在你本机浏览器里，不会上传到服务器，也不会写进日志。点开下面每一项进行设置。</p>
 
-          <label class="field">
-            <span class="field-label">接口地址（Base URL）</span>
-            <input id="input-baseurl" type="text" placeholder="例如 https://api.deepseek.com 或 https://api.openai.com/v1" autocomplete="off" />
-            <span class="field-hint">留空会自动补 https://，并追加 /chat/completions</span>
-          </label>
+          <details class="drawer">
+            <summary class="drawer-head">
+              <span class="drawer-title">AI 接口</span>
+              <span class="drawer-arrow"></span>
+            </summary>
+            <div class="drawer-body">
+              <label class="field">
+                <span class="field-label">接口地址（Base URL）</span>
+                <input id="input-baseurl" type="text" placeholder="例如 https://api.deepseek.com 或 https://api.openai.com/v1" autocomplete="off" />
+                <span class="field-hint">留空会自动补 https://，并追加 /chat/completions</span>
+              </label>
 
-          <label class="field">
-            <span class="field-label">API Key</span>
-            <span class="key-wrap">
-              <input id="input-apikey" type="password" placeholder="sk-..." autocomplete="off" />
-              <button type="button" class="toggle-key" id="btn-toggle-key">显示</button>
-            </span>
-          </label>
+              <label class="field">
+                <span class="field-label">API Key</span>
+                <span class="key-wrap">
+                  <input id="input-apikey" type="password" placeholder="sk-..." autocomplete="off" />
+                  <button type="button" class="toggle-key" id="btn-toggle-key">显示</button>
+                </span>
+              </label>
 
-          <div class="field">
-            <span class="field-label">模型名</span>
-            <div class="mode-tabs">
-              <button type="button" class="mode-tab active" id="tab-select" data-mode="select">选择模型</button>
-              <button type="button" class="mode-tab" id="tab-manual" data-mode="manual">手动填写</button>
+              <div class="field">
+                <span class="field-label">模型名</span>
+                <div class="mode-tabs">
+                  <button type="button" class="mode-tab active" id="tab-select" data-mode="select">选择模型</button>
+                  <button type="button" class="mode-tab" id="tab-manual" data-mode="manual">手动填写</button>
+                </div>
+
+                <div class="model-select-wrap" id="wrap-select">
+                  <select id="select-model">
+                    <option value="">请先点「拉取模型」获取列表</option>
+                  </select>
+                  <button type="button" class="fetch-btn" id="btn-fetch-models">拉取模型</button>
+                </div>
+
+                <div class="model-manual-wrap" id="wrap-manual" hidden>
+                  <input id="input-model" type="text" placeholder="例如 deepseek-chat / gpt-4o-mini" autocomplete="off" />
+                </div>
+                <span class="field-hint">可先「拉取模型」从列表选择，或切到「手动填写」直接输入</span>
+              </div>
+
+              <button class="test-btn" id="btn-test" type="button">连接测试</button>
+
+              <div class="result" id="result" hidden></div>
             </div>
+          </details>
 
-            <div class="model-select-wrap" id="wrap-select">
-              <select id="select-model">
-                <option value="">请先点「拉取模型」获取列表</option>
-              </select>
-              <button type="button" class="fetch-btn" id="btn-fetch-models">拉取模型</button>
+          <details class="drawer">
+            <summary class="drawer-head">
+              <span class="drawer-title">记忆服务</span>
+              <span class="drawer-arrow"></span>
+            </summary>
+            <div class="drawer-body">
+              <div class="field">
+                <span class="field-label">记忆服务地址</span>
+                <input id="input-memory-baseurl" type="text" placeholder="例如 https://api.deepseek.com" autocomplete="off" />
+              </div>
+              <div class="field">
+                <span class="field-label">记忆服务 Key</span>
+                <span class="key-wrap">
+                  <input id="input-memory-apikey" type="password" placeholder="sk-..." autocomplete="off" />
+                  <button type="button" class="toggle-key" id="btn-toggle-memory-key">显示</button>
+                </span>
+              </div>
+              <div class="field">
+                <span class="field-label">记忆服务模型</span>
+                <input id="input-memory-model" type="text" placeholder="例如 deepseek-chat" autocomplete="off" />
+                <span class="field-hint">留空则复用上面的 AI 接口做记忆整理。</span>
+              </div>
             </div>
+          </details>
 
-            <div class="model-manual-wrap" id="wrap-manual" hidden>
-              <input id="input-model" type="text" placeholder="例如 deepseek-chat / gpt-4o-mini" autocomplete="off" />
+          <details class="drawer">
+            <summary class="drawer-head">
+              <span class="drawer-title">语音服务</span>
+              <span class="drawer-arrow"></span>
+            </summary>
+            <div class="drawer-body">
+              <div class="field">
+                <span class="field-label">语音接口地址</span>
+                <input id="input-voice-baseurl" type="text" placeholder="例如 https://api.openai.com/v1" autocomplete="off" />
+                <span class="field-hint">用于语音合成（TTS）的服务地址。</span>
+              </div>
+              <div class="field">
+                <span class="field-label">语音服务 Key</span>
+                <span class="key-wrap">
+                  <input id="input-voice-apikey" type="password" placeholder="sk-..." autocomplete="off" />
+                  <button type="button" class="toggle-key" id="btn-toggle-voice-key">显示</button>
+                </span>
+              </div>
+              <div class="field">
+                <span class="field-label">语音模型</span>
+                <input id="input-voice-model" type="text" placeholder="例如 tts-1" autocomplete="off" />
+              </div>
+              <div class="field">
+                <span class="field-label">默认音色 / Voice ID</span>
+                <input id="input-voice-name" type="text" placeholder="例如 alloy、zh-CN-XiaoxiaoNeural" autocomplete="off" />
+                <span class="field-hint">角色里可以单独绑定音色和模型；留空则使用这里的默认值。</span>
+              </div>
             </div>
-            <span class="field-hint">可先「拉取模型」从列表选择，或切到「手动填写」直接输入</span>
-          </div>
+          </details>
 
-          <button class="test-btn" id="btn-test" type="button">连接测试</button>
-
-          <div class="result" id="result" hidden></div>
-
-          <div class="divider"></div>
-
-          <div class="field">
-            <span class="field-label">记忆服务（独立配置，用于整理长期记忆）</span>
-            <input id="input-memory-baseurl" type="text" placeholder="记忆服务地址，例如 https://api.deepseek.com" autocomplete="off" />
-          </div>
-          <div class="field">
-            <span class="field-label">记忆服务 Key</span>
-            <span class="key-wrap">
-              <input id="input-memory-apikey" type="password" placeholder="sk-..." autocomplete="off" />
-              <button type="button" class="toggle-key" id="btn-toggle-memory-key">显示</button>
-            </span>
-          </div>
-          <div class="field">
-            <span class="field-label">记忆服务模型</span>
-            <input id="input-memory-model" type="text" placeholder="例如 deepseek-chat" autocomplete="off" />
-            <span class="field-hint">留空则复用上面的 AI 接口做记忆整理。</span>
-          </div>
-
-          <div class="divider"></div>
-
-          <div class="field">
-            <span class="field-label">回复触发模式</span>
-            <label class="check-row">
-              <input type="checkbox" id="chk-instant" />
-              <span>发送即回复（点「发送」立刻上屏并请求 AI）</span>
-            </label>
-            <label class="check-row">
-              <input type="checkbox" id="chk-batch" />
-              <span>攒消息手动触发（消息上屏缓存，点「生成回复」一起发）</span>
-            </label>
-            <label class="check-row">
-              <input type="checkbox" id="chk-countdown" />
-              <span>空闲倒计时自动回复（无草稿且失焦后倒计时自动发）</span>
-            </label>
-            <div class="countdown-row">
-              <span class="countdown-label">倒计时秒数</span>
-              <input type="number" id="input-countdown-sec" min="1" max="60" value="3" />
+          <details class="drawer">
+            <summary class="drawer-head">
+              <span class="drawer-title">生图服务</span>
+              <span class="drawer-arrow"></span>
+            </summary>
+            <div class="drawer-body">
+              <div class="field">
+                <span class="field-label">生图接口地址</span>
+                <input id="input-image-baseurl" type="text" placeholder="例如 https://api.openai.com/v1" autocomplete="off" />
+              </div>
+              <div class="field">
+                <span class="field-label">生图服务 Key</span>
+                <span class="key-wrap">
+                  <input id="input-image-apikey" type="password" placeholder="sk-..." autocomplete="off" />
+                  <button type="button" class="toggle-key" id="btn-toggle-image-key">显示</button>
+                </span>
+              </div>
+              <div class="field">
+                <span class="field-label">生图模型</span>
+                <input id="input-image-model" type="text" placeholder="例如 dall-e-3、flux-dev" autocomplete="off" />
+              </div>
+              <div class="field">
+                <span class="field-label">图片尺寸（可选）</span>
+                <input id="input-image-size" type="text" placeholder="例如 1024x1024" autocomplete="off" />
+                <span class="field-hint">角色里可以填写外观提示词并上传参考图，与这里的生图服务配合使用。</span>
+              </div>
             </div>
-            <span class="field-hint">可多选；同时开启时优先级：即时 &gt; 倒计时 &gt; 批量。全关则等同「即时」。</span>
-          </div>
+          </details>
 
-          <div class="divider"></div>
-
-          <div class="field">
-            <span class="field-label">备份与恢复</span>
-            <div class="backup-row">
-              <button type="button" class="fetch-btn" id="btn-export">导出备份</button>
-              <button type="button" class="fetch-btn" id="btn-import">导入备份</button>
-              <input type="file" id="file-import" accept="application/json,.json" hidden />
+          <details class="drawer">
+            <summary class="drawer-head">
+              <span class="drawer-title">回复触发模式</span>
+              <span class="drawer-arrow"></span>
+            </summary>
+            <div class="drawer-body">
+              <label class="check-row">
+                <input type="checkbox" id="chk-instant" />
+                <span>发送即回复（点「发送」立刻上屏并请求 AI）</span>
+              </label>
+              <label class="check-row">
+                <input type="checkbox" id="chk-batch" />
+                <span>攒消息手动触发（消息上屏缓存，点「生成回复」一起发）</span>
+              </label>
+              <label class="check-row">
+                <input type="checkbox" id="chk-countdown" />
+                <span>空闲倒计时自动回复（无草稿且失焦后倒计时自动发）</span>
+              </label>
+              <div class="countdown-row">
+                <span class="countdown-label">倒计时秒数</span>
+                <input type="number" id="input-countdown-sec" min="1" max="60" value="3" />
+              </div>
+              <span class="field-hint">可多选；同时开启时优先级：即时 &gt; 倒计时 &gt; 批量。全关则等同「即时」。</span>
             </div>
-            <span class="field-hint">备份包含 AI 设置、触发模式、所有角色（含头像）、各自的聊天记录与记忆、世界书；导入会覆盖当前数据。备份文件内含 API Key，请妥善保管。</span>
-          </div>
+          </details>
+
+          <details class="drawer">
+            <summary class="drawer-head">
+              <span class="drawer-title">备份与恢复</span>
+              <span class="drawer-arrow"></span>
+            </summary>
+            <div class="drawer-body">
+              <div class="backup-row">
+                <button type="button" class="fetch-btn" id="btn-export">导出备份</button>
+                <button type="button" class="fetch-btn" id="btn-import">导入备份</button>
+                <input type="file" id="file-import" accept="application/json,.json" hidden />
+              </div>
+              <span class="field-hint">备份包含 AI / 记忆 / 语音 / 生图设置、触发模式、所有角色（含头像与参考图）、各自的聊天记录与记忆、世界书；导入会覆盖当前数据。备份文件内含 API Key，请妥善保管。</span>
+            </div>
+          </details>
         </div>
       </div>
 
@@ -197,10 +275,11 @@
 
         <div class="characters-body">
           <button type="button" class="fetch-btn" id="btn-character-add">新建角色</button>
-          <p class="wb-hint">每个角色有独立的人设、头像、聊天记录、记忆和世界书绑定；点角色卡片可切换当前角色。</p>
+          <p class="wb-hint">每个角色有独立的人设、头像、聊天记录、记忆、世界书绑定，以及可选的语音与生图绑定；点角色卡片可切换当前角色。</p>
           <div class="wb-form" id="character-form" hidden></div>
           <div class="char-list" id="character-list"></div>
           <input type="file" id="file-char-avatar" accept="image/*" hidden />
+          <input type="file" id="file-char-ref" accept="image/*" hidden />
         </div>
       </div>
 
@@ -228,14 +307,17 @@
         </header>
 
         <div class="wb-body">
-          <div class="wb-tabs" id="wb-tabs"></div>
+          <div class="wb-scope-row">
+            <span class="wb-scope-label">当前列表</span>
+            <select class="wb-select" id="wb-scope-select"></select>
+          </div>
           <div class="wb-toolbar">
             <button type="button" class="fetch-btn" id="btn-wb-add">添加条目</button>
             <button type="button" class="fetch-btn" id="btn-wb-export">导出</button>
             <button type="button" class="fetch-btn" id="btn-wb-import">导入</button>
             <input type="file" id="file-wb-import" accept="application/json,.json" hidden />
           </div>
-          <p class="wb-hint">关键词命中才注入；关键词留空表示无条件触发。概率开关打开后，命中还要通过随机判定才注入。在「全局」添加的条目对所有角色生效，在角色标签下添加的条目只绑定该角色；导出 / 导入作用于当前选中的列表。</p>
+          <p class="wb-hint">关键词命中才注入；关键词留空表示无条件触发。概率开关打开后，命中还要通过随机判定才注入。添加条目时可在表单里选择绑定「全局」或某个角色；导出 / 导入作用于当前选中的列表。</p>
           <div class="wb-form" id="wb-form" hidden></div>
           <div class="wb-list" id="wb-list"></div>
         </div>

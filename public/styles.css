@@ -211,8 +211,53 @@ body {
   padding: 18px 16px 24px;
 }
 
-.settings-title { font-size: 17px; margin: 0 0 6px; }
 .settings-note { font-size: 12px; color: var(--muted); margin: 0 0 18px; line-height: 1.6; }
+
+/* ===== 抽屉（设置项 / 角色绑定项） ===== */
+.drawer {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 13px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+.drawer-head::-webkit-details-marker { display: none; }
+.drawer-arrow {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: rotate(45deg);
+  transition: transform 0.18s ease;
+  margin-right: 3px;
+}
+.drawer[open] > .drawer-head { border-bottom: 1px solid var(--card-border); }
+.drawer[open] > .drawer-head .drawer-arrow { transform: rotate(225deg); }
+.drawer-body { padding: 14px 14px 4px; }
+.drawer-body .field:last-child { margin-bottom: 10px; }
+
+.drawer-form { margin-bottom: 0; }
+.drawer-form .drawer-head { padding: 11px 12px; font-size: 13px; }
+.drawer-form[open] > .drawer-head { border-bottom: none; }
+.drawer-form .drawer-body {
+  padding: 0 12px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.drawer-form .drawer-body .field:last-child { margin-bottom: 0; }
 
 .field { display: block; margin-bottom: 16px; }
 .field-label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 7px; }
@@ -406,6 +451,21 @@ body {
   height: 100%;
   object-fit: cover;
 }
+.ref-preview {
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+.ref-preview img { width: 100%; height: 100%; object-fit: cover; }
 
 .chat-messages {
   flex: 1 1 auto;
@@ -653,26 +713,9 @@ body {
 
 /* ===== 世界书 ===== */
 .wb-body { flex: 1 1 auto; overflow-y: auto; padding: 14px 14px 24px; }
-.wb-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
-.wb-tab {
-  flex: 1 1 auto;
-  min-width: 64px;
-  background: var(--card);
-  border: 1px solid var(--card-border);
-  color: var(--muted);
-  border-radius: 9px;
-  padding: 8px 6px;
-  font-size: 13px;
-  cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.wb-tab.active {
-  background: rgba(79, 140, 255, 0.16);
-  border-color: var(--accent);
-  color: var(--accent);
-}
+.wb-scope-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.wb-scope-label { font-size: 12px; color: var(--muted); flex: 0 0 auto; }
+.wb-scope-row .wb-select { flex: 1 1 auto; padding: 9px 12px; }
 .wb-toolbar { display: flex; gap: 8px; margin-bottom: 8px; }
 .wb-toolbar .fetch-btn { flex: 1 1 0; min-width: 0; padding: 9px 0; text-align: center; }
 .wb-hint { font-size: 11px; color: var(--muted); line-height: 1.55; margin: 0 0 12px; }

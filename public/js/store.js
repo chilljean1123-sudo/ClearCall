@@ -35,6 +35,22 @@ const MEMORY_KEYS = {
   model: 'clearcall.memoryModel',
 };
 
+// 语音服务（TTS 接口，供角色语音绑定使用）
+const VOICE_KEYS = {
+  baseUrl: 'clearcall.voiceBaseUrl',
+  apiKey: 'clearcall.voiceApiKey',
+  model: 'clearcall.voiceModel',
+  voice: 'clearcall.voiceName',
+};
+
+// 生图服务（供角色外观生图 / 参考图绑定使用）
+const IMAGE_KEYS = {
+  baseUrl: 'clearcall.imageBaseUrl',
+  apiKey: 'clearcall.imageApiKey',
+  model: 'clearcall.imageModel',
+  size: 'clearcall.imageSize',
+};
+
 const MEMORY_CATEGORY_LABELS = {
   personal: '个人信息',
   agreement: '约定与待办',
@@ -135,6 +151,40 @@ function setMemorySettings(s) {
   localStorage.setItem(MEMORY_KEYS.baseUrl, (s && s.baseUrl) || '');
   localStorage.setItem(MEMORY_KEYS.apiKey, (s && s.apiKey) || '');
   localStorage.setItem(MEMORY_KEYS.model, (s && s.model) || '');
+}
+
+// ---------- 语音服务设置（localStorage） ----------
+function getVoiceSettings() {
+  return {
+    baseUrl: localStorage.getItem(VOICE_KEYS.baseUrl) || '',
+    apiKey: localStorage.getItem(VOICE_KEYS.apiKey) || '',
+    model: localStorage.getItem(VOICE_KEYS.model) || '',
+    voice: localStorage.getItem(VOICE_KEYS.voice) || '',
+  };
+}
+
+function setVoiceSettings(s) {
+  localStorage.setItem(VOICE_KEYS.baseUrl, (s && s.baseUrl) || '');
+  localStorage.setItem(VOICE_KEYS.apiKey, (s && s.apiKey) || '');
+  localStorage.setItem(VOICE_KEYS.model, (s && s.model) || '');
+  localStorage.setItem(VOICE_KEYS.voice, (s && s.voice) || '');
+}
+
+// ---------- 生图服务设置（localStorage） ----------
+function getImageSettings() {
+  return {
+    baseUrl: localStorage.getItem(IMAGE_KEYS.baseUrl) || '',
+    apiKey: localStorage.getItem(IMAGE_KEYS.apiKey) || '',
+    model: localStorage.getItem(IMAGE_KEYS.model) || '',
+    size: localStorage.getItem(IMAGE_KEYS.size) || '',
+  };
+}
+
+function setImageSettings(s) {
+  localStorage.setItem(IMAGE_KEYS.baseUrl, (s && s.baseUrl) || '');
+  localStorage.setItem(IMAGE_KEYS.apiKey, (s && s.apiKey) || '');
+  localStorage.setItem(IMAGE_KEYS.model, (s && s.model) || '');
+  localStorage.setItem(IMAGE_KEYS.size, (s && s.size) || '');
 }
 
 // ---------- IndexedDB 基础 ----------
@@ -276,6 +326,24 @@ function mutateDoc(id, mutator) {
 // 角色列表存在 characters 文档里：{ list: [{id,name,persona,avatarId}], activeId }
 // 头像图片以 Blob 存在 files，角色记录只存 avatarId 引用；聊天 / 记忆按角色 id 分仓。
 
+function normalizeCharacterVoice(raw) {
+  const v = raw || {};
+  return {
+    enabled: !!v.enabled,
+    voiceId: String(v.voiceId || '').trim(),
+    model: String(v.model || '').trim(),
+  };
+}
+
+function normalizeCharacterImage(raw) {
+  const v = raw || {};
+  return {
+    enabled: !!v.enabled,
+    prompt: String(v.prompt || ''),
+    referenceImageId: v.referenceImageId || null,
+  };
+}
+
 function normalizeCharacter(raw, fallbackId) {
   if (!raw) return null;
   return {
@@ -283,6 +351,8 @@ function normalizeCharacter(raw, fallbackId) {
     name: String(raw.name || '').trim(),
     persona: String(raw.persona || ''),
     avatarId: raw.avatarId || null,
+    voice: normalizeCharacterVoice(raw.voice),
+    image: normalizeCharacterImage(raw.image),
     createdAt: raw.createdAt || Date.now(),
     updatedAt: raw.updatedAt || Date.now(),
   };
@@ -321,8 +391,8 @@ async function setActiveCharacter(id) {
   });
 }
 
-async function addCharacter({ name, persona } = {}) {
-  const record = normalizeCharacter({ name, persona, avatarId: null });
+async function addCharacter({ name, persona, voice, image } = {}) {
+  const record = normalizeCharacter({ name, persona, avatarId: null, voice, image });
   await mutateDoc(DOC_CHARACTERS, (doc) => {
     if (!Array.isArray(doc.list)) doc.list = [];
     doc.list.push(record);
@@ -339,6 +409,8 @@ async function updateCharacterRecord(id, patch) {
     if (patch.name !== undefined) c.name = String(patch.name || '').trim();
     if (patch.persona !== undefined) c.persona = String(patch.persona || '');
     if (patch.avatarId !== undefined) c.avatarId = patch.avatarId || null;
+    if (patch.voice !== undefined) c.voice = normalizeCharacterVoice(Object.assign({}, c.voice, patch.voice));
+    if (patch.image !== undefined) c.image = normalizeCharacterImage(Object.assign({}, c.image, patch.image));
     c.updatedAt = Date.now();
   });
 }
@@ -394,6 +466,38 @@ async function clearCharacterAvatar(characterId) {
   }
 }
 
+// 生图参考图：同样以 Blob 存 files，角色记录只存 image.referenceImageId
+async function setCharacterReferenceImage(characterId, blob, type, name) {
+  const c = await getCharacter(characterId);
+  if (!c) throw new Error('角色不存在');
+  const oldId = c.image && c.image.referenceImageId;
+  const id = genId();
+  await putFile({ id, name: name || 'reference', type: type || (blob && blob.type) || 'image/jpeg', blob });
+  await updateCharacterRecord(characterId, { image: { referenceImageId: id } });
+  if (oldId) {
+    revokeAvatarUrl(oldId);
+    try { await deleteFile(oldId); } catch (_) {}
+  }
+  return id;
+}
+
+async function clearCharacterReferenceImage(characterId) {
+  const c = await getCharacter(characterId);
+  if (!c) return;
+  const oldId = c.image && c.image.referenceImageId;
+  await updateCharacterRecord(characterId, { image: { referenceImageId: null } });
+  if (oldId) {
+    revokeAvatarUrl(oldId);
+    try { await deleteFile(oldId); } catch (_) {}
+  }
+}
+
+async function getReferenceImageUrl(characterId) {
+  const c = await getCharacter(characterId);
+  const id = c && c.image && c.image.referenceImageId;
+  return id ? getAvatarUrlById(id) : '';
+}
+
 // 删除角色：连同它的聊天、记忆、绑定的世界书条目一起清理
 async function deleteCharacter(id) {
   const c = await getCharacter(id);
@@ -401,6 +505,11 @@ async function deleteCharacter(id) {
   if (c.avatarId) {
     revokeAvatarUrl(c.avatarId);
     try { await deleteFile(c.avatarId); } catch (_) {}
+  }
+  const refId = c.image && c.image.referenceImageId;
+  if (refId) {
+    revokeAvatarUrl(refId);
+    try { await deleteFile(refId); } catch (_) {}
   }
   try { await deleteDoc(chatDocId(id)); } catch (_) {}
   try { await deleteDoc(memoryDocId(id)); } catch (_) {}
@@ -608,6 +717,8 @@ async function buildBackup() {
   const settings = getSettings();
   const trigger = getTriggerModes();
   const memorySettings = getMemorySettings();
+  const voiceSettings = getVoiceSettings();
+  const imageSettings = getImageSettings();
   const { list, activeId } = await getCharacters();
   const files = {};
   const characters = [];
@@ -615,10 +726,11 @@ async function buildBackup() {
   const memories = {};
 
   for (const c of list) {
-    if (c.avatarId) {
-      const f = await getFile(c.avatarId);
+    const fileIds = [c.avatarId, c.image && c.image.referenceImageId].filter(Boolean);
+    for (const fileId of fileIds) {
+      const f = await getFile(fileId);
       if (f && f.blob) {
-        files[c.avatarId] = { name: f.name || 'avatar', type: f.type || 'image/jpeg', data: await blobToDataUrl(f.blob) };
+        files[fileId] = { name: f.name || 'image', type: f.type || 'image/jpeg', data: await blobToDataUrl(f.blob) };
       }
     }
     characters.push({
@@ -626,6 +738,8 @@ async function buildBackup() {
       name: c.name,
       persona: c.persona,
       avatarId: c.avatarId || null,
+      voice: c.voice,
+      image: c.image,
       createdAt: c.createdAt,
       updatedAt: c.updatedAt,
     });
@@ -647,6 +761,8 @@ async function buildBackup() {
     settings,
     trigger,
     memorySettings,
+    voiceSettings,
+    imageSettings,
     characters,
     activeId,
     chats,
@@ -664,6 +780,8 @@ async function applyBackup(data) {
   setSettings(data.settings || {});
   setTriggerModes(data.trigger || {});
   setMemorySettings(data.memorySettings || {});
+  setVoiceSettings(data.voiceSettings || {});
+  setImageSettings(data.imageSettings || {});
 
   // 统一成多角色结构；同时兼容旧版（version 1）单角色备份
   let characters;

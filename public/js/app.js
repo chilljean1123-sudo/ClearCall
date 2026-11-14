@@ -12,6 +12,8 @@ let editingCharacterId = null;
 let charactersReturnTo = 'home';
 let pendingAvatar = null;      // 新建角色时先暂存头像，保存角色后再落库
 let pendingAvatarUrl = '';
+let pendingRefImage = null;    // 生图参考图，同理暂存
+let pendingRefImageUrl = '';
 
 // 最近聊天直接带上；更早的内容交给记忆总结
 const RECENT_HISTORY_LIMIT = 20;
@@ -32,6 +34,16 @@ function loadSaved() {
   $('input-memory-baseurl').value = m.baseUrl;
   $('input-memory-apikey').value = m.apiKey;
   $('input-memory-model').value = m.model;
+  const v = getVoiceSettings();
+  $('input-voice-baseurl').value = v.baseUrl;
+  $('input-voice-apikey').value = v.apiKey;
+  $('input-voice-model').value = v.model;
+  $('input-voice-name').value = v.voice;
+  const im = getImageSettings();
+  $('input-image-baseurl').value = im.baseUrl;
+  $('input-image-apikey').value = im.apiKey;
+  $('input-image-model').value = im.model;
+  $('input-image-size').value = im.size;
 }
 
 function save() {
@@ -46,6 +58,18 @@ function save() {
     apiKey: $('input-memory-apikey').value.trim(),
     model: $('input-memory-model').value.trim(),
   });
+  setVoiceSettings({
+    baseUrl: $('input-voice-baseurl').value.trim(),
+    apiKey: $('input-voice-apikey').value.trim(),
+    model: $('input-voice-model').value.trim(),
+    voice: $('input-voice-name').value.trim(),
+  });
+  setImageSettings({
+    baseUrl: $('input-image-baseurl').value.trim(),
+    apiKey: $('input-image-apikey').value.trim(),
+    model: $('input-image-model').value.trim(),
+    size: $('input-image-size').value.trim(),
+  });
 }
 
 // ---- 角色应用：新建 / 编辑 / 删除 / 切换 ----
@@ -58,7 +82,7 @@ async function openCharacters(returnTo) {
 
 function openCharacterAdd() {
   editingCharacterId = null;
-  resetPendingAvatar();
+  resetPendingImages();
   renderCharacterForm(null, '');
 }
 
@@ -66,8 +90,10 @@ async function openCharacterEdit(id) {
   const c = await getCharacter(id);
   if (!c) return;
   editingCharacterId = id;
-  resetPendingAvatar();
-  renderCharacterForm(c, await getAvatarUrlById(c.avatarId));
+  resetPendingImages();
+  const avatarUrl = await getAvatarUrlById(c.avatarId);
+  const refUrl = await getReferenceImageUrl(id);
+  renderCharacterForm(c, avatarUrl, refUrl);
   const box = $('character-form');
   if (box && box.scrollIntoView) box.scrollIntoView({ block: 'nearest' });
 }
@@ -77,30 +103,59 @@ function resetPendingAvatar() {
   pendingAvatar = null;
 }
 
+function resetPendingRefImage() {
+  if (pendingRefImageUrl) { URL.revokeObjectURL(pendingRefImageUrl); pendingRefImageUrl = ''; }
+  pendingRefImage = null;
+}
+
+function resetPendingImages() {
+  resetPendingAvatar();
+  resetPendingRefImage();
+}
+
 function cancelCharacterForm() {
   editingCharacterId = null;
-  resetPendingAvatar();
+  resetPendingImages();
   const box = $('character-form');
   box.hidden = true;
   box.innerHTML = '';
 }
 
+// 读取角色表单：基础信息 + 语音绑定 + 生图绑定
+function readCharacterForm() {
+  return {
+    name: $('char-name-input').value.trim(),
+    persona: $('char-persona-input').value,
+    voice: {
+      enabled: $('char-voice-enabled').checked,
+      voiceId: $('char-voice-id').value.trim(),
+      model: $('char-voice-model').value.trim(),
+    },
+    image: {
+      enabled: $('char-image-enabled').checked,
+      prompt: $('char-image-prompt').value,
+    },
+  };
+}
+
 async function saveCharacterForm() {
-  const name = $('char-name-input').value.trim();
-  const persona = $('char-persona-input').value;
-  if (!name) { toast('角色名字不能为空'); return; }
+  const data = readCharacterForm();
+  if (!data.name) { toast('角色名字不能为空'); return; }
   try {
     let id = editingCharacterId;
     if (id) {
-      await updateCharacterRecord(id, { name, persona });
+      await updateCharacterRecord(id, data);
     } else {
-      const rec = await addCharacter({ name, persona });
+      const rec = await addCharacter(data);
       id = rec.id;
     }
     if (pendingAvatar) {
       await setCharacterAvatarBlob(id, pendingAvatar.blob, pendingAvatar.type, pendingAvatar.name);
     }
-    resetPendingAvatar();
+    if (pendingRefImage) {
+      await setCharacterReferenceImage(id, pendingRefImage.blob, pendingRefImage.type, pendingRefImage.name);
+    }
+    resetPendingImages();
     editingCharacterId = null;
     const box = $('character-form');
     box.hidden = true;
@@ -125,6 +180,19 @@ async function clearCharacterAvatarForm() {
   const nameInput = $('char-name-input');
   if (preview) preview.innerHTML = charAvatarHTML('', nameInput ? nameInput.value : '');
   await renderCharactersUI();
+}
+
+async function clearCharacterRefImageForm() {
+  try {
+    if (editingCharacterId) await clearCharacterReferenceImage(editingCharacterId);
+  } catch (err) {
+    toast('清除参考图失败：' + (err && err.message ? err.message : err));
+    return;
+  }
+  if (pendingRefImageUrl) { URL.revokeObjectURL(pendingRefImageUrl); pendingRefImageUrl = ''; }
+  pendingRefImage = null;
+  const preview = $('char-ref-preview');
+  if (preview) preview.innerHTML = '<span>无</span>';
 }
 
 async function switchActiveCharacter(id) {
@@ -580,11 +648,11 @@ async function openWorldbook() {
 
 async function renderWorldbookUI() {
   const { list: characters } = await getCharacters();
-  const scopes = [{ key: 'global', label: '全局' }].concat(
-    characters.map((c) => ({ key: 'char:' + c.id, label: c.name || '未命名角色' }))
+  const scopes = [{ key: 'global', label: '全局（所有角色）' }].concat(
+    characters.map((c) => ({ key: 'char:' + c.id, label: '角色：' + (c.name || '未命名角色') }))
   );
   if (wbScope !== 'global' && !scopes.some((s) => s.key === wbScope)) wbScope = 'global';
-  renderWorldbookTabs(scopes, wbScope);
+  renderWorldbookScopeSelect(scopes, wbScope);
 
   const entries = await getWorldbook();
   const list = entries
@@ -601,9 +669,11 @@ function switchWorldbookScope(scope) {
   renderWorldbookUI();
 }
 
-function openWorldbookAdd() {
+async function openWorldbookAdd() {
   editingWorldbookId = null;
-  renderWorldbookForm(null);
+  const { list } = await getCharacters();
+  const defaultBind = worldbookScopeCharacterId(wbScope) || 'global';
+  renderWorldbookForm(null, list, defaultBind);
 }
 
 async function openWorldbookEdit(id) {
@@ -611,7 +681,8 @@ async function openWorldbookEdit(id) {
   const e = entries.find((x) => x.id === id);
   if (!e) return;
   editingWorldbookId = id;
-  renderWorldbookForm(e);
+  const { list } = await getCharacters();
+  renderWorldbookForm(e, list);
 }
 
 function cancelWorldbookForm() {
@@ -633,7 +704,7 @@ function readWorldbookForm() {
   if (!Number.isFinite(probability)) probability = 100;
   probability = Math.max(0, Math.min(100, probability));
 
-  const characterId = worldbookScopeCharacterId(wbScope);
+  const characterId = ($('wb-bind').value && $('wb-bind').value !== 'global') ? $('wb-bind').value : null;
   return {
     scope: characterId ? 'character' : 'global',
     characterId,
@@ -653,6 +724,7 @@ async function saveWorldbookForm() {
   try {
     if (editingWorldbookId) await updateWorldbookEntry(editingWorldbookId, data);
     else await addWorldbookEntry(data);
+    wbScope = data.characterId ? 'char:' + data.characterId : 'global';
     cancelWorldbookForm();
     await renderWorldbookUI();
     toast('条目已保存');
@@ -753,14 +825,21 @@ document.querySelectorAll('.app-icon').forEach((btn) => {
   });
 });
 
-$('btn-back').addEventListener('click', () => showView(viewHome));
+$('btn-back').addEventListener('click', () => { save(); showView(viewHome); });
 
-$('btn-toggle-key').addEventListener('click', () => {
-  const inp = $('input-apikey');
-  const revealing = inp.type === 'password';
-  inp.type = revealing ? 'text' : 'password';
-  $('btn-toggle-key').textContent = revealing ? '隐藏' : '显示';
-});
+function bindKeyToggle(inputId, btnId) {
+  const btn = $(btnId);
+  btn.addEventListener('click', () => {
+    const inp = $(inputId);
+    const revealing = inp.type === 'password';
+    inp.type = revealing ? 'text' : 'password';
+    btn.textContent = revealing ? '隐藏' : '显示';
+  });
+}
+bindKeyToggle('input-apikey', 'btn-toggle-key');
+bindKeyToggle('input-memory-apikey', 'btn-toggle-memory-key');
+bindKeyToggle('input-voice-apikey', 'btn-toggle-voice-key');
+bindKeyToggle('input-image-apikey', 'btn-toggle-image-key');
 
 // 拉取模型列表
 $('btn-fetch-models').addEventListener('click', async () => {
@@ -871,17 +950,27 @@ $('file-char-avatar').addEventListener('change', async (e) => {
     toast(err && err.message ? err.message : '头像读取失败');
   }
 });
+$('file-char-ref').addEventListener('change', async (e) => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  try {
+    const blob = await fileToReferenceImage(f);
+    if (pendingRefImageUrl) URL.revokeObjectURL(pendingRefImageUrl);
+    pendingRefImage = { blob, type: 'image/jpeg', name: f.name };
+    pendingRefImageUrl = URL.createObjectURL(blob);
+    const preview = $('char-ref-preview');
+    if (preview) preview.innerHTML = '<img class="msg-avatar-img" src="' + pendingRefImageUrl + '" alt="" />';
+    toast('参考图已选择，保存角色后生效');
+  } catch (err) {
+    toast(err && err.message ? err.message : '参考图读取失败');
+  }
+});
 
 // 记忆应用
 $('btn-memory-back').addEventListener('click', () => showView(viewHome));
 $('btn-memory-summarize').addEventListener('click', summarizeChatToMemory);
 $('btn-memory-add').addEventListener('click', openMemoryAdd);
-$('btn-toggle-memory-key').addEventListener('click', () => {
-  const inp = $('input-memory-apikey');
-  const revealing = inp.type === 'password';
-  inp.type = revealing ? 'text' : 'password';
-  $('btn-toggle-memory-key').textContent = revealing ? '隐藏' : '显示';
-});
 
 // 世界书应用
 $('btn-wb-back').addEventListener('click', () => showView(viewHome));
@@ -889,6 +978,7 @@ $('btn-wb-add').addEventListener('click', openWorldbookAdd);
 $('btn-wb-export').addEventListener('click', exportWorldbook);
 $('btn-wb-import').addEventListener('click', () => $('file-wb-import').click());
 $('file-wb-import').addEventListener('change', importWorldbookFile);
+$('wb-scope-select').addEventListener('change', (e) => switchWorldbookScope(e.target.value));
 
 // 备份：导出 / 导入
 $('btn-export').addEventListener('click', async () => {
