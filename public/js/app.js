@@ -44,6 +44,14 @@ let forumEditingPostId = null;
 let forumSharePostId = null;
 let forumGenerating = false;
 
+// 小说阅读
+let currentBookId = null;
+let readerChapterIndex = 0;
+let readerParagraph = 0;
+let readerCharacterId = null;
+let readerSending = false;
+let readerAnnotating = false;
+
 // 邮箱
 let mailFolder = 'inbox';
 let mailDetailId = null;
@@ -2666,6 +2674,473 @@ $('mail-detail-body').addEventListener('click', (e) => {
   if (e.target.closest('#btn-mail-reply')) replyCurrentMail();
 });
 
+// ===== 小说：书架 / 阅读 / 角色批注 =====
+function showBooksLibrary() {
+  $('books-library').hidden = false;
+  $('books-reader').hidden = true;
+  $('reader-toc').hidden = true;
+  $('reader-discuss').hidden = true;
+}
+
+async function refreshBooksUI() {
+  const books = await getBooks();
+  renderBooksLibrary(books);
+}
+
+async function openBooks() {
+  currentBookId = null;
+  showBooksLibrary();
+  showView(viewBooks);
+  await refreshBooksUI();
+}
+
+async function openBook(bookId) {
+  const book = await getBook(bookId);
+  if (!book || !book.chapters.length) {
+    toast('这本书没有可阅读的章节');
+    return;
+  }
+  const books = await getBooks();
+  const meta = books.list.find((b) => b.id === bookId);
+  currentBookId = bookId;
+  readerChapterIndex = Math.min((meta && meta.progress.chapterIndex) || 0, book.chapters.length - 1);
+  readerParagraph = Math.min((meta && meta.progress.paragraph) || 0, (book.chapters[readerChapterIndex].paragraphs.length || 1) - 1);
+  await setActiveBook(bookId);
+  $('books-library').hidden = true;
+  $('books-reader').hidden = false;
+  $('reader-toc').hidden = true;
+  $('reader-discuss').hidden = true;
+  await renderReader({ top: true });
+}
+
+async function saveReaderProgress() {
+  if (!currentBookId) return;
+  await updateBookProgress(currentBookId, { chapterIndex: readerChapterIndex, paragraph: readerParagraph });
+}
+
+async function renderReader(opts) {
+  if (!currentBookId) return;
+  const book = await getBook(currentBookId);
+  if (!book || !book.chapters.length) {
+    currentBookId = null;
+    showBooksLibrary();
+    await refreshBooksUI();
+    return;
+  }
+  readerChapterIndex = Math.max(0, Math.min(readerChapterIndex, book.chapters.length - 1));
+  const paragraphs = book.chapters[readerChapterIndex].paragraphs;
+  readerParagraph = Math.max(0, Math.min(readerParagraph, paragraphs.length - 1));
+  const scroller = $('reader-scroll');
+  const keepTop = opts && typeof opts.scrollTop === 'number' ? opts.scrollTop : null;
+  renderReaderChapter(book, readerChapterIndex, readerParagraph);
+  renderReaderToc(book, readerChapterIndex);
+  if (keepTop !== null) {
+    scroller.scrollTop = keepTop;
+  } else if (opts && opts.top === false) {
+    const el = document.querySelector('#reader-content .reader-p.current');
+    if (el) el.scrollIntoView({ block: 'center' });
+  } else {
+    scroller.scrollTop = 0;
+  }
+}
+
+async function selectReaderParagraph(index) {
+  if (!currentBookId) return;
+  const top = $('reader-scroll').scrollTop;
+  readerParagraph = Math.max(0, index);
+  await saveReaderProgress();
+  await renderReader({ scrollTop: top });
+}
+
+async function goReaderChapter(index) {
+  if (!currentBookId) return;
+  const book = await getBook(currentBookId);
+  if (!book) return;
+  readerChapterIndex = Math.max(0, Math.min(index, book.chapters.length - 1));
+  readerParagraph = 0;
+  await saveReaderProgress();
+  $('reader-toc').hidden = true;
+  await renderReader({ top: true });
+}
+
+async function getReaderCharacter() {
+  const { list, activeId } = await getCharacters();
+  if (!list.length) return null;
+  const pick = list.find((c) => c.id === readerCharacterId)
+    || list.find((c) => c.id === activeId)
+    || list[0];
+  readerCharacterId = pick.id;
+  return pick;
+}
+
+async function loadReaderChatPanel() {
+  if (!currentBookId) return;
+  const { list } = await getCharacters();
+  const character = await getReaderCharacter();
+  renderReaderCharacters(list, character ? character.id : '');
+  if (!character) {
+    renderReaderChat([], '', false);
+    return;
+  }
+  const messages = await getBookChat(currentBookId, character.id);
+  renderReaderChat(messages, character.name, readerSending);
+}
+
+async function openReaderDiscuss() {
+  if (!currentBookId) return;
+  $('reader-discuss').hidden = false;
+  await loadReaderChatPanel();
+}
+
+async function readingUserName() {
+  try {
+    const forum = await getForum();
+    return (forum.profile && forum.profile.name) || '我';
+  } catch (_) {
+    return '我';
+  }
+}
+
+function readingRange(paragraphCount, current) {
+  return {
+    from: Math.max(0, current - 6),
+    to: Math.min(paragraphCount - 1, current + 6),
+  };
+}
+
+async function buildReadingSystem(book, chapterIndex, paragraph, character) {
+  const chapter = book.chapters[chapterIndex];
+  const userName = await readingUserName();
+  const range = readingRange(chapter.paragraphs.length, paragraph);
+  const lines = [];
+  lines.push('【当前阅读范围：第 ' + (range.from + 1) + ' 段 ~ 第 ' + (range.to + 1) + ' 段】');
+  lines.push('--- 当前阅读范围开始 ---');
+  for (let i = range.from; i <= range.to; i++) {
+    lines.push('[' + (i + 1) + ']' + (i === paragraph ? ' ▶' : '') + ' ' + chapter.paragraphs[i]);
+  }
+  lines.push('--- 当前阅读范围结束 ---');
+
+  const rangeAnnotations = (book.annotations || []).filter((a) => a.chapterIndex === chapterIndex && a.paragraph >= range.from && a.paragraph <= range.to);
+  const annotationText = rangeAnnotations.length
+    ? rangeAnnotations.map((a) => '- ID=' + a.id + ' 段落=' + (a.paragraph + 1) + ' 角色=' + a.characterName + '：' + a.text).join('\n')
+    : '（这次范围内还没有批注）';
+
+  let memoryText = '';
+  try {
+    const memory = await getMemory(character.id);
+    const entries = (memory.entries || []).slice(-6).map((e) => e.text).filter(Boolean);
+    if (entries.length) memoryText = '你记得：' + entries.join('；');
+  } catch (_) {}
+
+  return [
+    '你正在这场共读里扮演「' + character.name + '」。',
+    character.persona ? '角色人设：' + character.persona : '',
+    memoryText,
+    '',
+    '<reading_context>',
+    '你正在和' + userName + '一起阅读电子书《' + book.title + '》。',
+    '当前章节：' + chapter.title,
+    '',
+    '以下是' + userName + '当前阅读位置附近的正文（每段前使用真实段落序号）：',
+    lines.join('\n'),
+    '',
+    '以下批注仅来自这次正文范围内的段落（包含可操作的 ID、段落号、角色名和内容）：',
+    annotationText,
+    '</reading_context>',
+    '',
+    '<reading_instruction>',
+    userName + '想和你讨论当前读到的内容。正文里会明确标出用户当前正在阅读的段落范围，请优先围绕这些段落自然回复，可以引用书中内容、分享看法、提问等。',
+    '回复简短自然，像朋友间的讨论，不要写长文分析。',
+    '如果你认为需要新增、删除或修改当前章节批注，请先正常聊天，再只在回复末尾追加动作尾注。',
+    '动作尾注每行一条，只能使用以下格式：',
+    '- 【新增批注 段落=N】批注内容',
+    '- 【删除批注 ID=批注ID】',
+    '- 【修改批注 ID=批注ID】新的批注内容',
+    '动作尾注不要穿插在正文中；如果不需要操作批注，就不要输出动作尾注。',
+    '禁止用星号（*）或括号包裹动作描写、神态描写或旁白。',
+    '请用中文回复。',
+    '</reading_instruction>',
+  ].join('\n');
+}
+
+async function buildReadingUserMessage(mode, text, character) {
+  const userName = await readingUserName();
+  if (mode === 'annotate') {
+    return '（请阅读当前范围，先简短说说你的感受，再给 2-4 个值得标记的段落添加批注。）';
+  }
+  const messages = await getBookChat(currentBookId, character.id);
+  const recent = messages.slice(-10).map((m) => (m.role === 'user' ? userName : character.name) + '：' + m.text).join('\n');
+  return (recent ? '我们之前的讨论：\n' + recent + '\n\n' : '') + userName + '：' + text;
+}
+
+function parseReadingActions(reply) {
+  const kept = [];
+  const actions = [];
+  String(reply || '').split(/\r?\n/).forEach((line) => {
+    const m = /^\s*(?:[-*]\s*)?【(新增批注|删除批注|修改批注)\s*([^】]*)】\s*(.*)$/.exec(line);
+    if (!m) { kept.push(line); return; }
+    const params = m[2] || '';
+    const content = (m[3] || '').trim();
+    if (m[1] === '新增批注') {
+      const pm = /段落\s*=\s*(\d+)/.exec(params);
+      if (pm && content) actions.push({ type: 'add', paragraph: parseInt(pm[1], 10) - 1, text: content });
+    } else {
+      const im = /ID\s*=\s*([^\s】]+)/.exec(params);
+      if (im) actions.push({ type: m[1] === '删除批注' ? 'delete' : 'update', id: im[1], text: content });
+    }
+  });
+  return { text: kept.join('\n').replace(/\n{3,}/g, '\n\n').trim(), actions };
+}
+
+async function applyReadingActions(book, chapterIndex, character, actions) {
+  const chapter = book.chapters[chapterIndex];
+  const bookId = book.bookId || book.id;
+  let changed = 0;
+  for (const action of actions) {
+    if (action.type === 'add') {
+      if (!Number.isInteger(action.paragraph) || action.paragraph < 0 || action.paragraph >= chapter.paragraphs.length) continue;
+      const exists = (book.annotations || []).some((a) => a.characterId === character.id
+        && a.chapterIndex === chapterIndex
+        && a.paragraph === action.paragraph
+        && a.text === action.text);
+      if (exists) continue;
+      await addBookAnnotation(bookId, {
+        characterId: character.id,
+        characterName: character.name,
+        chapterIndex,
+        paragraph: action.paragraph,
+        text: action.text.slice(0, 300),
+      });
+      changed++;
+      continue;
+    }
+    const target = (book.annotations || []).find((a) => a.id === action.id
+      && a.characterId === character.id
+      && a.chapterIndex === chapterIndex);
+    if (!target) continue;
+    if (action.type === 'delete') {
+      await deleteBookAnnotation(bookId, action.id);
+      changed++;
+    } else if (action.text) {
+      await updateBookAnnotation(bookId, action.id, { text: action.text.slice(0, 300) });
+      changed++;
+    }
+  }
+  return changed;
+}
+
+async function rememberReading(character, book, chapter, summary) {
+  const excerpt = String(summary || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+  try {
+    const userName = await readingUserName();
+    await addMemoryEntry({
+      category: 'event',
+      text: '和' + userName + '一起读《' + book.title + '》·' + chapter.title + (excerpt ? '，聊到：' + excerpt : ''),
+    }, character.id);
+  } catch (_) {}
+}
+
+async function requestReadingReply(mode, text) {
+  if (!currentBookId) throw new Error('还没有打开小说');
+  const book = await getBook(currentBookId);
+  if (!book) throw new Error('这本书不存在了');
+  const chapter = book.chapters[readerChapterIndex];
+  if (!chapter) throw new Error('当前章节不存在');
+  const character = await getReaderCharacter();
+  if (!character) throw new Error('请先在角色应用创建角色');
+  const settings = getSettings();
+  const model = getCurrentModel() || settings.model;
+  if (!settings.baseUrl || !settings.apiKey || !model) {
+    throw new Error('请先在设置里填写 AI 接口地址、Key 和模型');
+  }
+  const system = await buildReadingSystem(book, readerChapterIndex, readerParagraph, character);
+  const user = await buildReadingUserMessage(mode, text, character);
+  const result = await requestReadingChat({
+    baseUrl: settings.baseUrl,
+    apiKey: settings.apiKey,
+    model,
+    system,
+    user,
+    maxTokens: 1000,
+  });
+  if (!result || !result.ok) {
+    const reason = (result && result.reason) || '阅读请求失败';
+    const message = result && result.message ? '：' + result.message : '';
+    throw new Error(reason + message);
+  }
+  return { book, chapter, character, reply: String(result.reply || '') };
+}
+
+async function sendReaderChat() {
+  if (readerSending || !currentBookId) return;
+  const input = $('reader-chat-text');
+  const text = input.value.trim();
+  if (!text) { toast('先写点什么再发送'); return; }
+  const character = await getReaderCharacter();
+  if (!character) { toast('请先在角色应用创建角色'); return; }
+  readerSending = true;
+  $('reader-chat-text').value = '';
+  $('btn-reader-send').disabled = true;
+  await appendBookChat(currentBookId, character.id, { role: 'user', text });
+  await loadReaderChatPanel();
+  renderReaderChat(await getBookChat(currentBookId, character.id), character.name, true);
+  try {
+    const { book, chapter, reply } = await requestReadingReply('chat', text);
+    const parsed = parseReadingActions(reply);
+    const changed = await applyReadingActions(book, readerChapterIndex, character, parsed.actions);
+    if (parsed.text) {
+      await appendBookChat(currentBookId, character.id, { role: 'character', text: parsed.text });
+      await rememberReading(character, book, chapter, parsed.text);
+    }
+    await loadReaderChatPanel();
+    await renderReader({ scrollTop: $('reader-scroll').scrollTop });
+    if (changed) toast('已更新 ' + changed + ' 条批注');
+  } catch (err) {
+    toast('发送失败：' + (err && err.message ? err.message : err));
+    await loadReaderChatPanel();
+  } finally {
+    readerSending = false;
+    $('btn-reader-send').disabled = false;
+  }
+}
+
+async function generateChapterAnnotations() {
+  if (readerAnnotating || !currentBookId) return;
+  const character = await getReaderCharacter();
+  if (!character) { toast('请先在角色应用创建角色'); return; }
+  readerAnnotating = true;
+  const btn = $('btn-reader-annotate');
+  const oldText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '正在批注…';
+  try {
+    const { book, chapter, reply } = await requestReadingReply('annotate', '');
+    const parsed = parseReadingActions(reply);
+    const changed = await applyReadingActions(book, readerChapterIndex, character, parsed.actions);
+    if (parsed.text) {
+      await appendBookChat(currentBookId, character.id, { role: 'character', text: parsed.text });
+      await rememberReading(character, book, chapter, parsed.text);
+    }
+    await renderReader({ scrollTop: $('reader-scroll').scrollTop });
+    if (changed) toast(character.name + ' 添加/更新了 ' + changed + ' 条批注');
+    else toast(character.name + ' 这次没有添加批注');
+  } catch (err) {
+    toast('批注失败：' + (err && err.message ? err.message : err));
+  } finally {
+    readerAnnotating = false;
+    btn.disabled = false;
+    btn.textContent = oldText || '角色批注本章';
+  }
+}
+
+async function handleBookFiles(files) {
+  const list = Array.from(files || []);
+  if (!list.length) return;
+  const importBtns = [$('btn-books-import'), $('btn-books-import-main')];
+  importBtns.forEach((b) => { if (b) b.disabled = true; });
+  let lastId = null;
+  for (const file of list) {
+    try {
+      toast('正在解析《' + file.name + '》…');
+      const info = await parseBookFile(file);
+      const meta = await importBook(info);
+      lastId = meta.id;
+      toast('已导入《' + meta.title + '》，共 ' + meta.chapterCount + ' 章');
+    } catch (err) {
+      toast('导入失败：' + (err && err.message ? err.message : err));
+    }
+  }
+  importBtns.forEach((b) => { if (b) b.disabled = false; });
+  await refreshBooksUI();
+  if (lastId) await openBook(lastId);
+  $('file-book-import').value = '';
+}
+
+async function deleteBookFlow(bookId) {
+  const book = await getBook(bookId);
+  const title = book ? book.title : '这本书';
+  if (!confirm('删除《' + title + '》？阅读进度、批注和讨论都会一起清除。')) return;
+  await deleteBook(bookId);
+  if (currentBookId === bookId) {
+    currentBookId = null;
+    showBooksLibrary();
+  }
+  await refreshBooksUI();
+  toast('已删除《' + title + '》');
+}
+
+// 小说事件
+$('btn-books-back').addEventListener('click', async () => {
+  if (!$('books-reader').hidden) {
+    showBooksLibrary();
+    await refreshBooksUI();
+  } else {
+    showView(viewHome);
+  }
+});
+
+[$('btn-books-import'), $('btn-books-import-main')].forEach((btn) => {
+  if (btn) btn.addEventListener('click', () => $('file-book-import').click());
+});
+
+$('file-book-import').addEventListener('change', (e) => {
+  handleBookFiles(e.target.files);
+});
+
+$('books-list').addEventListener('click', async (e) => {
+  const del = e.target.closest('[data-book-delete]');
+  if (del) {
+    await deleteBookFlow(del.dataset.bookDelete);
+    return;
+  }
+  const card = e.target.closest('[data-book-id]');
+  if (card) await openBook(card.dataset.bookId);
+});
+
+$('reader-content').addEventListener('click', async (e) => {
+  const del = e.target.closest('[data-annotation-delete]');
+  if (del) {
+    if (!currentBookId) return;
+    await deleteBookAnnotation(currentBookId, del.dataset.annotationDelete);
+    await renderReader({ scrollTop: $('reader-scroll').scrollTop });
+    return;
+  }
+  const p = e.target.closest('[data-paragraph]');
+  if (p) await selectReaderParagraph(parseInt(p.dataset.paragraph, 10) || 0);
+});
+
+$('btn-reader-prev').addEventListener('click', () => goReaderChapter(readerChapterIndex - 1));
+$('btn-reader-next').addEventListener('click', () => goReaderChapter(readerChapterIndex + 1));
+
+$('btn-reader-toc').addEventListener('click', async () => {
+  if (!currentBookId) return;
+  const book = await getBook(currentBookId);
+  if (!book) return;
+  renderReaderToc(book, readerChapterIndex);
+  $('reader-toc').hidden = false;
+});
+$('btn-reader-toc-close').addEventListener('click', () => { $('reader-toc').hidden = true; });
+$('reader-toc-list').addEventListener('click', (e) => {
+  const item = e.target.closest('[data-chapter-index]');
+  if (item) goReaderChapter(parseInt(item.dataset.chapterIndex, 10) || 0);
+});
+
+$('btn-reader-discuss').addEventListener('click', openReaderDiscuss);
+$('btn-reader-discuss-close').addEventListener('click', () => { $('reader-discuss').hidden = true; });
+$('reader-character').addEventListener('change', async (e) => {
+  readerCharacterId = e.target.value;
+  await loadReaderChatPanel();
+});
+$('btn-reader-send').addEventListener('click', sendReaderChat);
+$('reader-chat-text').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    e.preventDefault();
+    sendReaderChat();
+  }
+});
+
+$('btn-reader-annotate').addEventListener('click', generateChapterAnnotations);
+
 // 主屏幕应用图标（含底部 Dock）
 document.querySelectorAll('.app-icon, .dock-icon').forEach((btn) => {
   btn.addEventListener('click', () => {
@@ -2674,6 +3149,8 @@ document.querySelectorAll('.app-icon, .dock-icon').forEach((btn) => {
       openForum();
     } else if (app === 'mail') {
       openMail();
+    } else if (app === 'books') {
+      openBooks();
     } else if (app === 'settings') {
       loadSaved();
       loadTriggerSettings();

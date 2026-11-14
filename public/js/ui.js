@@ -14,6 +14,7 @@ const viewCallPicker = $('view-call-picker');
 const viewCall = $('view-call');
 const viewForum = $('view-forum');
 const viewEmail = $('view-email');
+const viewBooks = $('view-books');
 
 function showView(view) {
   document.querySelectorAll('.app-view').forEach((el) => el.classList.remove('active'));
@@ -2127,4 +2128,181 @@ function renderMailSettings(email, characters) {
     });
   }
   $('mail-interval-hours').value = String(email.settings.intervalHours || 24);
+}
+
+// ===== 小说渲染 =====
+function bookFormatLabel(format) {
+  if (format === 'epub') return 'EPUB';
+  if (format === 'pdf') return 'PDF';
+  return 'TXT';
+}
+
+function bookProgressPercent(meta) {
+  const total = Math.max(1, meta.chapterCount || 1);
+  const idx = Math.min(total, (meta.progress && meta.progress.chapterIndex) || 0);
+  return Math.max(2, Math.min(100, Math.round((idx / total) * 100)));
+}
+
+function bookProgressText(meta) {
+  const total = meta.chapterCount || 0;
+  const idx = Math.min(total, ((meta.progress && meta.progress.chapterIndex) || 0) + 1);
+  if (!total) return '暂无章节';
+  return '第 ' + idx + ' / ' + total + ' 章';
+}
+
+function renderBooksLibrary(books) {
+  const list = $('books-list');
+  list.innerHTML = '';
+  if (!books.list.length) {
+    const empty = uiEl('div', 'books-empty');
+    const strong = uiEl('strong', '', '书架还是空的');
+    empty.appendChild(strong);
+    empty.appendChild(document.createTextNode('点上方「导入小说」选择 TXT / EPUB / PDF 文件。导入后可以逐章阅读，让角色陪你讨论、写批注。'));
+    list.appendChild(empty);
+    return;
+  }
+  books.list.forEach((meta) => {
+    const card = document.createElement('div');
+    card.className = 'book-card';
+    card.dataset.bookId = meta.id;
+
+    const cover = uiEl('div', 'book-cover', String(meta.title || '书').slice(0, 4));
+    card.appendChild(cover);
+
+    const main = uiEl('div', 'book-main');
+    main.appendChild(uiEl('div', 'book-title', meta.title));
+    const metaText = [meta.author, bookFormatLabel(meta.format), bookProgressText(meta)].filter(Boolean).join(' · ');
+    main.appendChild(uiEl('div', 'book-meta', metaText));
+    const bar = uiEl('div', 'book-progress');
+    const fill = uiEl('i');
+    fill.style.width = bookProgressPercent(meta) + '%';
+    bar.appendChild(fill);
+    main.appendChild(bar);
+    card.appendChild(main);
+
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'book-delete';
+    del.dataset.bookDelete = meta.id;
+    del.setAttribute('aria-label', '删除这本书');
+    del.textContent = '×';
+    card.appendChild(del);
+
+    list.appendChild(card);
+  });
+}
+
+function renderReaderChapter(book, chapterIndex, currentParagraph) {
+  const chapter = book.chapters[chapterIndex];
+  if (!chapter) return;
+  $('reader-chapter-head').textContent = chapter.title;
+  $('reader-chapter-title').textContent = chapter.title;
+  const content = $('reader-content');
+  content.innerHTML = '';
+  const annotations = (book.annotations || []).filter((a) => a.chapterIndex === chapterIndex);
+  const byParagraph = new Map();
+  annotations.forEach((a) => {
+    if (!byParagraph.has(a.paragraph)) byParagraph.set(a.paragraph, []);
+    byParagraph.get(a.paragraph).push(a);
+  });
+
+  chapter.paragraphs.forEach((text, i) => {
+    const p = document.createElement('div');
+    p.className = 'reader-p' + (i === currentParagraph ? ' current' : '');
+    p.dataset.paragraph = String(i);
+    const num = uiEl('span', 'reader-num', String(i + 1));
+    p.appendChild(num);
+    p.appendChild(document.createTextNode(text));
+    const list = byParagraph.get(i);
+    if (list && list.length) {
+      p.appendChild(uiEl('span', 'reader-badge', '批注 ' + list.length));
+    }
+    content.appendChild(p);
+
+    if (list && list.length) {
+      const box = uiEl('div', 'reader-annotations');
+      box.dataset.annotationsFor = String(i);
+      list.forEach((a) => {
+        const item = uiEl('div', 'reader-annotation');
+        item.dataset.annotationId = a.id;
+        item.appendChild(uiEl('span', 'reader-annotation-name', a.characterName));
+        item.appendChild(uiEl('span', 'reader-annotation-text', a.text));
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'reader-annotation-del';
+        del.dataset.annotationDelete = a.id;
+        del.setAttribute('aria-label', '删除批注');
+        del.textContent = '×';
+        item.appendChild(del);
+        box.appendChild(item);
+      });
+      content.appendChild(box);
+    }
+  });
+
+  const prev = $('btn-reader-prev');
+  const next = $('btn-reader-next');
+  if (prev) prev.disabled = chapterIndex <= 0;
+  if (next) next.disabled = chapterIndex >= book.chapters.length - 1;
+}
+
+function renderReaderToc(book, chapterIndex) {
+  const box = $('reader-toc-list');
+  box.innerHTML = '';
+  $('reader-toc-count').textContent = '共 ' + book.chapters.length + ' 章';
+  book.chapters.forEach((chapter, i) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'reader-toc-item' + (i === chapterIndex ? ' active' : '');
+    btn.dataset.chapterIndex = String(i);
+    btn.appendChild(uiEl('span', 'reader-toc-index', String(i + 1)));
+    btn.appendChild(uiEl('span', 'reader-toc-name', chapter.title));
+    box.appendChild(btn);
+  });
+}
+
+function renderReaderCharacters(characters, selectedId) {
+  const sel = $('reader-character');
+  sel.innerHTML = '';
+  if (!characters.length) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = '还没有角色，先到角色应用创建';
+    sel.appendChild(opt);
+    sel.disabled = true;
+    return;
+  }
+  sel.disabled = false;
+  characters.forEach((c) => {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = c.name || '未命名角色';
+    sel.appendChild(opt);
+  });
+  const pick = characters.some((c) => c.id === selectedId) ? selectedId : characters[0].id;
+  sel.value = pick;
+}
+
+function renderReaderChat(messages, characterName, typing) {
+  const box = $('reader-chat');
+  box.innerHTML = '';
+  if (!messages.length && !typing) {
+    const empty = uiEl('div', 'reader-chat-empty');
+    empty.appendChild(document.createTextNode('读到有意思的地方，就和' + (characterName || '角色') + '聊聊。'));
+    box.appendChild(empty);
+    return;
+  }
+  messages.forEach((m) => {
+    const row = uiEl('div', 'reader-msg ' + (m.role === 'user' ? 'user' : 'character'));
+    row.appendChild(uiEl('span', 'reader-msg-name', m.role === 'user' ? '我' : (characterName || '角色')));
+    row.appendChild(uiEl('div', 'reader-msg-bubble', m.text));
+    box.appendChild(row);
+  });
+  if (typing) {
+    const row = uiEl('div', 'reader-msg character typing');
+    row.appendChild(uiEl('span', 'reader-msg-name', characterName || '角色'));
+    row.appendChild(uiEl('div', 'reader-msg-bubble', '正在读你划到的地方…'));
+    box.appendChild(row);
+  }
+  box.scrollTop = box.scrollHeight;
 }

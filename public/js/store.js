@@ -202,6 +202,9 @@ const DOC_APPEARANCE = 'appearance';   // 美化：主屏壁纸 / 各应用图�
 const DOC_NOTIFICATION = 'notification'; // 通知：开关 / 自定义提示音 / 后台保活
 const DOC_FORUM = 'forum';             // 论坛：绑定设置 / 主题 / 帖子 / 用户主页
 const DOC_EMAIL = 'email';             // 邮箱：角色来信 / 已发送 / 定时任务
+const DOC_BOOKS = 'books';             // 小说书架：书目列表 / 当前书 / 阅读进度
+const DOC_BOOK_PREFIX = 'book:';       // 单本书内容：章节正文 / 批注
+const DOC_BOOK_CHAT_PREFIX = 'bookChat:'; // 单本书的阅读讨论，按角色分仓
 const LEGACY_CHARACTER_ID = 'character';
 
 let _dbPromise = null;
@@ -869,6 +872,266 @@ async function removeEmailPendingJob(jobId) {
   });
 }
 
+// ---------- 小说：书架 / 章节 / 批注 / 阅读讨论 ----------
+function normalizeBookProgress(raw) {
+  const d = raw || {};
+  return {
+    chapterIndex: Math.max(0, parseInt(d.chapterIndex, 10) || 0),
+    paragraph: Math.max(0, parseInt(d.paragraph, 10) || 0),
+  };
+}
+
+function normalizeBookMeta(raw) {
+  if (!raw) return null;
+  const id = String(raw.id || '').trim();
+  if (!id) return null;
+  return {
+    id,
+    title: String(raw.title || '未命名小说').trim() || '未命名小说',
+    author: String(raw.author || '').trim(),
+    format: ['epub', 'txt', 'pdf'].includes(raw.format) ? raw.format : 'txt',
+    chapterCount: Math.max(0, parseInt(raw.chapterCount, 10) || 0),
+    addedAt: Number(raw.addedAt) || Date.now(),
+    progress: normalizeBookProgress(raw.progress),
+  };
+}
+
+function normalizeBookAnnotation(raw) {
+  if (!raw) return null;
+  const text = String(raw.text || '').trim();
+  if (!text) return null;
+  return {
+    id: raw.id || genId(),
+    characterId: raw.characterId || null,
+    characterName: String(raw.characterName || '角色').trim() || '角色',
+    chapterIndex: Math.max(0, parseInt(raw.chapterIndex, 10) || 0),
+    paragraph: Math.max(0, parseInt(raw.paragraph, 10) || 0),
+    text,
+    createdAt: Number(raw.createdAt) || Date.now(),
+  };
+}
+
+function normalizeBookChapter(raw, index) {
+  const d = raw || {};
+  const paragraphs = Array.isArray(d.paragraphs)
+    ? d.paragraphs.map((p) => String(p || '').trim()).filter(Boolean)
+    : [];
+  return {
+    id: d.id || genId(),
+    title: String(d.title || '').trim() || ('第 ' + (index + 1) + ' 章'),
+    paragraphs,
+  };
+}
+
+function normalizeBookDoc(doc) {
+  const d = doc || {};
+  return {
+    id: d.id || (DOC_BOOK_PREFIX + (d.bookId || genId())),
+    bookId: d.bookId || String(d.id || '').replace(DOC_BOOK_PREFIX, ''),
+    title: String(d.title || '未命名小说').trim() || '未命名小说',
+    author: String(d.author || '').trim(),
+    format: ['epub', 'txt', 'pdf'].includes(d.format) ? d.format : 'txt',
+    chapters: (Array.isArray(d.chapters) ? d.chapters : []).map(normalizeBookChapter),
+    annotations: (Array.isArray(d.annotations) ? d.annotations : []).map(normalizeBookAnnotation).filter(Boolean),
+    createdAt: Number(d.createdAt) || Date.now(),
+    updatedAt: Number(d.updatedAt) || Date.now(),
+  };
+}
+
+function normalizeBookChatDoc(doc) {
+  const d = doc || {};
+  const chats = {};
+  const src = (d.chats && typeof d.chats === 'object') ? d.chats : {};
+  Object.keys(src).forEach((cid) => {
+    const list = Array.isArray(src[cid]) ? src[cid] : [];
+    chats[cid] = list.map((m) => ({
+      role: m && m.role === 'user' ? 'user' : 'character',
+      text: String((m && m.text) || '').trim(),
+      createdAt: Number(m && m.createdAt) || Date.now(),
+    })).filter((m) => m.text);
+  });
+  return { id: d.id || '', chats };
+}
+
+function normalizeBooks(doc) {
+  const d = doc || {};
+  const list = (Array.isArray(d.list) ? d.list : []).map(normalizeBookMeta).filter(Boolean);
+  const activeId = list.some((b) => b.id === d.activeId) ? d.activeId : (list[0] ? list[0].id : null);
+  return { list, activeId };
+}
+
+async function getBooks() {
+  return normalizeBooks(await getDoc(DOC_BOOKS));
+}
+
+async function mutateBooks(mutator) {
+  return mutateDoc(DOC_BOOKS, (doc) => {
+    if (!Array.isArray(doc.list)) doc.list = [];
+    mutator(doc);
+  });
+}
+
+async function setActiveBook(bookId) {
+  await mutateBooks((doc) => {
+    if (doc.list.some((b) => b.id === bookId)) doc.activeId = bookId;
+  });
+}
+
+async function getBook(bookId) {
+  if (!bookId) return null;
+  const doc = await getDoc(DOC_BOOK_PREFIX + bookId);
+  return doc ? normalizeBookDoc(doc) : null;
+}
+
+function bookMetaFromImport(id, info) {
+  const chapters = Array.isArray(info.chapters) ? info.chapters : [];
+  return normalizeBookMeta({
+    id,
+    title: info.title,
+    author: info.author,
+    format: info.format,
+    chapterCount: chapters.length,
+    addedAt: Date.now(),
+    progress: { chapterIndex: 0, paragraph: 0 },
+  });
+}
+
+async function importBook(info) {
+  const chapters = (Array.isArray(info && info.chapters) ? info.chapters : []).map(normalizeBookChapter).filter((c) => c.paragraphs.length);
+  if (!chapters.length) throw new Error('没有解析到可阅读的正文');
+  const id = genId();
+  const now = Date.now();
+  await putDoc({
+    id: DOC_BOOK_PREFIX + id,
+    bookId: id,
+    title: (info && info.title) || '未命名小说',
+    author: (info && info.author) || '',
+    format: (info && info.format) || 'txt',
+    chapters,
+    annotations: [],
+    createdAt: now,
+    updatedAt: now,
+  });
+  const meta = bookMetaFromImport(id, Object.assign({}, info, { chapters }));
+  await mutateBooks((doc) => {
+    doc.list.unshift(meta);
+    doc.activeId = id;
+  });
+  return meta;
+}
+
+async function deleteBook(bookId) {
+  await mutateBooks((doc) => {
+    doc.list = doc.list.filter((b) => b.id !== bookId);
+    if (doc.activeId === bookId) doc.activeId = doc.list[0] ? doc.list[0].id : null;
+  });
+  try { await deleteDoc(DOC_BOOK_PREFIX + bookId); } catch (_) {}
+  try { await deleteDoc(DOC_BOOK_CHAT_PREFIX + bookId); } catch (_) {}
+}
+
+async function updateBookProgress(bookId, progress) {
+  await mutateBooks((doc) => {
+    const b = doc.list.find((x) => x.id === bookId);
+    if (b) b.progress = normalizeBookProgress(progress);
+  });
+}
+
+async function addBookAnnotation(bookId, annotation) {
+  let added = null;
+  await mutateDoc(DOC_BOOK_PREFIX + bookId, (doc) => {
+    if (!Array.isArray(doc.annotations)) doc.annotations = [];
+    added = normalizeBookAnnotation(annotation);
+    if (added) doc.annotations.push(added);
+    doc.updatedAt = Date.now();
+  });
+  return added;
+}
+
+async function updateBookAnnotation(bookId, annotationId, patch) {
+  await mutateDoc(DOC_BOOK_PREFIX + bookId, (doc) => {
+    if (!Array.isArray(doc.annotations)) doc.annotations = [];
+    const a = doc.annotations.find((x) => x.id === annotationId);
+    if (!a) return;
+    if (patch && patch.text !== undefined) a.text = String(patch.text || '').trim();
+    if (patch && patch.paragraph !== undefined) a.paragraph = Math.max(0, parseInt(patch.paragraph, 10) || 0);
+    doc.updatedAt = Date.now();
+  });
+}
+
+async function deleteBookAnnotation(bookId, annotationId) {
+  await mutateDoc(DOC_BOOK_PREFIX + bookId, (doc) => {
+    if (!Array.isArray(doc.annotations)) doc.annotations = [];
+    doc.annotations = doc.annotations.filter((x) => x.id !== annotationId);
+    doc.updatedAt = Date.now();
+  });
+}
+
+async function getBookChat(bookId, characterId) {
+  const doc = normalizeBookChatDoc(await getDoc(DOC_BOOK_CHAT_PREFIX + bookId));
+  return doc.chats[characterId] || [];
+}
+
+async function appendBookChat(bookId, characterId, message) {
+  const text = String((message && message.text) || '').trim();
+  if (!text) return;
+  const docId = DOC_BOOK_CHAT_PREFIX + bookId;
+  await mutateDoc(docId, (doc) => {
+    if (!doc.chats || typeof doc.chats !== 'object') doc.chats = {};
+    if (!Array.isArray(doc.chats[characterId])) doc.chats[characterId] = [];
+    doc.chats[characterId].push({
+      role: message.role === 'user' ? 'user' : 'character',
+      text,
+      createdAt: Date.now(),
+    });
+    if (doc.chats[characterId].length > 200) doc.chats[characterId] = doc.chats[characterId].slice(-200);
+  });
+}
+
+async function clearBookChat(bookId, characterId) {
+  const docId = DOC_BOOK_CHAT_PREFIX + bookId;
+  await mutateDoc(docId, (doc) => {
+    if (!doc.chats || typeof doc.chats !== 'object') doc.chats = {};
+    doc.chats[characterId] = [];
+  });
+}
+
+async function getBooksBackup() {
+  const { list, activeId } = await getBooks();
+  const docs = {};
+  const chats = {};
+  for (const meta of list) {
+    const book = await getBook(meta.id);
+    if (book) docs[meta.id] = book;
+    const chatDoc = normalizeBookChatDoc(await getDoc(DOC_BOOK_CHAT_PREFIX + meta.id));
+    chats[meta.id] = chatDoc.chats;
+  }
+  return { list, activeId, docs, chats };
+}
+
+async function applyBooksBackup(data) {
+  const old = await getBooks();
+  for (const b of old.list) {
+    try { await deleteDoc(DOC_BOOK_PREFIX + b.id); } catch (_) {}
+    try { await deleteDoc(DOC_BOOK_CHAT_PREFIX + b.id); } catch (_) {}
+  }
+  const src = data || {};
+  const list = (Array.isArray(src.list) ? src.list : []).map(normalizeBookMeta).filter(Boolean);
+  const docs = src.docs || {};
+  const chats = src.chats || {};
+  for (const meta of list) {
+    const book = normalizeBookDoc(docs[meta.id] || { id: DOC_BOOK_PREFIX + meta.id, bookId: meta.id, title: meta.title });
+    book.id = DOC_BOOK_PREFIX + meta.id;
+    book.bookId = meta.id;
+    book.chapters = book.chapters.filter((c) => c.paragraphs.length);
+    if (!book.chapters.length) continue;
+    await putDoc(book);
+    const chatDoc = normalizeBookChatDoc({ id: DOC_BOOK_CHAT_PREFIX + meta.id, chats: chats[meta.id] || {} });
+    await putDoc({ id: DOC_BOOK_CHAT_PREFIX + meta.id, chats: chatDoc.chats });
+  }
+  const activeId = list.some((b) => b.id === src.activeId) ? src.activeId : (list[0] ? list[0].id : null);
+  await putDoc({ id: DOC_BOOKS, list, activeId });
+}
+
 // 在一个事务里完成「读-改-写」，避免并发写丢字段
 function mutateDoc(id, mutator) {
   return new Promise((resolve, reject) => {
@@ -1446,6 +1709,7 @@ async function buildBackup() {
   const notification = await getNotificationConfig();
   const forum = await getForum();
   const email = await getEmail();
+  const books = await getBooksBackup();
   const appearanceFileIds = [
     appearance.wallpaperId,
     ...Object.values(appearance.icons),
@@ -1472,6 +1736,7 @@ async function buildBackup() {
     notification,
     forum,
     email,
+    books,
     characters,
     activeId,
     chats,
@@ -1567,6 +1832,7 @@ async function applyBackup(data) {
     mails: email.mails,
     pending: email.pending,
   });
+  await applyBooksBackup(data.books);
   for (const c of characters) {
     const chat = chats[c.id];
     await putDoc({

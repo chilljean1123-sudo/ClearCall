@@ -90,6 +90,22 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // 阅读讨论接口（角色陪读 + 批注动作尾注）
+  if (req.method === 'POST' && url.pathname === '/api/reading') {
+    const payload = await ai.readJsonBody(req, 5e6);
+    const result = await ai.readingChat({
+      baseUrl: payload.baseUrl,
+      apiKey: payload.apiKey,
+      model: payload.model,
+      system: payload.system,
+      user: payload.user,
+      maxTokens: payload.maxTokens,
+    });
+    console.log('[api/reading]', result.ok ? 'success' : 'failed', result.reason || '');
+    ai.sendJson(res, result);
+    return;
+  }
+
   // 记忆整理接口
   if (req.method === 'POST' && url.pathname === '/api/memory') {
     const payload = await ai.readJsonBody(req, 5e6);

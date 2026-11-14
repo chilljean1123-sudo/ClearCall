@@ -68,6 +68,10 @@
             <span class="app-glyph accent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg></span>
             <span class="app-name">邮箱</span>
           </button>
+          <button class="dock-icon" data-app="books" type="button">
+            <span class="app-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="8" y1="7" x2="16" y2="7"/><line x1="8" y1="11" x2="13" y2="11"/></svg></span>
+            <span class="app-name">小说</span>
+          </button>
         </nav>
       </div>
 
@@ -251,6 +255,68 @@
 
         <input type="file" id="file-forum-avatar" accept="image/*" hidden />
         <input type="file" id="file-forum-cover" accept="image/*" hidden />
+      </div>
+
+      <!-- 小说应用 -->
+      <div class="app-view" id="view-books">
+        <header class="forum-header">
+          <button class="back-btn" id="btn-books-back" type="button">返回</button>
+          <span class="forum-header-title" id="books-header-title">小说</span>
+          <button class="forum-icon-btn" id="btn-books-import" type="button">导入</button>
+        </header>
+
+        <div class="books-library" id="books-library">
+          <div class="books-hero">
+            <div class="books-hero-title">我的书架</div>
+            <div class="books-hero-desc">导入 epub / txt / pdf，和角色一起读，边读边聊。</div>
+            <button class="books-import-btn" id="btn-books-import-main" type="button">＋ 导入小说</button>
+          </div>
+          <div class="books-list" id="books-list"></div>
+        </div>
+
+        <div class="books-reader" id="books-reader" hidden>
+          <div class="reader-bar">
+            <button class="reader-bar-btn" id="btn-reader-toc" type="button">目录</button>
+            <span class="reader-bar-title" id="reader-chapter-title"></span>
+            <button class="reader-bar-btn" id="btn-reader-discuss" type="button">讨论</button>
+          </div>
+          <div class="reader-scroll" id="reader-scroll">
+            <div class="reader-chapter-head" id="reader-chapter-head"></div>
+            <div class="reader-content" id="reader-content"></div>
+          </div>
+          <div class="reader-footer">
+            <button class="reader-nav-btn" id="btn-reader-prev" type="button">上一章</button>
+            <button class="reader-annotate-btn" id="btn-reader-annotate" type="button">角色批注本章</button>
+            <button class="reader-nav-btn" id="btn-reader-next" type="button">下一章</button>
+          </div>
+        </div>
+
+        <div class="forum-panel books-panel" id="reader-toc" hidden>
+          <div class="forum-panel-head">
+            <button class="back-btn" id="btn-reader-toc-close" type="button">返回</button>
+            <span class="forum-panel-title">目录</span>
+            <span class="forum-panel-action" id="reader-toc-count"></span>
+          </div>
+          <div class="forum-panel-body" id="reader-toc-list"></div>
+        </div>
+
+        <div class="forum-panel books-panel" id="reader-discuss" hidden>
+          <div class="forum-panel-head">
+            <button class="back-btn" id="btn-reader-discuss-close" type="button">返回</button>
+            <span class="forum-panel-title">一起读</span>
+            <span class="forum-panel-action"></span>
+          </div>
+          <div class="reader-discuss-top">
+            <select class="reader-character-select" id="reader-character"></select>
+          </div>
+          <div class="reader-chat" id="reader-chat"></div>
+          <div class="reader-chat-input">
+            <textarea id="reader-chat-text" rows="1" placeholder="说说你读到这里的想法…"></textarea>
+            <button class="reader-send-btn" id="btn-reader-send" type="button">发送</button>
+          </div>
+        </div>
+
+        <input type="file" id="file-book-import" accept=".txt,.epub,.pdf,text/plain,application/epub+zip,application/pdf" multiple hidden>
       </div>
 
       <!-- 邮箱应用 -->
@@ -734,6 +800,7 @@
 
   <div class="toast" id="toast" hidden></div>
 
+  <script src="js/books.js"></script>
   <script src="js/store.js"></script>
   <script src="js/api.js"></script>
   <script src="js/ui.js"></script>
