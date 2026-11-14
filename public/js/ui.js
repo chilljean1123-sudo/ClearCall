@@ -1595,7 +1595,7 @@ async function renderForumFeed(forum, tab) {
     const p = document.createElement('div');
     p.textContent = tab === 'following'
       ? '去设置里绑定角色，点刷新就会生成角色帖子。'
-      : '点右下角「刷新」生成路人帖子，或点「＋」自己发一帖。';
+      : '展开模块下方的「刷新帖子」生成路人帖子，或点「＋」自己发一帖。';
     empty.appendChild(strong);
     empty.appendChild(p);
     feed.appendChild(empty);
@@ -1667,7 +1667,7 @@ async function buildForumProfileView(forum) {
   if (!myPosts.length) {
     const empty = document.createElement('div');
     empty.className = 'forum-empty';
-    empty.textContent = '还没发过帖子，点右下角「＋」发第一帖。';
+    empty.textContent = '还没发过帖子，回首页点「＋」发第一帖。';
     wrap.appendChild(empty);
   } else {
     for (const post of myPosts) {

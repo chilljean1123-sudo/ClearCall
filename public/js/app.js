@@ -1823,6 +1823,18 @@ function hideForumPanels() {
 
 async function refreshForumUI() {
   const forum = await getForum();
+  const isMe = forumTab === 'me';
+  const header = $('view-forum').querySelector('.forum-header');
+  if (header) header.hidden = isMe;
+  $('forum-board-tabs').hidden = isMe;
+  $('forum-board').hidden = isMe;
+  $('forum-refresh').hidden = isMe || forumTab !== 'home';
+  const fab = $('view-forum').querySelector('.forum-fab');
+  if (fab) fab.hidden = isMe;
+  const countInput = $('input-forum-refresh-count');
+  if (countInput && document.activeElement !== countInput) {
+    countInput.value = String(forum.settings.refreshCount || 3);
+  }
   renderForumBoard(forum);
   document.querySelectorAll('.forum-tab').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.forumTab === forumTab);
@@ -1924,7 +1936,7 @@ async function deleteForumPostFlow() {
 
 async function refreshForumPosts() {
   if (forumGenerating) return;
-  const btn = $('btn-forum-refresh');
+  const btn = $('btn-forum-refresh-go');
   forumGenerating = true;
   if (btn) btn.disabled = true;
   try {
@@ -1935,12 +1947,19 @@ async function refreshForumPosts() {
       await openForumSettings();
       return;
     }
+    const countInput = $('input-forum-refresh-count');
+    let count = parseInt(countInput ? countInput.value : '', 10);
+    if (!Number.isFinite(count)) count = forum.settings.refreshCount || 3;
+    count = Math.max(1, Math.min(10, count));
+    if (countInput) countInput.value = String(count);
+    if (count !== forum.settings.refreshCount) {
+      await updateForumSettings({ refreshCount: count });
+    }
     const { list } = await getCharacters();
     const bound = new Set(forum.settings.characterIds);
     const boundChars = list.filter((c) => bound.has(c.id));
     const entries = await getWorldbook();
     const names = pickForumNames(10);
-    const count = forum.settings.refreshCount || 3;
     const board = activeForumBoard(forum);
     const prompt = buildForumPostPrompt(forum, entries, boundChars, names, count);
     toast('正在生成论坛帖子…');
@@ -1972,6 +1991,9 @@ async function refreshForumPosts() {
       }
     }
     await refreshForumUI();
+    $('forum-refresh-body').hidden = true;
+    $('forum-refresh').classList.remove('open');
+    $('btn-forum-refresh-toggle').setAttribute('aria-expanded', 'false');
     toast('已刷新 ' + added.length + ' 条帖子');
   } catch (err) {
     toast('刷新失败：' + (err && err.message ? err.message : err));
@@ -2212,7 +2234,14 @@ $('forum-board-tabs').addEventListener('click', async (e) => {
   await refreshForumUI();
   $('forum-scroll').scrollTop = 0;
 });
-$('btn-forum-refresh').addEventListener('click', refreshForumPosts);
+$('btn-forum-refresh-toggle').addEventListener('click', () => {
+  const body = $('forum-refresh-body');
+  const open = body.hidden;
+  body.hidden = !open;
+  $('forum-refresh').classList.toggle('open', open);
+  $('btn-forum-refresh-toggle').setAttribute('aria-expanded', String(open));
+});
+$('btn-forum-refresh-go').addEventListener('click', refreshForumPosts);
 $('btn-forum-compose').addEventListener('click', () => openForumCompose());
 $('btn-forum-compose-cancel').addEventListener('click', () => {
   forumEditingPostId = null;

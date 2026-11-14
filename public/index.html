@@ -95,12 +95,28 @@
           <div class="forum-board-desc" id="forum-board-desc">今天的瓜，比昨天甜一点</div>
         </div>
 
+        <div class="forum-refresh" id="forum-refresh">
+          <button class="forum-refresh-toggle" id="btn-forum-refresh-toggle" type="button" aria-expanded="false">
+            <span>刷新帖子</span>
+            <span class="forum-refresh-arrow" aria-hidden="true">▾</span>
+          </button>
+          <div class="forum-refresh-body" id="forum-refresh-body" hidden>
+            <label class="forum-refresh-count">
+              <span>生成条数</span>
+              <input id="input-forum-refresh-count" type="number" min="1" max="10" step="1" value="3">
+            </label>
+            <button class="forum-refresh-go" id="btn-forum-refresh-go" type="button">
+              <span class="forum-refresh-icon" aria-hidden="true"></span>
+              生成新帖
+            </button>
+          </div>
+        </div>
+
         <div class="forum-scroll" id="forum-scroll">
           <div class="forum-feed" id="forum-feed"></div>
         </div>
 
         <div class="forum-fab">
-          <button class="forum-fab-btn refresh" id="btn-forum-refresh" type="button" aria-label="刷新论坛"><span class="forum-refresh-icon" aria-hidden="true"></span></button>
           <button class="forum-fab-btn compose" id="btn-forum-compose" type="button">＋</button>
         </div>
 
