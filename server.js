@@ -58,6 +58,22 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // 论坛内容生成接口（独立 API，输出帖子 / 评论 JSON）
+  if (req.method === 'POST' && url.pathname === '/api/forum') {
+    const payload = await ai.readJsonBody(req, 5e6);
+    const result = await ai.forumChat({
+      baseUrl: payload.baseUrl,
+      apiKey: payload.apiKey,
+      model: payload.model,
+      system: payload.system,
+      user: payload.user,
+      maxTokens: payload.maxTokens,
+    });
+    console.log('[api/forum]', result.ok ? 'success' : 'failed', result.reason || '');
+    ai.sendJson(res, result);
+    return;
+  }
+
   // 记忆整理接口
   if (req.method === 'POST' && url.pathname === '/api/memory') {
     const payload = await ai.readJsonBody(req, 5e6);

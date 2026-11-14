@@ -200,6 +200,7 @@ const DOC_WORLDBOOK = 'worldbook';
 const DOC_STICKERS = 'stickers';       // 表情包按角色分仓：stickers:<角色id>
 const DOC_APPEARANCE = 'appearance';   // 美化：主屏壁纸 / 各应用图标 / 状态栏开关
 const DOC_NOTIFICATION = 'notification'; // 通知：开关 / 自定义提示音 / 后台保活
+const DOC_FORUM = 'forum';             // 论坛：绑定设置 / 主题 / 帖子 / 用户主页
 const LEGACY_CHARACTER_ID = 'character';
 
 let _dbPromise = null;
@@ -479,6 +480,183 @@ async function getNotificationSoundUrl() {
   return getFileUrl(cfg.soundId);
 }
 
+// ---------- 论坛（IndexedDB） ----------
+// 论坛是独立应用：绑定世界书 / 角色、独立 API、板块主题、路人提示词、帖子与用户主页。
+const DEFAULT_FORUM_THEME = {
+  title: '闲聊广场',
+  subtitle: '今天的瓜，比昨天甜一点',
+  npcPrompt: '你是一群爱逛中文论坛的普通网友，说话口语化、有网感，会玩梗但不低俗。',
+};
+const DEFAULT_FORUM_PROFILE = {
+  name: '我',
+  signature: '这个人很懒，什么都没有写。',
+  avatarId: null,
+  coverId: null,
+};
+
+function normalizeForumTheme(raw) {
+  const d = raw || {};
+  return {
+    title: String(d.title || DEFAULT_FORUM_THEME.title).trim() || DEFAULT_FORUM_THEME.title,
+    subtitle: String(d.subtitle !== undefined ? d.subtitle : DEFAULT_FORUM_THEME.subtitle).trim(),
+    npcPrompt: String(d.npcPrompt || DEFAULT_FORUM_THEME.npcPrompt).trim() || DEFAULT_FORUM_THEME.npcPrompt,
+  };
+}
+
+function normalizeForumSettings(raw) {
+  const d = raw || {};
+  const count = parseInt(d.refreshCount, 10);
+  return {
+    baseUrl: String(d.baseUrl || ''),
+    apiKey: String(d.apiKey || ''),
+    model: String(d.model || ''),
+    worldbookIds: Array.isArray(d.worldbookIds) ? d.worldbookIds.map(String) : [],
+    characterIds: Array.isArray(d.characterIds) ? d.characterIds.map(String) : [],
+    refreshCount: Number.isFinite(count) ? Math.max(1, Math.min(10, count)) : 3,
+  };
+}
+
+function normalizeForumComment(raw) {
+  if (!raw) return null;
+  const content = String(raw.content || '').trim();
+  if (!content) return null;
+  return {
+    id: raw.id || genId(),
+    name: String(raw.name || '路人').trim() || '路人',
+    content,
+    createdAt: raw.createdAt || Date.now(),
+  };
+}
+
+function normalizeForumPost(raw) {
+  if (!raw) return null;
+  const content = String(raw.content || '').trim();
+  if (!content) return null;
+  const type = raw.authorType === 'character' || raw.authorType === 'user' ? raw.authorType : 'npc';
+  return {
+    id: raw.id || genId(),
+    authorType: type,
+    authorId: raw.authorId || null,
+    authorName: String(raw.authorName || (type === 'user' ? '我' : '路人')).trim() || '路人',
+    title: String(raw.title || '').trim(),
+    content,
+    createdAt: raw.createdAt || Date.now(),
+    likes: Math.max(0, parseInt(raw.likes, 10) || 0),
+    comments: (Array.isArray(raw.comments) ? raw.comments : []).map(normalizeForumComment).filter(Boolean),
+  };
+}
+
+function normalizeForumProfile(raw) {
+  const d = raw || {};
+  return {
+    name: String(d.name || DEFAULT_FORUM_PROFILE.name).trim() || DEFAULT_FORUM_PROFILE.name,
+    signature: String(d.signature !== undefined ? d.signature : DEFAULT_FORUM_PROFILE.signature),
+    avatarId: d.avatarId || null,
+    coverId: d.coverId || null,
+  };
+}
+
+function normalizeForum(doc) {
+  const d = doc || {};
+  return {
+    settings: normalizeForumSettings(d.settings),
+    theme: normalizeForumTheme(d.theme),
+    profile: normalizeForumProfile(d.profile),
+    posts: (Array.isArray(d.posts) ? d.posts : []).map(normalizeForumPost).filter(Boolean),
+  };
+}
+
+async function getForum() {
+  return normalizeForum(await getDoc(DOC_FORUM));
+}
+
+function mutateForum(mutator) {
+  return mutateDoc(DOC_FORUM, (doc) => {
+    if (!Array.isArray(doc.posts)) doc.posts = [];
+    if (!doc.settings) doc.settings = normalizeForumSettings();
+    if (!doc.theme) doc.theme = normalizeForumTheme();
+    if (!doc.profile) doc.profile = normalizeForumProfile();
+    mutator(doc);
+  });
+}
+
+async function updateForumSettings(patch) {
+  await mutateForum((doc) => {
+    doc.settings = normalizeForumSettings(Object.assign(normalizeForumSettings(doc.settings), patch || {}));
+  });
+}
+
+async function updateForumTheme(patch) {
+  await mutateForum((doc) => {
+    doc.theme = normalizeForumTheme(Object.assign(normalizeForumTheme(doc.theme), patch || {}));
+  });
+}
+
+async function updateForumProfile(patch) {
+  await mutateForum((doc) => {
+    doc.profile = normalizeForumProfile(Object.assign(normalizeForumProfile(doc.profile), patch || {}));
+  });
+}
+
+async function addForumPosts(posts) {
+  const list = (Array.isArray(posts) ? posts : []).map(normalizeForumPost).filter(Boolean);
+  if (!list.length) return [];
+  await mutateForum((doc) => {
+    doc.posts = list.concat(doc.posts);
+  });
+  return list;
+}
+
+async function updateForumPost(postId, patch) {
+  await mutateForum((doc) => {
+    const p = doc.posts.find((x) => x.id === postId);
+    if (!p) return;
+    if (patch && patch.title !== undefined) p.title = String(patch.title || '').trim();
+    if (patch && patch.content !== undefined) p.content = String(patch.content || '').trim();
+  });
+}
+
+async function deleteForumPost(postId) {
+  await mutateForum((doc) => {
+    doc.posts = doc.posts.filter((x) => x.id !== postId);
+  });
+}
+
+async function addForumComments(postId, comments) {
+  const list = (Array.isArray(comments) ? comments : []).map(normalizeForumComment).filter(Boolean);
+  if (!list.length) return [];
+  await mutateForum((doc) => {
+    const p = doc.posts.find((x) => x.id === postId);
+    if (p) p.comments = p.comments.concat(list);
+  });
+  return list;
+}
+
+async function setForumProfileImage(kind, blob, type, name) {
+  if (!blob) throw new Error('缺少图片文件');
+  const field = kind === 'cover' ? 'coverId' : 'avatarId';
+  const forum = await getForum();
+  const oldId = forum.profile[field];
+  const id = genId();
+  await putFile({ id, name: name || ('forum-' + field), type: type || blob.type || 'image/jpeg', blob });
+  await updateForumProfile({ [field]: id });
+  if (oldId) {
+    revokeFileUrl(oldId);
+    try { await deleteFile(oldId); } catch (_) {}
+  }
+  return id;
+}
+
+async function clearForumProfileImage(kind) {
+  const field = kind === 'cover' ? 'coverId' : 'avatarId';
+  const forum = await getForum();
+  const oldId = forum.profile[field];
+  if (!oldId) return;
+  await updateForumProfile({ [field]: null });
+  revokeFileUrl(oldId);
+  try { await deleteFile(oldId); } catch (_) {}
+}
+
 // 在一个事务里完成「读-改-写」，避免并发写丢字段
 function mutateDoc(id, mutator) {
   return new Promise((resolve, reject) => {
@@ -700,6 +878,15 @@ async function deleteCharacter(id) {
   try { await deleteDoc(chatDocId(id)); } catch (_) {}
   try { await deleteDoc(memoryDocId(id)); } catch (_) {}
   try { await deleteDoc(stickerDocId(id)); } catch (_) {}
+
+  // 论坛里解绑该角色；已发布的帖子保留作者名快照，避免内容凭空消失
+  try {
+    await mutateForum((doc) => {
+      if (doc.settings && Array.isArray(doc.settings.characterIds)) {
+        doc.settings.characterIds = doc.settings.characterIds.filter((x) => x !== id);
+      }
+    });
+  } catch (_) {}
 
   const wb = await getWorldbook();
   if (wb.some((e) => e.scope === 'character' && e.characterId === id)) {
@@ -1037,7 +1224,14 @@ async function buildBackup() {
   const wbDoc = (await getDoc(DOC_WORLDBOOK)) || {};
   const appearance = await getAppearance();
   const notification = await getNotificationConfig();
-  const appearanceFileIds = [appearance.wallpaperId, ...Object.values(appearance.icons), notification.soundId].filter(Boolean);
+  const forum = await getForum();
+  const appearanceFileIds = [
+    appearance.wallpaperId,
+    ...Object.values(appearance.icons),
+    notification.soundId,
+    forum.profile.avatarId,
+    forum.profile.coverId,
+  ].filter(Boolean);
   for (const fileId of appearanceFileIds) {
     const f = await getFile(fileId);
     if (f && f.blob) {
@@ -1055,6 +1249,7 @@ async function buildBackup() {
     imageSettings,
     appearance,
     notification,
+    forum,
     characters,
     activeId,
     chats,
@@ -1133,6 +1328,14 @@ async function applyBackup(data) {
     soundId: notification.soundId,
     soundName: notification.soundName,
     soundType: notification.soundType,
+  });
+  const forum = normalizeForum(data.forum);
+  await putDoc({
+    id: DOC_FORUM,
+    settings: forum.settings,
+    theme: forum.theme,
+    profile: forum.profile,
+    posts: forum.posts,
   });
   for (const c of characters) {
     const chat = chats[c.id];

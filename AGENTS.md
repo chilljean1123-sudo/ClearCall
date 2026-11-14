@@ -39,6 +39,8 @@
 - 电话挂断后要把本次新增对话写入该角色记忆（`rememberCallToMemory`）：记忆服务可用时走摘要，未配置或失败时写一条本地摘要兜底，之后再把 `lastSummarizedCount` 推进到最新，避免重复整理。
 - 美化数据：主屏壁纸与每个应用图标的图片都存 `files`，`appearance` 用 `wallpaperId` + `icons: { appId: fileId }` 记录引用；禁止用一张图统一覆盖所有图标。单个应用设置自定义图标后，用 `.app-glyph.custom-icon` 隐藏默认底图、边框、线条图标，只显示上传图片。状态栏只做覆盖层，`.app-view` 统一用 `--statusbar-space` 预留安全区，关闭状态栏时只隐藏内容、不取消占位。
 - 通知数据：开关与后台保活存 `notification` 文档（`enabled`、`keepAlive`、`soundId` / `soundName` / `soundType`），自定义提示音 Blob 存 `files`，备份随 `files` 一起导出；换提示音或清除时要删除旧文件。
+- 论坛数据集中存在 `forum` 文档：`settings`（独立 API、`refreshCount`、`worldbookIds`、`characterIds`）、`theme`（板块标题/简介/路人提示词）、`profile`（昵称/签名/头像/背景图 id）、`posts`。帖子 `authorType: npc | character | user`，角色帖带 `authorId`，评论挂在帖子 `comments` 上。用户主页图片 Blob 存 `files`，文档只存 `avatarId` / `coverId`；换图或清除时删除旧文件。删除角色时从 `settings.characterIds` 解绑，但保留历史帖子的作者名快照。
+- 论坛生成走后端 `/api/forum`（Vercel 为 `api/forum.js`，共享 `lib/ai.js` 的 `forumChat()`），未部署后端时直连 OpenAI 兼容接口；论坛 API 留空则复用主 AI 配置。刷新生成的帖子要写入绑定角色的记忆；分享帖子到聊天室时写入 `kind: 'forum'` 卡片消息，并写一条记忆。
 
 ## 风格约束
 

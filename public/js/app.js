@@ -37,6 +37,13 @@ let keepAliveUrl = '';
 let keepAliveRetryBound = false;
 let notifySwReg = null;
 
+// 论坛
+let forumTab = 'home';
+let forumDetailId = null;
+let forumEditingPostId = null;
+let forumSharePostId = null;
+let forumGenerating = false;
+
 // 最近聊天直接带上；更早的内容交给记忆总结
 const RECENT_HISTORY_LIMIT = 20;
 const AUTO_SUMMARIZE_MIN_NEW = 20;
@@ -97,7 +104,7 @@ function save() {
 // ---- 美化：应用壁纸、单个图标与状态栏开关 ----
 async function refreshAppearance() {
   const cfg = await getAppearance();
-  const apps = Array.from(document.querySelectorAll('.app-icon')).map((b) => b.dataset.app);
+  const apps = Array.from(new Set(Array.from(document.querySelectorAll('.app-icon, .dock-icon')).map((b) => b.dataset.app))).filter(Boolean);
   const iconUrls = {};
   await Promise.all(apps.map(async (app) => {
     iconUrls[app] = await getFileUrl(cfg.icons[app] || null);
@@ -1623,15 +1630,601 @@ async function importWorldbookFile(e) {
   }
 }
 
-// ===== 事件绑定 =====
+// ===== 论坛 =====
+const FORUM_NPC_NAMES = [
+  'momo', '一只小咸鱼', '晚风不渡', '打工人小张', '不吃香菜', '橘子汽水',
+  '楼下的猫', '电子木鱼', '摸鱼大师', '深夜诗人', '阿巴阿巴', '今天也很困',
+  '热心市民李女士', '键盘侠本侠', '路过的风', '芝士就是力量', '早八人',
+  '火锅只吃微辣', '已读乱回', '人间清醒（装的）',
+];
+
+let forumProfileImageKind = 'avatar';
+
+function pickForumNames(count) {
+  const pool = FORUM_NPC_NAMES.slice();
+  const out = [];
+  while (pool.length && out.length < count) {
+    out.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+  }
+  return out;
+}
+
+function forumApiConfig(forum) {
+  const main = getSettings();
+  return {
+    baseUrl: forum.settings.baseUrl || main.baseUrl,
+    apiKey: forum.settings.apiKey || main.apiKey,
+    model: forum.settings.model || main.model,
+  };
+}
+
+function forumBoundWorldbookText(entries, ids) {
+  const set = new Set(ids || []);
+  return entries.filter((e) => set.has(e.id))
+    .map((e) => {
+      const kw = Array.isArray(e.keywords) && e.keywords.length ? '【' + e.keywords.join(' / ') + '】' : '';
+      return kw + String(e.content || '');
+    })
+    .filter(Boolean)
+    .slice(0, 20)
+    .join('\n')
+    .slice(0, 3000);
+}
+
+function forumCharacterBriefs(characters) {
+  return characters.map((c) => {
+    const persona = String(c.persona || '').replace(/\s+/g, ' ').slice(0, 180);
+    return '- ' + c.name + '（id: ' + c.id + '）' + (persona ? '：' + persona : '');
+  }).join('\n');
+}
+
+function parseForumJson(text) {
+  let s = String(text || '').trim();
+  s = s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  try {
+    const direct = JSON.parse(s);
+    if (Array.isArray(direct)) return direct;
+    if (direct && Array.isArray(direct.posts)) return direct.posts;
+    if (direct && Array.isArray(direct.comments)) return direct.comments;
+  } catch (_) {}
+  const start = s.indexOf('[');
+  const end = s.lastIndexOf(']');
+  if (start !== -1 && end > start) {
+    try {
+      const arr = JSON.parse(s.slice(start, end + 1));
+      if (Array.isArray(arr)) return arr;
+    } catch (_) {}
+  }
+  return null;
+}
+
+function normalizeGeneratedForumPosts(raw, forum, boundChars, targetCount) {
+  const list = Array.isArray(raw) ? raw : [];
+  const names = pickForumNames(Math.max(6, list.length + 2));
+  const used = new Set();
+  const charById = new Map(boundChars.map((c) => [c.id, c]));
+  const charByName = new Map(boundChars.map((c) => [c.name, c]));
+  const posts = [];
+
+  const nextName = () => {
+    for (const n of names) {
+      if (!used.has(n)) { used.add(n); return n; }
+    }
+    let name = '路人' + (used.size + 1);
+    while (used.has(name)) name += '1';
+    used.add(name);
+    return name;
+  };
+
+  list.forEach((item) => {
+    if (!item) return;
+    const content = String(item.content || item.text || '').trim();
+    if (!content) return;
+    let authorType = item.authorType === 'character' ? 'character' : 'npc';
+    let character = null;
+    if (authorType === 'character') {
+      character = charById.get(String(item.characterId || '')) || charByName.get(String(item.authorName || '')) || null;
+      if (!character) authorType = 'npc';
+    }
+    const authorName = authorType === 'character'
+      ? character.name
+      : String(item.authorName || '').trim() || nextName();
+    if (authorType === 'npc') {
+      if (used.has(authorName)) return;
+      used.add(authorName);
+    }
+    posts.push({
+      authorType,
+      authorId: character ? character.id : null,
+      authorName,
+      title: String(item.title || '').trim(),
+      content,
+      likes: Math.floor(Math.random() * 40),
+    });
+  });
+
+  // 有绑定角色时，尽量保证刷新结果里至少有一条角色帖子
+  if (boundChars.length && posts.length && !posts.some((p) => p.authorType === 'character')) {
+    const pick = boundChars[Math.floor(Math.random() * boundChars.length)];
+    const last = posts[posts.length - 1];
+    last.authorType = 'character';
+    last.authorId = pick.id;
+    last.authorName = pick.name;
+  }
+
+  return posts.slice(0, targetCount);
+}
+
+function buildForumPostPrompt(forum, boundEntries, boundChars, names, count) {
+  const system = [
+    '你是中文网络论坛的内容生成器，熟悉贴吧、豆瓣小组、NGA、虎扑、小红书等社区的真实语感。',
+    '只输出一个 JSON 数组，不要 Markdown 代码块，不要任何解释或前后缀。',
+    '数组每一项格式：{"authorType":"npc","authorName":"网名","title":"帖子标题","content":"帖子正文"}，',
+    '角色发帖用：{"authorType":"character","characterId":"角色id","authorName":"角色名","title":"帖子标题","content":"帖子正文"}。',
+    '要求：',
+    '1. 标题像真实论坛帖子，不要标题党模板；正文 80-220 字，口语化、有具体细节、有生活气，允许吐槽、反转、玩梗。',
+    '2. 路人昵称要像真人网名，不要出现「用户123」「网友A」这类占位名。',
+    '3. 角色发帖必须符合角色人设和说话风格，不要替用户发言，也不要写成小说旁白。',
+    '4. 禁止 AI 腔、禁止总结式说教、禁止每条都正能量收尾。',
+  ].join('\n');
+
+  const wb = forumBoundWorldbookText(boundEntries, forum.settings.worldbookIds);
+  const chars = forumCharacterBriefs(boundChars);
+  const user = [
+    '板块：' + forum.theme.title,
+    '板块简介：' + (forum.theme.subtitle || '无'),
+    '路人设定与语气：' + forum.theme.npcPrompt,
+    '世界书：\n' + (wb || '（无）'),
+    '可发帖角色：\n' + (chars || '（无，全部用路人）'),
+    '可参考的网名：' + names.join('、'),
+    '请生成 ' + count + ' 条帖子。' + (boundChars.length ? '其中至少 1 条由角色发布。' : '全部由路人发布。'),
+    '只返回 JSON 数组。',
+  ].join('\n');
+  return { system, user };
+}
+
+function buildForumCommentPrompt(forum, post, existing, names) {
+  const system = [
+    '你是中文网络论坛的评论生成器，熟悉贴吧、微博、豆瓣、虎扑的跟帖语感。',
+    '只输出一个 JSON 数组，不要 Markdown 代码块，不要解释。',
+    '格式：[{"name":"网名","content":"评论内容"}]。',
+    '评论要短（5-40 字），像真人随手跟帖：接梗、吐槽、补充细节、玩抽象、偶尔抖机灵。',
+    '不要礼貌套话，不要 AI 腔，不要每条都讲道理，不要重复同一个梗。',
+  ].join('\n');
+  const user = [
+    '板块：' + forum.theme.title,
+    '路人设定与语气：' + forum.theme.npcPrompt,
+    '帖子作者：' + post.authorName,
+    post.title ? '帖子标题：' + post.title : '',
+    '帖子正文：' + post.content.slice(0, 1200),
+    existing.length ? '已有评论：\n' + existing.map((c) => c.name + '：' + c.content).join('\n') : '',
+    '参考网名：' + names.join('、'),
+    '请生成 3-4 条新评论，只返回 JSON 数组。',
+  ].filter(Boolean).join('\n');
+  return { system, user };
+}
+
+function hideForumPanels() {
+  ['forum-settings', 'forum-compose', 'forum-detail', 'forum-share', 'forum-profile-editor'].forEach((id) => {
+    const el = $(id);
+    if (el) el.hidden = true;
+  });
+}
+
+async function refreshForumUI() {
+  const forum = await getForum();
+  renderForumBoard(forum.theme);
+  document.querySelectorAll('.forum-tab').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.forumTab === forumTab);
+  });
+  await renderForumFeed(forum, forumTab);
+}
+
+async function openForum() {
+  forumTab = 'home';
+  forumDetailId = null;
+  hideForumPanels();
+  showView(viewForum);
+  await refreshForumUI();
+}
+
+async function openForumDetail(postId) {
+  const forum = await getForum();
+  const post = forum.posts.find((p) => p.id === postId);
+  if (!post) { toast('帖子不存在或已被删除'); return; }
+  forumDetailId = postId;
+  await renderForumDetail(forum, post);
+  $('forum-detail').hidden = false;
+}
+
+async function openForumSettings() {
+  const forum = await getForum();
+  const entries = await getWorldbook();
+  const { list } = await getCharacters();
+  await renderForumSettings(forum, entries, list);
+  $('forum-settings-hint').textContent = '论坛 API 留空时，会沿用主界面的 AI 接口配置。';
+  $('forum-settings').hidden = false;
+}
+
+async function openForumCompose(postId) {
+  const forum = await getForum();
+  forumEditingPostId = postId || null;
+  const titleEl = $('forum-compose-title');
+  const contentEl = $('forum-compose-content');
+  if (postId) {
+    const post = forum.posts.find((p) => p.id === postId);
+    if (!post || post.authorType !== 'user') { toast('只能编辑自己的帖子'); return; }
+    titleEl.value = post.title;
+    contentEl.value = post.content;
+    $('forum-compose-heading').textContent = '编辑帖子';
+  } else {
+    titleEl.value = '';
+    contentEl.value = '';
+    $('forum-compose-heading').textContent = '发帖';
+  }
+  $('forum-compose').hidden = false;
+}
+
+async function submitForumCompose() {
+  const title = $('forum-compose-title').value.trim();
+  const content = $('forum-compose-content').value.trim();
+  if (!content) { toast('正文不能为空'); return; }
+  const forum = await getForum();
+  try {
+    if (forumEditingPostId) {
+      await updateForumPost(forumEditingPostId, { title, content });
+      const id = forumEditingPostId;
+      forumEditingPostId = null;
+      $('forum-compose').hidden = true;
+      toast('帖子已更新');
+      await refreshForumUI();
+      if (forumDetailId === id) await openForumDetail(id);
+    } else {
+      await addForumPosts([{
+        authorType: 'user',
+        authorId: null,
+        authorName: forum.profile.name,
+        title,
+        content,
+      }]);
+      forumEditingPostId = null;
+      $('forum-compose').hidden = true;
+      forumTab = 'home';
+      toast('已发帖');
+      await refreshForumUI();
+    }
+  } catch (err) {
+    toast('发布失败：' + (err && err.message ? err.message : err));
+  }
+}
+
+async function deleteForumPostFlow() {
+  if (!forumDetailId) return;
+  if (!confirm('确定删除这条帖子吗？删除后无法恢复。')) return;
+  try {
+    await deleteForumPost(forumDetailId);
+    forumDetailId = null;
+    $('forum-detail').hidden = true;
+    toast('帖子已删除');
+    await refreshForumUI();
+  } catch (err) {
+    toast('删除失败：' + (err && err.message ? err.message : err));
+  }
+}
+
+async function refreshForumPosts() {
+  if (forumGenerating) return;
+  const btn = $('btn-forum-refresh');
+  forumGenerating = true;
+  if (btn) btn.disabled = true;
+  try {
+    const forum = await getForum();
+    const api = forumApiConfig(forum);
+    if (!api.baseUrl || !api.model) {
+      toast('请先在论坛设置里填写独立 API，或配置主 AI 接口');
+      await openForumSettings();
+      return;
+    }
+    const { list } = await getCharacters();
+    const bound = new Set(forum.settings.characterIds);
+    const boundChars = list.filter((c) => bound.has(c.id));
+    const entries = await getWorldbook();
+    const names = pickForumNames(10);
+    const count = forum.settings.refreshCount || 3;
+    const prompt = buildForumPostPrompt(forum, entries, boundChars, names, count);
+    toast('正在生成论坛帖子…');
+    const result = await requestForumChat({
+      baseUrl: api.baseUrl,
+      apiKey: api.apiKey,
+      model: api.model,
+      system: prompt.system,
+      user: prompt.user,
+      maxTokens: 1600,
+    });
+    if (!result || !result.ok) {
+      toast('刷新失败：' + ((result && result.reason) || '接口无响应') + ((result && result.message) ? '（' + result.message + '）' : ''));
+      return;
+    }
+    const parsed = parseForumJson(result.reply);
+    const posts = normalizeGeneratedForumPosts(parsed, forum, boundChars, count);
+    if (!posts.length) {
+      toast('AI 没有返回有效帖子，换个模型再试');
+      return;
+    }
+    const added = await addForumPosts(posts);
+    for (const p of added) {
+      if (p.authorType === 'character' && p.authorId) {
+        addMemoryEntry({
+          category: 'event',
+          text: '在论坛「' + forum.theme.title + '」发了帖子《' + (p.title || '无题') + '》：' + p.content.slice(0, 70),
+        }, p.authorId).catch(() => {});
+      }
+    }
+    await refreshForumUI();
+    toast('已刷新 ' + added.length + ' 条帖子');
+  } catch (err) {
+    toast('刷新失败：' + (err && err.message ? err.message : err));
+  } finally {
+    forumGenerating = false;
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function generateForumComments() {
+  const postId = forumDetailId || ($('forum-detail-body').dataset.postId || '');
+  if (!postId) return;
+  const btn = $('btn-forum-gen-comments');
+  if (btn) { btn.disabled = true; btn.textContent = '生成中…'; }
+  try {
+    const forum = await getForum();
+    const post = forum.posts.find((p) => p.id === postId);
+    if (!post) { toast('帖子不存在'); return; }
+    const api = forumApiConfig(forum);
+    if (!api.baseUrl || !api.model) {
+      toast('请先在论坛设置里填写独立 API，或配置主 AI 接口');
+      return;
+    }
+    const names = pickForumNames(8);
+    const prompt = buildForumCommentPrompt(forum, post, post.comments, names);
+    const result = await requestForumChat({
+      baseUrl: api.baseUrl,
+      apiKey: api.apiKey,
+      model: api.model,
+      system: prompt.system,
+      user: prompt.user,
+      maxTokens: 700,
+    });
+    if (!result || !result.ok) {
+      toast('生成评论失败：' + ((result && result.reason) || '接口无响应'));
+      return;
+    }
+    const parsed = parseForumJson(result.reply);
+    const list = (Array.isArray(parsed) ? parsed : [])
+      .map((item) => {
+        if (typeof item === 'string') return { name: names[Math.floor(Math.random() * names.length)], content: item };
+        if (!item) return null;
+        const content = String(item.content || item.text || '').trim();
+        if (!content) return null;
+        return { name: String(item.name || '').trim() || names[Math.floor(Math.random() * names.length)], content };
+      })
+      .filter(Boolean)
+      .slice(0, 4);
+    if (!list.length) { toast('AI 没有返回有效评论，再试一次'); return; }
+    await addForumComments(postId, list);
+    await openForumDetail(postId);
+    toast('已生成 ' + list.length + ' 条评论');
+  } catch (err) {
+    toast('生成评论失败：' + (err && err.message ? err.message : err));
+  } finally {
+    const again = $('btn-forum-gen-comments');
+    if (again) { again.disabled = false; again.textContent = '生成评论'; }
+  }
+}
+
+async function openForumShare(postId) {
+  const forum = await getForum();
+  const post = forum.posts.find((p) => p.id === postId);
+  if (!post) { toast('帖子不存在'); return; }
+  forumSharePostId = postId;
+  const { list } = await getCharacters();
+  await renderForumShareList(list, forum);
+  $('forum-share').hidden = false;
+}
+
+async function shareForumPostToCharacter(characterId) {
+  if (!forumSharePostId) return;
+  const forum = await getForum();
+  const post = forum.posts.find((p) => p.id === forumSharePostId);
+  if (!post) { toast('帖子不存在'); return; }
+  const character = await getCharacter(characterId);
+  if (!character) { toast('角色不存在'); return; }
+  const title = post.title || '无题';
+  const excerpt = post.content.replace(/\s+/g, ' ').slice(0, 120);
+  try {
+    await mutateHistory((arr) => arr.push({
+      role: 'user',
+      kind: 'forum',
+      content: '分享了一个论坛帖子',
+      createdAt: Date.now(),
+      forum: {
+        postId: post.id,
+        title,
+        authorName: post.authorName,
+        excerpt,
+      },
+    }), characterId);
+    addMemoryEntry({
+      category: 'event',
+      text: '我分享了论坛帖子《' + title + '》（' + post.authorName + '）给你。',
+    }, characterId).catch(() => {});
+    $('forum-share').hidden = true;
+    toast('已发送到「' + character.name + '」的聊天室');
+    if ((await getActiveCharacterId()) === characterId) {
+      await renderChat();
+    }
+  } catch (err) {
+    toast('分享失败：' + (err && err.message ? err.message : err));
+  }
+}
+
+async function openForumProfileEditor() {
+  const forum = await getForum();
+  await renderForumProfileEditor(forum.profile);
+  $('forum-profile-editor').hidden = false;
+}
+
+async function saveForumProfile() {
+  const name = $('forum-profile-name').value.trim();
+  if (!name) { toast('昵称不能为空'); return; }
+  try {
+    await updateForumProfile({
+      name,
+      signature: $('forum-profile-signature').value.trim(),
+    });
+    $('forum-profile-editor').hidden = true;
+    toast('主页已保存');
+    await refreshForumUI();
+  } catch (err) {
+    toast('保存失败：' + (err && err.message ? err.message : err));
+  }
+}
+
+async function saveForumSettings() {
+  const count = Math.max(1, Math.min(10, parseInt($('input-forum-count').value, 10) || 3));
+  const worldbookIds = Array.from(document.querySelectorAll('.forum-wb-check:checked')).map((el) => el.dataset.id);
+  const characterIds = Array.from(document.querySelectorAll('.forum-char-check:checked')).map((el) => el.dataset.id);
+  try {
+    await updateForumSettings({
+      baseUrl: $('input-forum-base').value.trim(),
+      apiKey: $('input-forum-key').value.trim(),
+      model: $('input-forum-model').value.trim(),
+      refreshCount: count,
+      worldbookIds,
+      characterIds,
+    });
+    await updateForumTheme({
+      title: $('input-forum-board-title').value.trim() || '闲聊广场',
+      subtitle: $('input-forum-board-subtitle').value.trim(),
+      npcPrompt: $('input-forum-npc-prompt').value.trim(),
+    });
+    $('forum-settings').hidden = true;
+    toast('论坛设置已保存');
+    await refreshForumUI();
+  } catch (err) {
+    $('forum-settings-hint').textContent = '保存失败：' + (err && err.message ? err.message : err);
+  }
+}
+
+async function pickForumProfileImage(kind) {
+  forumProfileImageKind = kind;
+  if (kind === 'cover') $('file-forum-cover').click();
+  else $('file-forum-avatar').click();
+}
+
+async function handleForumProfileFile(kind, file) {
+  if (!file) return;
+  try {
+    const blob = await fileToImage(file, kind === 'cover' ? 1600 : 512);
+    await setForumProfileImage(kind, blob, blob.type, file.name);
+    const forum = await getForum();
+    await renderForumProfileEditor(forum.profile);
+    toast(kind === 'cover' ? '背景图已更新' : '头像已更新');
+  } catch (err) {
+    toast('图片保存失败：' + (err && err.message ? err.message : err));
+  }
+}
+
+
 $('tab-select').addEventListener('click', () => setModelMode('select'));
 $('tab-manual').addEventListener('click', () => setModelMode('manual'));
 
-// 主屏幕应用图标
-document.querySelectorAll('.app-icon').forEach((btn) => {
+// 论坛事件
+$('btn-forum-back').addEventListener('click', () => showView(viewHome));
+$('btn-forum-settings').addEventListener('click', () => openForumSettings());
+$('btn-forum-settings-close').addEventListener('click', () => { $('forum-settings').hidden = true; });
+$('btn-forum-settings-save').addEventListener('click', saveForumSettings);
+$('btn-forum-refresh').addEventListener('click', refreshForumPosts);
+$('btn-forum-compose').addEventListener('click', () => openForumCompose());
+$('btn-forum-compose-cancel').addEventListener('click', () => {
+  forumEditingPostId = null;
+  $('forum-compose').hidden = true;
+});
+$('btn-forum-compose-submit').addEventListener('click', submitForumCompose);
+$('btn-forum-detail-back').addEventListener('click', () => {
+  forumDetailId = null;
+  $('forum-detail').hidden = true;
+});
+$('btn-forum-share').addEventListener('click', () => {
+  if (forumDetailId) openForumShare(forumDetailId);
+});
+$('btn-forum-share-close').addEventListener('click', () => { $('forum-share').hidden = true; });
+$('btn-forum-profile-close').addEventListener('click', () => { $('forum-profile-editor').hidden = true; });
+$('btn-forum-profile-save').addEventListener('click', saveForumProfile);
+
+$('btn-forum-avatar-pick').addEventListener('click', () => pickForumProfileImage('avatar'));
+$('btn-forum-cover-pick').addEventListener('click', () => pickForumProfileImage('cover'));
+$('btn-forum-avatar-clear').addEventListener('click', async () => {
+  try {
+    await clearForumProfileImage('avatar');
+    const forum = await getForum();
+    await renderForumProfileEditor(forum.profile);
+    toast('头像已清除');
+  } catch (err) { toast('清除失败：' + (err && err.message ? err.message : err)); }
+});
+$('btn-forum-cover-clear').addEventListener('click', async () => {
+  try {
+    await clearForumProfileImage('cover');
+    const forum = await getForum();
+    await renderForumProfileEditor(forum.profile);
+    toast('背景图已清除');
+  } catch (err) { toast('清除失败：' + (err && err.message ? err.message : err)); }
+});
+$('file-forum-avatar').addEventListener('change', (e) => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  handleForumProfileFile('avatar', f);
+});
+$('file-forum-cover').addEventListener('change', (e) => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  handleForumProfileFile('cover', f);
+});
+
+document.querySelectorAll('.forum-tab').forEach((btn) => {
+  btn.addEventListener('click', async () => {
+    forumTab = btn.dataset.forumTab;
+    hideForumPanels();
+    await refreshForumUI();
+  });
+});
+
+$('forum-feed').addEventListener('click', (e) => {
+  if (e.target.closest('#btn-forum-edit-profile')) {
+    openForumProfileEditor();
+    return;
+  }
+  const card = e.target.closest('[data-post-id]');
+  if (card) openForumDetail(card.dataset.postId);
+});
+
+$('forum-detail-body').addEventListener('click', (e) => {
+  if (e.target.closest('#btn-forum-gen-comments')) { generateForumComments(); return; }
+  if (e.target.closest('#btn-forum-edit-post')) { openForumCompose(forumDetailId); return; }
+  if (e.target.closest('#btn-forum-delete-post')) { deleteForumPostFlow(); }
+});
+
+$('forum-share-list').addEventListener('click', (e) => {
+  const row = e.target.closest('[data-character-id]');
+  if (row) shareForumPostToCharacter(row.dataset.characterId);
+});
+
+// 主屏幕应用图标（含底部 Dock）
+document.querySelectorAll('.app-icon, .dock-icon').forEach((btn) => {
   btn.addEventListener('click', () => {
     const app = btn.dataset.app;
-    if (app === 'settings') {
+    if (app === 'forum') {
+      openForum();
+    } else if (app === 'settings') {
       loadSaved();
       loadTriggerSettings();
       refreshAppearance();

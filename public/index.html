@@ -57,6 +57,197 @@
             <span class="app-name">设置</span>
           </button>
         </div>
+
+        <!-- iOS 风格胶囊 Dock -->
+        <nav class="dock">
+          <button class="dock-icon" data-app="forum" type="button">
+            <span class="app-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2z"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="13" y2="12"/></svg></span>
+            <span class="app-name">论坛</span>
+          </button>
+          <button class="dock-icon" data-app="chat" type="button">
+            <span class="app-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span>
+            <span class="app-name">聊天</span>
+          </button>
+          <button class="dock-icon" data-app="characters" type="button">
+            <span class="app-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
+            <span class="app-name">角色</span>
+          </button>
+          <button class="dock-icon" data-app="settings" type="button">
+            <span class="app-glyph accent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span>
+            <span class="app-name">设置</span>
+          </button>
+        </nav>
+      </div>
+
+      <!-- 论坛应用 -->
+      <div class="app-view" id="view-forum">
+        <header class="forum-header">
+          <button class="back-btn" id="btn-forum-back" type="button">返回</button>
+          <span class="forum-header-title" id="forum-header-title">论坛</span>
+          <button class="forum-icon-btn" id="btn-forum-settings" type="button">设置</button>
+        </header>
+
+        <div class="forum-board" id="forum-board">
+          <div class="forum-board-label">正在逛</div>
+          <div class="forum-board-title" id="forum-board-title">闲聊广场</div>
+          <div class="forum-board-desc" id="forum-board-desc">今天的瓜，比昨天甜一点</div>
+        </div>
+
+        <div class="forum-scroll" id="forum-scroll">
+          <div class="forum-feed" id="forum-feed"></div>
+        </div>
+
+        <div class="forum-fab">
+          <button class="forum-fab-btn refresh" id="btn-forum-refresh" type="button">刷新</button>
+          <button class="forum-fab-btn compose" id="btn-forum-compose" type="button">＋</button>
+        </div>
+
+        <nav class="forum-tabs">
+          <button class="forum-tab active" data-forum-tab="home" type="button">首页</button>
+          <button class="forum-tab" data-forum-tab="following" type="button">关注</button>
+          <button class="forum-tab" data-forum-tab="me" type="button">我的</button>
+        </nav>
+
+        <!-- 论坛设置 -->
+        <section class="forum-panel" id="forum-settings" hidden>
+          <header class="forum-panel-head">
+            <button class="back-btn" id="btn-forum-settings-close" type="button">返回</button>
+            <span class="forum-panel-title">论坛设置</span>
+            <span class="app-header-spacer"></span>
+          </header>
+          <div class="forum-panel-body">
+            <p class="settings-note">论坛可以使用独立 API，并绑定世界书与角色，生成的路人帖子和角色帖子会带上板块设定。</p>
+
+            <div class="field">
+              <span class="field-label">论坛 API 地址</span>
+              <input id="input-forum-base" type="text" placeholder="https://api.deepseek.com/v1" autocomplete="off" />
+            </div>
+            <div class="field">
+              <span class="field-label">论坛 API Key</span>
+              <input id="input-forum-key" type="password" placeholder="留空则沿用主 AI 接口" autocomplete="off" />
+            </div>
+            <div class="field">
+              <span class="field-label">论坛模型名</span>
+              <input id="input-forum-model" type="text" placeholder="例如 deepseek-chat" autocomplete="off" />
+            </div>
+            <div class="field">
+              <span class="field-label">每次刷新生成帖数</span>
+              <input id="input-forum-count" type="number" min="1" max="10" step="1" />
+              <span class="field-hint">默认 3 条，包含路人与角色帖子。</span>
+            </div>
+
+            <div class="field">
+              <span class="field-label">绑定世界书</span>
+              <div class="forum-check-list" id="forum-worldbook-list"></div>
+              <span class="field-hint">勾选后，生成帖子时会读取这些世界书条目。</span>
+            </div>
+
+            <div class="field">
+              <span class="field-label">绑定角色</span>
+              <div class="forum-check-list" id="forum-character-list"></div>
+              <span class="field-hint">勾选的角色会以本人身份在论坛发帖，也会出现在分享列表。</span>
+            </div>
+
+            <div class="field">
+              <span class="field-label">板块主题</span>
+              <input id="input-forum-board-title" type="text" placeholder="例如 深夜树洞" />
+            </div>
+            <div class="field">
+              <span class="field-label">板块简介</span>
+              <input id="input-forum-board-subtitle" type="text" placeholder="一句话说明这个板块" />
+            </div>
+            <div class="field">
+              <span class="field-label">路人发言提示词</span>
+              <textarea id="input-forum-npc-prompt" rows="4" placeholder="描述路人的身份、语气和发帖风格"></textarea>
+              <span class="field-hint">刷新和生成评论时都会带上这段提示词。</span>
+            </div>
+
+            <button class="test-btn" id="btn-forum-settings-save" type="button">保存论坛设置</button>
+            <span class="field-hint" id="forum-settings-hint"></span>
+          </div>
+        </section>
+
+        <!-- 发帖 / 编辑帖子 -->
+        <section class="forum-panel" id="forum-compose" hidden>
+          <header class="forum-panel-head">
+            <button class="back-btn" id="btn-forum-compose-cancel" type="button">取消</button>
+            <span class="forum-panel-title" id="forum-compose-heading">发帖</span>
+            <span class="app-header-spacer"></span>
+          </header>
+          <div class="forum-panel-body">
+            <div class="field">
+              <span class="field-label">标题（可选）</span>
+              <input id="forum-compose-title" type="text" placeholder="起个吸引人的标题" />
+            </div>
+            <div class="field">
+              <span class="field-label">正文</span>
+              <textarea id="forum-compose-content" rows="9" placeholder="说点什么吧..."></textarea>
+            </div>
+            <button class="test-btn" id="btn-forum-compose-submit" type="button">发布</button>
+          </div>
+        </section>
+
+        <!-- 帖子详情 -->
+        <section class="forum-panel" id="forum-detail" hidden>
+          <header class="forum-panel-head">
+            <button class="back-btn" id="btn-forum-detail-back" type="button">返回</button>
+            <span class="forum-panel-title">帖子详情</span>
+            <button class="forum-icon-btn" id="btn-forum-share" type="button">分享</button>
+          </header>
+          <div class="forum-panel-body forum-detail-body" id="forum-detail-body"></div>
+        </section>
+
+        <!-- 分享给角色 -->
+        <section class="forum-panel" id="forum-share" hidden>
+          <header class="forum-panel-head">
+            <button class="back-btn" id="btn-forum-share-close" type="button">返回</button>
+            <span class="forum-panel-title">分享给角色</span>
+            <span class="app-header-spacer"></span>
+          </header>
+          <div class="forum-panel-body">
+            <p class="settings-note">选择角色后，帖子会以卡片形式发送到对应聊天室。</p>
+            <div class="forum-share-list" id="forum-share-list"></div>
+          </div>
+        </section>
+
+        <!-- 我的主页编辑 -->
+        <section class="forum-panel" id="forum-profile-editor" hidden>
+          <header class="forum-panel-head">
+            <button class="back-btn" id="btn-forum-profile-close" type="button">取消</button>
+            <span class="forum-panel-title">编辑我的主页</span>
+            <span class="app-header-spacer"></span>
+          </header>
+          <div class="forum-panel-body">
+            <div class="field">
+              <span class="field-label">头像</span>
+              <div class="forum-image-row">
+                <div class="forum-image-preview forum-avatar-preview" id="forum-profile-avatar-preview"></div>
+                <button class="fetch-btn" id="btn-forum-avatar-pick" type="button">上传头像</button>
+                <button class="fetch-btn" id="btn-forum-avatar-clear" type="button">清除</button>
+              </div>
+            </div>
+            <div class="field">
+              <span class="field-label">背景图</span>
+              <div class="forum-image-row">
+                <div class="forum-image-preview forum-cover-preview" id="forum-profile-cover-preview"></div>
+                <button class="fetch-btn" id="btn-forum-cover-pick" type="button">上传背景</button>
+                <button class="fetch-btn" id="btn-forum-cover-clear" type="button">清除</button>
+              </div>
+            </div>
+            <div class="field">
+              <span class="field-label">昵称</span>
+              <input id="forum-profile-name" type="text" placeholder="你的论坛昵称" />
+            </div>
+            <div class="field">
+              <span class="field-label">个性签名</span>
+              <textarea id="forum-profile-signature" rows="3" placeholder="介绍一下自己"></textarea>
+            </div>
+            <button class="test-btn" id="btn-forum-profile-save" type="button">保存主页</button>
+          </div>
+        </section>
+
+        <input type="file" id="file-forum-avatar" accept="image/*" hidden />
+        <input type="file" id="file-forum-cover" accept="image/*" hidden />
       </div>
 
       <!-- 设置应用 -->

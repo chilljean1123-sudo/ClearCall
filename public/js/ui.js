@@ -12,6 +12,7 @@ const viewWorldbook = $('view-worldbook');
 const viewCharacters = $('view-characters');
 const viewCallPicker = $('view-call-picker');
 const viewCall = $('view-call');
+const viewForum = $('view-forum');
 
 function showView(view) {
   document.querySelectorAll('.app-view').forEach((el) => el.classList.remove('active'));
@@ -264,6 +265,24 @@ function renderUserAttachment(m, ctx) {
       note.textContent = tr.note;
       bubble.appendChild(note);
     }
+  } else if (m.kind === 'forum') {
+    const f = m.forum || {};
+    bubble.className += ' forum-bubble';
+    const card = document.createElement('div');
+    card.className = 'chat-forum-card';
+    const label = document.createElement('div');
+    label.className = 'chat-forum-card-label';
+    label.textContent = '论坛帖子';
+    const title = document.createElement('div');
+    title.className = 'chat-forum-card-title';
+    title.textContent = f.title || (f.excerpt || '分享了一个帖子');
+    const excerpt = document.createElement('div');
+    excerpt.className = 'chat-forum-card-excerpt';
+    excerpt.textContent = (f.authorName ? f.authorName + '：' : '') + (f.excerpt || '');
+    card.appendChild(label);
+    card.appendChild(title);
+    card.appendChild(excerpt);
+    bubble.appendChild(card);
   } else {
     bubble.textContent = m.content;
   }
@@ -1051,7 +1070,7 @@ function applyAppearance(cfg, wallpaperUrl, iconUrls) {
   }
 
   const urls = iconUrls || {};
-  document.querySelectorAll('.app-icon').forEach((btn) => {
+  document.querySelectorAll('.app-icon, .dock-icon').forEach((btn) => {
     const glyph = btn.querySelector('.app-glyph');
     if (!glyph) return;
     const url = urls[btn.dataset.app];
@@ -1084,8 +1103,11 @@ function renderIconCustomList(iconUrls) {
   const list = $('icon-custom-list');
   if (!list) return;
   list.innerHTML = '';
-  document.querySelectorAll('.app-icon').forEach((btn) => {
+  const seen = new Set();
+  document.querySelectorAll('.app-icon, .dock-icon').forEach((btn) => {
     const app = btn.dataset.app;
+    if (!app || seen.has(app)) return;
+    seen.add(app);
     const nameEl = btn.querySelector('.app-name');
     const name = nameEl ? nameEl.textContent : app;
     const url = iconUrls[app];
@@ -1459,4 +1481,415 @@ function renderWorldbookForm(entry, characters, defaultBind) {
   btns.appendChild(saveBtn);
   btns.appendChild(cancelBtn);
   box.appendChild(btns);
+}
+
+// ===== 论坛 =====
+function formatForumTime(ts) {
+  const t = Number(ts) || 0;
+  if (!t) return '';
+  const diff = Date.now() - t;
+  if (diff < 60 * 1000) return '刚刚';
+  if (diff < 60 * 60 * 1000) return Math.floor(diff / 60000) + ' 分钟前';
+  if (diff < 24 * 60 * 60 * 1000) return Math.floor(diff / 3600000) + ' 小时前';
+  if (diff < 7 * 24 * 60 * 60 * 1000) return Math.floor(diff / 86400000) + ' 天前';
+  const d = new Date(t);
+  return (d.getMonth() + 1) + '月' + d.getDate() + '日';
+}
+
+function forumAvatarEl(name, url, type) {
+  const el = document.createElement('div');
+  el.className = 'forum-avatar' + (type === 'npc' || type === 'user' ? ' ' + type : '');
+  if (url) el.style.backgroundImage = 'url("' + String(url).replace(/"/g, '%22') + '")';
+  else el.textContent = String(name || '路').trim().slice(0, 1) || '路';
+  return el;
+}
+
+async function forumAvatarUrlForPost(post, forum, cache) {
+  if (!post) return '';
+  if (post.authorType === 'user') return getFileUrl(forum.profile.avatarId);
+  if (post.authorType === 'character' && post.authorId) {
+    if (!Object.prototype.hasOwnProperty.call(cache, post.authorId)) {
+      const c = await getCharacter(post.authorId);
+      cache[post.authorId] = c ? await getAvatarUrlById(c.avatarId) : '';
+    }
+    return cache[post.authorId] || '';
+  }
+  return '';
+}
+
+function buildForumPostCard(post, avatarUrl) {
+  const card = document.createElement('article');
+  card.className = 'forum-post';
+  card.dataset.postId = post.id;
+
+  const head = document.createElement('div');
+  head.className = 'forum-post-head';
+  head.appendChild(forumAvatarEl(post.authorName, avatarUrl, post.authorType));
+
+  const meta = document.createElement('div');
+  meta.className = 'forum-post-meta';
+  const author = document.createElement('div');
+  author.className = 'forum-post-author';
+  const name = document.createElement('span');
+  name.textContent = post.authorName;
+  author.appendChild(name);
+  const badge = document.createElement('span');
+  badge.className = 'forum-badge ' + post.authorType;
+  badge.textContent = post.authorType === 'character' ? '角色' : (post.authorType === 'user' ? '我' : '路人');
+  author.appendChild(badge);
+  meta.appendChild(author);
+  const time = document.createElement('div');
+  time.className = 'forum-post-time';
+  time.textContent = formatForumTime(post.createdAt);
+  meta.appendChild(time);
+  head.appendChild(meta);
+  card.appendChild(head);
+
+  if (post.title) {
+    const title = document.createElement('div');
+    title.className = 'forum-post-title';
+    title.textContent = post.title;
+    card.appendChild(title);
+  }
+  const content = document.createElement('div');
+  content.className = 'forum-post-content';
+  content.textContent = post.content;
+  card.appendChild(content);
+
+  const foot = document.createElement('div');
+  foot.className = 'forum-post-foot';
+  const c1 = document.createElement('span');
+  c1.className = 'forum-foot-item';
+  c1.textContent = '💬 ' + post.comments.length;
+  const c2 = document.createElement('span');
+  c2.className = 'forum-foot-item';
+  c2.textContent = '♡ ' + post.likes;
+  foot.appendChild(c1);
+  foot.appendChild(c2);
+  card.appendChild(foot);
+  return card;
+}
+
+async function renderForumFeed(forum, tab) {
+  const feed = $('forum-feed');
+  if (!feed) return;
+  feed.innerHTML = '';
+  if (tab === 'me') {
+    feed.appendChild(await buildForumProfileView(forum));
+    return;
+  }
+
+  let posts = forum.posts.slice();
+  if (tab === 'following') {
+    const bound = new Set(forum.settings.characterIds);
+    posts = posts.filter((p) => p.authorType === 'character' && bound.has(p.authorId));
+  }
+
+  if (!posts.length) {
+    const empty = document.createElement('div');
+    empty.className = 'forum-empty';
+    const strong = document.createElement('strong');
+    strong.textContent = tab === 'following' ? '还没有角色发帖' : '论坛还很安静';
+    const p = document.createElement('div');
+    p.textContent = tab === 'following'
+      ? '去设置里绑定角色，点刷新就会生成角色帖子。'
+      : '点右下角「刷新」生成路人帖子，或点「＋」自己发一帖。';
+    empty.appendChild(strong);
+    empty.appendChild(p);
+    feed.appendChild(empty);
+    return;
+  }
+
+  const cache = {};
+  for (const post of posts) {
+    const url = await forumAvatarUrlForPost(post, forum, cache);
+    feed.appendChild(buildForumPostCard(post, url));
+  }
+}
+
+async function buildForumProfileView(forum) {
+  const wrap = document.createElement('div');
+  const profile = forum.profile;
+
+  const card = document.createElement('div');
+  card.className = 'forum-profile';
+  const cover = document.createElement('div');
+  cover.className = 'forum-profile-cover';
+  const coverUrl = await getFileUrl(profile.coverId);
+  if (coverUrl) cover.style.backgroundImage = 'url("' + coverUrl.replace(/"/g, '%22') + '")';
+  card.appendChild(cover);
+
+  const body = document.createElement('div');
+  body.className = 'forum-profile-body';
+  const avatar = document.createElement('div');
+  avatar.className = 'forum-profile-avatar';
+  const avatarUrl = await getFileUrl(profile.avatarId);
+  if (avatarUrl) avatar.style.backgroundImage = 'url("' + avatarUrl.replace(/"/g, '%22') + '")';
+  else avatar.textContent = String(profile.name || '我').slice(0, 1);
+  body.appendChild(avatar);
+
+  const name = document.createElement('div');
+  name.className = 'forum-profile-name';
+  name.textContent = profile.name;
+  body.appendChild(name);
+  const sign = document.createElement('div');
+  sign.className = 'forum-profile-sign';
+  sign.textContent = profile.signature || '还没有个性签名';
+  body.appendChild(sign);
+
+  const actions = document.createElement('div');
+  actions.className = 'forum-profile-actions';
+  const edit = document.createElement('button');
+  edit.type = 'button';
+  edit.className = 'fetch-btn';
+  edit.id = 'btn-forum-edit-profile';
+  edit.textContent = '编辑主页';
+  actions.appendChild(edit);
+  body.appendChild(actions);
+
+  const myPosts = forum.posts.filter((p) => p.authorType === 'user');
+  const stats = document.createElement('div');
+  stats.className = 'forum-profile-stats';
+  stats.innerHTML = '<span><strong>' + myPosts.length + '</strong>帖子</span>' +
+    '<span><strong>' + forum.settings.characterIds.length + '</strong>关注</span>';
+  body.appendChild(stats);
+  card.appendChild(body);
+  wrap.appendChild(card);
+
+  const heading = document.createElement('div');
+  heading.className = 'forum-comments-title';
+  heading.style.margin = '16px 2px 8px';
+  heading.textContent = '我的帖子';
+  wrap.appendChild(heading);
+
+  if (!myPosts.length) {
+    const empty = document.createElement('div');
+    empty.className = 'forum-empty';
+    empty.textContent = '还没发过帖子，点右下角「＋」发第一帖。';
+    wrap.appendChild(empty);
+  } else {
+    for (const post of myPosts) {
+      wrap.appendChild(buildForumPostCard(post, avatarUrl));
+    }
+  }
+  return wrap;
+}
+
+async function renderForumDetail(forum, post) {
+  const box = $('forum-detail-body');
+  if (!box) return;
+  box.innerHTML = '';
+  box.dataset.postId = post.id;
+
+  const cache = {};
+  const avatarUrl = await forumAvatarUrlForPost(post, forum, cache);
+
+  const head = document.createElement('div');
+  head.className = 'forum-post-head';
+  head.appendChild(forumAvatarEl(post.authorName, avatarUrl, post.authorType));
+  const meta = document.createElement('div');
+  meta.className = 'forum-post-meta';
+  const author = document.createElement('div');
+  author.className = 'forum-post-author';
+  const name = document.createElement('span');
+  name.textContent = post.authorName;
+  author.appendChild(name);
+  const badge = document.createElement('span');
+  badge.className = 'forum-badge ' + post.authorType;
+  badge.textContent = post.authorType === 'character' ? '角色' : (post.authorType === 'user' ? '我' : '路人');
+  author.appendChild(badge);
+  meta.appendChild(author);
+  const time = document.createElement('div');
+  time.className = 'forum-post-time';
+  time.textContent = formatForumTime(post.createdAt);
+  meta.appendChild(time);
+  head.appendChild(meta);
+  box.appendChild(head);
+
+  if (post.title) {
+    const title = document.createElement('h2');
+    title.className = 'forum-detail-title';
+    title.textContent = post.title;
+    box.appendChild(title);
+  }
+  const content = document.createElement('div');
+  content.className = 'forum-detail-content';
+  content.textContent = post.content;
+  box.appendChild(content);
+
+  const actions = document.createElement('div');
+  actions.className = 'forum-detail-actions';
+  const gen = document.createElement('button');
+  gen.type = 'button';
+  gen.className = 'fetch-btn';
+  gen.id = 'btn-forum-gen-comments';
+  gen.textContent = '生成评论';
+  actions.appendChild(gen);
+  if (post.authorType === 'user') {
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.className = 'fetch-btn';
+    edit.id = 'btn-forum-edit-post';
+    edit.textContent = '编辑';
+    actions.appendChild(edit);
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'fetch-btn';
+    del.id = 'btn-forum-delete-post';
+    del.textContent = '删除';
+    actions.appendChild(del);
+  }
+  box.appendChild(actions);
+
+  const comments = document.createElement('div');
+  comments.className = 'forum-comments';
+  const title = document.createElement('div');
+  title.className = 'forum-comments-title';
+  title.textContent = '评论 ' + post.comments.length;
+  comments.appendChild(title);
+  if (!post.comments.length) {
+    const empty = document.createElement('div');
+    empty.className = 'forum-empty';
+    empty.style.padding = '18px 0';
+    empty.textContent = '还没有评论，点「生成评论」看看网友怎么说。';
+    comments.appendChild(empty);
+  } else {
+    post.comments.forEach((c) => {
+      const item = document.createElement('div');
+      item.className = 'forum-comment';
+      const n = document.createElement('span');
+      n.className = 'forum-comment-name';
+      n.textContent = c.name;
+      const text = document.createElement('span');
+      text.className = 'forum-comment-text';
+      text.textContent = c.content;
+      item.appendChild(n);
+      item.appendChild(text);
+      comments.appendChild(item);
+    });
+  }
+  box.appendChild(comments);
+}
+
+async function renderForumSettings(forum, worldbook, characters) {
+  $('input-forum-base').value = forum.settings.baseUrl || '';
+  $('input-forum-key').value = forum.settings.apiKey || '';
+  $('input-forum-model').value = forum.settings.model || '';
+  $('input-forum-count').value = forum.settings.refreshCount || 3;
+  $('input-forum-board-title').value = forum.theme.title || '';
+  $('input-forum-board-subtitle').value = forum.theme.subtitle || '';
+  $('input-forum-npc-prompt').value = forum.theme.npcPrompt || '';
+
+  const wbBox = $('forum-worldbook-list');
+  wbBox.innerHTML = '';
+  if (!worldbook.length) {
+    const empty = document.createElement('div');
+    empty.className = 'field-hint';
+    empty.textContent = '世界书里还没有条目，可以先去世界书应用添加。';
+    wbBox.appendChild(empty);
+  } else {
+    const bound = new Set(forum.settings.worldbookIds);
+    worldbook.forEach((entry) => {
+      const row = document.createElement('label');
+      row.className = 'forum-check-row';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = 'forum-wb-check';
+      cb.dataset.id = entry.id;
+      cb.checked = bound.has(entry.id);
+      const text = document.createElement('span');
+      text.textContent = String(entry.content || '').replace(/\s+/g, ' ').slice(0, 46) || '（空条目）';
+      const sub = document.createElement('span');
+      sub.className = 'forum-check-sub';
+      sub.textContent = entry.scope === 'global' ? '全局' : '角色';
+      row.appendChild(cb);
+      row.appendChild(text);
+      row.appendChild(sub);
+      wbBox.appendChild(row);
+    });
+  }
+
+  const charBox = $('forum-character-list');
+  charBox.innerHTML = '';
+  if (!characters.length) {
+    const empty = document.createElement('div');
+    empty.className = 'field-hint';
+    empty.textContent = '还没有角色，可以先去角色应用创建。';
+    charBox.appendChild(empty);
+  } else {
+    const bound = new Set(forum.settings.characterIds);
+    characters.forEach((c) => {
+      const row = document.createElement('label');
+      row.className = 'forum-check-row';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = 'forum-char-check';
+      cb.dataset.id = c.id;
+      cb.checked = bound.has(c.id);
+      const text = document.createElement('span');
+      text.textContent = c.name;
+      const sub = document.createElement('span');
+      sub.className = 'forum-check-sub';
+      sub.textContent = String(c.persona || '').replace(/\s+/g, ' ').slice(0, 20);
+      row.appendChild(cb);
+      row.appendChild(text);
+      row.appendChild(sub);
+      charBox.appendChild(row);
+    });
+  }
+}
+
+async function renderForumShareList(characters, forum) {
+  const box = $('forum-share-list');
+  if (!box) return;
+  box.innerHTML = '';
+  if (!characters.length) {
+    const empty = document.createElement('div');
+    empty.className = 'forum-empty';
+    empty.textContent = '还没有角色，先去角色应用创建一个吧。';
+    box.appendChild(empty);
+    return;
+  }
+  const bound = new Set(forum.settings.characterIds);
+  const sorted = characters.slice().sort((a, b) => {
+    const av = bound.has(a.id) ? 0 : 1;
+    const bv = bound.has(b.id) ? 0 : 1;
+    return av - bv;
+  });
+  for (const c of sorted) {
+    const url = await getAvatarUrlById(c.avatarId);
+    const row = document.createElement('div');
+    row.className = 'forum-share-row';
+    row.dataset.characterId = c.id;
+    row.appendChild(forumAvatarEl(c.name, url, 'character'));
+    const info = document.createElement('div');
+    info.className = 'forum-share-name';
+    info.textContent = c.name;
+    if (bound.has(c.id)) {
+      const sub = document.createElement('div');
+      sub.className = 'forum-share-sub';
+      sub.textContent = '已绑定论坛';
+      info.appendChild(sub);
+    }
+    row.appendChild(info);
+    box.appendChild(row);
+  }
+}
+
+async function renderForumProfileEditor(profile) {
+  $('forum-profile-name').value = profile.name || '';
+  $('forum-profile-signature').value = profile.signature || '';
+  const avatarUrl = await getFileUrl(profile.avatarId);
+  const coverUrl = await getFileUrl(profile.coverId);
+  const av = $('forum-profile-avatar-preview');
+  const cv = $('forum-profile-cover-preview');
+  av.style.backgroundImage = avatarUrl ? 'url("' + avatarUrl.replace(/"/g, '%22') + '")' : '';
+  av.textContent = avatarUrl ? '' : String(profile.name || '我').slice(0, 1);
+  cv.style.backgroundImage = coverUrl ? 'url("' + coverUrl.replace(/"/g, '%22') + '")' : '';
+}
+
+function renderForumBoard(theme) {
+  $('forum-board-title').textContent = theme.title;
+  $('forum-board-desc').textContent = theme.subtitle || '这个板块还没有简介';
+  $('forum-header-title').textContent = theme.title;
 }
