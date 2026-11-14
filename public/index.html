@@ -44,6 +44,10 @@
             <span class="app-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span>
             <span class="app-name">聊天</span>
           </button>
+          <button class="app-icon" data-app="characters">
+            <span class="app-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
+            <span class="app-name">角色</span>
+          </button>
           <button class="app-icon" data-app="memory">
             <span class="app-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></span>
             <span class="app-name">记忆</span>
@@ -131,13 +135,36 @@
           <div class="divider"></div>
 
           <div class="field">
+            <span class="field-label">回复触发模式</span>
+            <label class="check-row">
+              <input type="checkbox" id="chk-instant" />
+              <span>发送即回复（点「发送」立刻上屏并请求 AI）</span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" id="chk-batch" />
+              <span>攒消息手动触发（消息上屏缓存，点「生成回复」一起发）</span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" id="chk-countdown" />
+              <span>空闲倒计时自动回复（无草稿且失焦后倒计时自动发）</span>
+            </label>
+            <div class="countdown-row">
+              <span class="countdown-label">倒计时秒数</span>
+              <input type="number" id="input-countdown-sec" min="1" max="60" value="3" />
+            </div>
+            <span class="field-hint">可多选；同时开启时优先级：即时 &gt; 倒计时 &gt; 批量。全关则等同「即时」。</span>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="field">
             <span class="field-label">备份与恢复</span>
             <div class="backup-row">
               <button type="button" class="fetch-btn" id="btn-export">导出备份</button>
               <button type="button" class="fetch-btn" id="btn-import">导入备份</button>
               <input type="file" id="file-import" accept="application/json,.json" hidden />
             </div>
-            <span class="field-hint">备份包含 AI 设置、记忆服务设置、角色（含头像图片）、聊天记录、记忆和世界书；导入会覆盖当前数据。备份文件内含 API Key，请妥善保管。</span>
+            <span class="field-hint">备份包含 AI 设置、触发模式、所有角色（含头像）、各自的聊天记录与记忆、世界书；导入会覆盖当前数据。备份文件内含 API Key，请妥善保管。</span>
           </div>
         </div>
       </div>
@@ -147,7 +174,7 @@
         <header class="app-header">
           <button class="back-btn" id="btn-chat-back" type="button">返回</button>
           <span class="app-title" id="chat-title">角色聊天</span>
-          <button class="chat-config-btn" id="btn-chat-config" type="button">角色</button>
+          <button class="chat-config-btn" id="btn-chat-config" type="button">切换</button>
         </header>
 
         <div class="chat-messages" id="chat-messages"></div>
@@ -157,6 +184,23 @@
         <div class="chat-inputbar">
           <input id="input-chat" type="text" placeholder="输入消息…" autocomplete="off" />
           <button type="button" class="chat-send-btn" id="btn-chat-send">发送</button>
+        </div>
+      </div>
+
+      <!-- 角色应用 -->
+      <div class="app-view" id="view-characters">
+        <header class="app-header">
+          <button class="back-btn" id="btn-characters-back" type="button">返回</button>
+          <span class="app-title">角色</span>
+          <span class="app-header-spacer"></span>
+        </header>
+
+        <div class="characters-body">
+          <button type="button" class="fetch-btn" id="btn-character-add">新建角色</button>
+          <p class="wb-hint">每个角色有独立的人设、头像、聊天记录、记忆和世界书绑定；点角色卡片可切换当前角色。</p>
+          <div class="wb-form" id="character-form" hidden></div>
+          <div class="char-list" id="character-list"></div>
+          <input type="file" id="file-char-avatar" accept="image/*" hidden />
         </div>
       </div>
 
@@ -191,61 +235,9 @@
             <button type="button" class="fetch-btn" id="btn-wb-import">导入</button>
             <input type="file" id="file-wb-import" accept="application/json,.json" hidden />
           </div>
-          <p class="wb-hint">关键词命中才注入；关键词留空表示无条件触发。概率开关打开后，命中还要通过随机判定才注入。导出 / 导入作用于当前选中的列表。</p>
+          <p class="wb-hint">关键词命中才注入；关键词留空表示无条件触发。概率开关打开后，命中还要通过随机判定才注入。在「全局」添加的条目对所有角色生效，在角色标签下添加的条目只绑定该角色；导出 / 导入作用于当前选中的列表。</p>
           <div class="wb-form" id="wb-form" hidden></div>
           <div class="wb-list" id="wb-list"></div>
-        </div>
-      </div>
-
-      <!-- 角色设置 -->
-      <div class="app-view" id="view-char-settings">
-        <header class="app-header">
-          <button class="back-btn" id="btn-char-settings-back" type="button">返回</button>
-          <span class="app-title">角色设置</span>
-          <span class="app-header-spacer"></span>
-        </header>
-
-        <div class="settings-body">
-          <div class="field">
-            <span class="field-label">角色名字</span>
-            <input id="input-char-name" type="text" placeholder="例如：小助手" autocomplete="off" />
-          </div>
-          <div class="field">
-            <span class="field-label">头像</span>
-            <span class="avatar-row">
-              <span class="avatar-preview" id="avatar-preview"></span>
-              <button type="button" class="fetch-btn" id="btn-upload-avatar">上传头像</button>
-              <input type="file" id="file-avatar" accept="image/*" hidden />
-              <button type="button" class="fetch-btn" id="btn-clear-avatar">清除</button>
-            </span>
-          </div>
-          <div class="field">
-            <span class="field-label">人设</span>
-            <textarea id="input-char-persona" rows="5" placeholder="例如：你是一个温柔耐心的助手，用中文回复…"></textarea>
-          </div>
-
-          <div class="divider"></div>
-
-          <div class="field">
-            <span class="field-label">回复触发模式</span>
-            <label class="check-row">
-              <input type="checkbox" id="chk-instant" />
-              <span>发送即回复（点「发送」立刻上屏并请求 AI）</span>
-            </label>
-            <label class="check-row">
-              <input type="checkbox" id="chk-batch" />
-              <span>攒消息手动触发（消息上屏缓存，点「生成回复」一起发）</span>
-            </label>
-            <label class="check-row">
-              <input type="checkbox" id="chk-countdown" />
-              <span>空闲倒计时自动回复（无草稿且失焦后倒计时自动发）</span>
-            </label>
-            <div class="countdown-row">
-              <span class="countdown-label">倒计时秒数</span>
-              <input type="number" id="input-countdown-sec" min="1" max="60" value="3" />
-            </div>
-            <span class="field-hint">可多选；同时开启时优先级：即时 &gt; 倒计时 &gt; 批量。全关则等同「即时」。</span>
-          </div>
         </div>
       </div>
     </div>

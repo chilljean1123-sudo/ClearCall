@@ -8,6 +8,10 @@ let countdownSecRemain = 0;
 let editingMemoryId = null;
 let wbScope = 'global';
 let editingWorldbookId = null;
+let editingCharacterId = null;
+let charactersReturnTo = 'home';
+let pendingAvatar = null;      // 新建角色时先暂存头像，保存角色后再落库
+let pendingAvatarUrl = '';
 
 // 最近聊天直接带上；更早的内容交给记忆总结
 const RECENT_HISTORY_LIMIT = 20;
@@ -44,22 +48,116 @@ function save() {
   });
 }
 
-// ---- 角色：读取 / 保存 ----
-async function loadCharConfig() {
-  const c = await getChar();
-  $('input-char-name').value = c.name;
-  $('input-char-persona').value = c.persona;
-  await updateAvatarPreview();
-  await updateChatTitle();
+// ---- 角色应用：新建 / 编辑 / 删除 / 切换 ----
+async function openCharacters(returnTo) {
+  charactersReturnTo = returnTo || 'home';
+  cancelCharacterForm();
+  await renderCharactersUI();
+  showView(viewCharacters);
 }
 
-async function saveCharConfig() {
-  await setChar({
-    name: $('input-char-name').value.trim(),
-    persona: $('input-char-persona').value.trim(),
-  });
-  await updateAvatarPreview();
-  await updateChatTitle();
+function openCharacterAdd() {
+  editingCharacterId = null;
+  resetPendingAvatar();
+  renderCharacterForm(null, '');
+}
+
+async function openCharacterEdit(id) {
+  const c = await getCharacter(id);
+  if (!c) return;
+  editingCharacterId = id;
+  resetPendingAvatar();
+  renderCharacterForm(c, await getAvatarUrlById(c.avatarId));
+  const box = $('character-form');
+  if (box && box.scrollIntoView) box.scrollIntoView({ block: 'nearest' });
+}
+
+function resetPendingAvatar() {
+  if (pendingAvatarUrl) { URL.revokeObjectURL(pendingAvatarUrl); pendingAvatarUrl = ''; }
+  pendingAvatar = null;
+}
+
+function cancelCharacterForm() {
+  editingCharacterId = null;
+  resetPendingAvatar();
+  const box = $('character-form');
+  box.hidden = true;
+  box.innerHTML = '';
+}
+
+async function saveCharacterForm() {
+  const name = $('char-name-input').value.trim();
+  const persona = $('char-persona-input').value;
+  if (!name) { toast('角色名字不能为空'); return; }
+  try {
+    let id = editingCharacterId;
+    if (id) {
+      await updateCharacterRecord(id, { name, persona });
+    } else {
+      const rec = await addCharacter({ name, persona });
+      id = rec.id;
+    }
+    if (pendingAvatar) {
+      await setCharacterAvatarBlob(id, pendingAvatar.blob, pendingAvatar.type, pendingAvatar.name);
+    }
+    resetPendingAvatar();
+    editingCharacterId = null;
+    const box = $('character-form');
+    box.hidden = true;
+    box.innerHTML = '';
+    await renderCharactersUI();
+    await updateChatTitle();
+    toast('角色已保存');
+  } catch (err) {
+    toast('保存失败：' + (err && err.message ? err.message : err));
+  }
+}
+
+async function clearCharacterAvatarForm() {
+  try {
+    if (editingCharacterId) await clearCharacterAvatar(editingCharacterId);
+  } catch (err) {
+    toast('清除头像失败：' + (err && err.message ? err.message : err));
+    return;
+  }
+  resetPendingAvatar();
+  const preview = $('char-avatar-preview');
+  const nameInput = $('char-name-input');
+  if (preview) preview.innerHTML = charAvatarHTML('', nameInput ? nameInput.value : '');
+  await renderCharactersUI();
+}
+
+async function switchActiveCharacter(id) {
+  try {
+    await setActiveCharacter(id);
+    await updateChatTitle();
+    if (charactersReturnTo === 'chat') {
+      await openChat();
+      toast('已切换角色');
+      return;
+    }
+    await renderCharactersUI();
+    toast('已切换角色');
+  } catch (err) {
+    toast('切换失败：' + (err && err.message ? err.message : err));
+  }
+}
+
+async function deleteCharacterConfirm(id) {
+  const c = await getCharacter(id);
+  if (!c) return;
+  const ok = window.confirm('删除角色「' + (c.name || '未命名角色') + '」会同时删除它的聊天记录、记忆和绑定的世界书条目，确定删除？');
+  if (!ok) return;
+  try {
+    await deleteCharacter(id);
+    if (editingCharacterId === id) cancelCharacterForm();
+    if (wbScope === 'char:' + id) wbScope = 'global';
+    await renderCharactersUI();
+    await updateChatTitle();
+    toast('角色已删除');
+  } catch (err) {
+    toast('删除失败：' + (err && err.message ? err.message : err));
+  }
 }
 
 function loadTriggerSettings() {
@@ -80,15 +178,17 @@ function saveTriggerSettings() {
 }
 
 async function openChat() {
-  await loadCharConfig();
+  const { activeId } = await getCharacters();
+  if (!activeId) {
+    toast('先创建一个角色，再开始聊天');
+    await openCharacters('chat');
+    openCharacterAdd();
+    return;
+  }
+  await updateChatTitle();
   await renderChat();
+  await updateGenerateButton();
   showView(viewChat);
-}
-
-async function openCharSettings() {
-  await loadCharConfig();
-  loadTriggerSettings();
-  showView(viewCharSettings);
 }
 
 // ---- 聊天编排 ----
@@ -116,16 +216,17 @@ function ensureConfigured() {
   return true;
 }
 
-async function currentChatPayload(message, priorHistory) {
-  const c = await getChar();
-  const { entries } = await getMemory();
+async function currentChatPayload(message, priorHistory, characterId) {
+  const id = characterId || await getActiveCharacterId();
+  const c = id ? await getCharacter(id) : null;
+  const { entries } = await getMemory(id);
   const worldbook = await getWorldbook();
-  const world = buildWorldInfo(worldbook, worldbookScanText(priorHistory, message));
+  const world = buildWorldInfo(worldbook, worldbookScanText(priorHistory, message), id);
   return {
     baseUrl: $('input-baseurl').value.trim(),
     apiKey: $('input-apikey').value.trim(),
     model: getCurrentModel(),
-    persona: c.persona,
+    persona: (c && c.persona) || '',
     memory: formatMemory(entries),
     history: Array.isArray(priorHistory) ? priorHistory.slice(-RECENT_HISTORY_LIMIT) : priorHistory,
     message,
@@ -210,7 +311,10 @@ async function submitMessage(text) {
 // 触发：把待回复的用户消息合并成一条请求 AI（请求锁防重复调用）
 async function flushQueue() {
   if (chatSending) return;
-  const history = await getHistory();
+  // 锁定本次请求所属角色：期间切换角色也不会把回复写错人
+  const characterId = await getActiveCharacterId();
+  if (!characterId) return;
+  const history = await getHistory(characterId);
   let i = history.length - 1;
   while (i >= 0 && history[i].role === 'user') i--;
   const pending = history.slice(i + 1);
@@ -222,7 +326,7 @@ async function flushQueue() {
   const combined = pending.map((m) => m.content).join('\n');
   const priorHistory = history.slice(0, history.length - pending.length);
   const baseIndex = history.length; // 回复要插在 pending 之后
-  const payload = await currentChatPayload(combined, priorHistory);
+  const payload = await currentChatPayload(combined, priorHistory, characterId);
 
   setChatSending(true);
   await appendTyping();
@@ -238,15 +342,21 @@ async function flushQueue() {
   const replyMsg = (result && result.ok)
     ? { role: 'assistant', content: result.reply }
     : { role: 'assistant', content: '', error: true };
-  await mutateHistory((arr) => arr.splice(baseIndex, 0, replyMsg)); // 插到这批消息之后、期间新消息之前
-  await renderChat();
+  // 角色可能在等待回复期间被删除：这时丢弃回复，避免重建数据
+  const stillExists = !!(await getCharacter(characterId));
+  if (stillExists) {
+    await mutateHistory((arr) => arr.splice(baseIndex, 0, replyMsg), characterId); // 插到这批消息之后、期间新消息之前
+    if ((await getActiveCharacterId()) === characterId) await renderChat();
+  }
   setChatSending(false);
   await afterFlush();
 }
 
 async function retryReply(index) {
   if (chatSending) return;
-  const history = await getHistory();
+  const characterId = await getActiveCharacterId();
+  if (!characterId) return;
+  const history = await getHistory(characterId);
   if (index <= 0 || !history[index] || history[index].role !== 'assistant' || !history[index].error) return;
 
   // 找到这次失败回复对应的连续用户消息（紧邻 index 之前的 user 串）
@@ -256,7 +366,7 @@ async function retryReply(index) {
   if (start >= index) return;
 
   const combined = history.slice(start, index).map((m) => m.content).join('\n');
-  const payload = await currentChatPayload(combined, history.slice(0, start));
+  const payload = await currentChatPayload(combined, history.slice(0, start), characterId);
 
   setChatSending(true);
   await appendTyping();
@@ -272,15 +382,23 @@ async function retryReply(index) {
   const replyMsg = (result && result.ok)
     ? { role: 'assistant', content: result.reply }
     : { role: 'assistant', content: '', error: true };
-  await mutateHistory((arr) => {
-    if (arr[index] && arr[index].role === 'assistant') arr[index] = replyMsg;
-  });
-  await renderChat();
+  if (await getCharacter(characterId)) {
+    await mutateHistory((arr) => {
+      if (arr[index] && arr[index].role === 'assistant') arr[index] = replyMsg;
+    }, characterId);
+    if ((await getActiveCharacterId()) === characterId) await renderChat();
+  }
   setChatSending(false);
 }
 
 // ---- 记忆应用编排 ----
 async function openMemory() {
+  const { activeId } = await getCharacters();
+  if (!activeId) {
+    toast('先在「角色」里创建一个角色');
+    await openCharacters('home');
+    return;
+  }
   await renderMemory();
   cancelMemoryForm();
   showView(viewMemory);
@@ -350,8 +468,10 @@ async function summarizeChatToMemory() {
     toast('请先在「设置」填好记忆服务地址、Key 和模型');
     return;
   }
-  const history = await getHistory();
-  const { entries, lastSummarizedCount } = await getMemory();
+  const characterId = await getActiveCharacterId();
+  if (!characterId) { toast('请先创建角色'); return; }
+  const history = await getHistory(characterId);
+  const { entries, lastSummarizedCount } = await getMemory(characterId);
   const content = historyToText(history.slice(lastSummarizedCount));
   if (!content.trim()) { toast('没有需要整理的新内容'); return; }
 
@@ -363,8 +483,8 @@ async function summarizeChatToMemory() {
     });
     if (!data.ok) { toast('整理失败：' + (data.reason || '未知错误')); return; }
     const newEntries = data.entries || [];
-    await mergeMemoryEntries(newEntries);
-    await setLastSummarizedCount(history.length);
+    await mergeMemoryEntries(newEntries, characterId);
+    await setLastSummarizedCount(history.length, characterId);
     await renderMemory();
     toast('已整理 ' + newEntries.length + ' 条记忆');
   } catch (err) {
@@ -374,8 +494,10 @@ async function summarizeChatToMemory() {
 
 // 自动整理：聊天较长后，把超出最近窗口的旧内容悄悄总结（失败不打扰）
 async function autoSummarizeIfNeeded() {
-  const history = await getHistory();
-  const { entries, lastSummarizedCount } = await getMemory();
+  const characterId = await getActiveCharacterId();
+  if (!characterId) return;
+  const history = await getHistory(characterId);
+  const { entries, lastSummarizedCount } = await getMemory(characterId);
   const targetEnd = history.length - RECENT_HISTORY_LIMIT;
   if (targetEnd <= lastSummarizedCount) return;
   if (targetEnd - lastSummarizedCount < AUTO_SUMMARIZE_MIN_NEW) return;
@@ -389,8 +511,8 @@ async function autoSummarizeIfNeeded() {
       content, existing: formatMemory(entries),
     });
     if (data.ok) {
-      await mergeMemoryEntries(data.entries || []);
-      await setLastSummarizedCount(targetEnd);
+      await mergeMemoryEntries(data.entries || [], characterId);
+      await setLastSummarizedCount(targetEnd, characterId);
     }
   } catch (_) { /* 自动整理失败静默 */ }
 }
@@ -418,9 +540,10 @@ function worldbookProbabilityPass(entry) {
 }
 
 // 返回 { before, after, depth: [{ content, depth }] }，已按权重从高到低排列
-function buildWorldInfo(entries, text) {
+// 全局条目所有角色都参与匹配；角色条目只匹配绑定的当前角色。
+function buildWorldInfo(entries, text, characterId) {
   const matched = (Array.isArray(entries) ? entries : [])
-    .filter((e) => e && (e.scope === 'global' || e.scope === 'character'))
+    .filter((e) => e && (e.scope === 'global' || (e.scope === 'character' && characterId && e.characterId === characterId)))
     .filter((e) => String(e.content || '').trim())
     .filter((e) => worldbookKeywordHit(e, text))
     .filter((e) => worldbookProbabilityPass(e))
@@ -439,6 +562,16 @@ function buildWorldInfo(entries, text) {
 }
 
 // ---- 世界书应用编排 ----
+function worldbookScopeCharacterId(scope) {
+  return String(scope || '').startsWith('char:') ? scope.slice(5) : null;
+}
+
+function worldbookEntryInScope(e, scope) {
+  if (scope === 'global') return e.scope === 'global';
+  const cid = worldbookScopeCharacterId(scope);
+  return !!(cid && e.scope === 'character' && e.characterId === cid);
+}
+
 async function openWorldbook() {
   cancelWorldbookForm();
   await renderWorldbookUI();
@@ -446,21 +579,22 @@ async function openWorldbook() {
 }
 
 async function renderWorldbookUI() {
-  const c = await getChar();
-  const entries = await getWorldbook();
-  renderWorldbookTabs([
-    { key: 'global', label: '全局' },
-    { key: 'character', label: c.name || '当前角色' },
-  ], wbScope);
+  const { list: characters } = await getCharacters();
+  const scopes = [{ key: 'global', label: '全局' }].concat(
+    characters.map((c) => ({ key: 'char:' + c.id, label: c.name || '未命名角色' }))
+  );
+  if (wbScope !== 'global' && !scopes.some((s) => s.key === wbScope)) wbScope = 'global';
+  renderWorldbookTabs(scopes, wbScope);
 
+  const entries = await getWorldbook();
   const list = entries
-    .filter((e) => e.scope === wbScope)
+    .filter((e) => worldbookEntryInScope(e, wbScope))
     .sort((a, b) => (Number(b.weight) || 0) - (Number(a.weight) || 0) || (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0));
   renderWorldbookList(list);
 }
 
 function switchWorldbookScope(scope) {
-  if (scope !== 'global' && scope !== 'character') return;
+  if (scope !== 'global' && !worldbookScopeCharacterId(scope)) return;
   if (scope === wbScope) return;
   wbScope = scope;
   cancelWorldbookForm();
@@ -499,8 +633,10 @@ function readWorldbookForm() {
   if (!Number.isFinite(probability)) probability = 100;
   probability = Math.max(0, Math.min(100, probability));
 
+  const characterId = worldbookScopeCharacterId(wbScope);
   return {
-    scope: wbScope,
+    scope: characterId ? 'character' : 'global',
+    characterId,
     content,
     keywords: parseWorldbookKeywords($('wb-keywords').value),
     position: WORLDBOOK_POSITION_LABELS[position] ? position : 'before',
@@ -537,10 +673,13 @@ async function deleteWorldbookConfirm(id) {
 
 async function exportWorldbook() {
   try {
-    const entries = (await getWorldbook()).filter((e) => e.scope === wbScope);
+    const entries = (await getWorldbook()).filter((e) => worldbookEntryInScope(e, wbScope));
     if (!entries.length) { toast('当前列表没有条目'); return; }
-    const c = await getChar();
-    const label = wbScope === 'global' ? '全局' : (c.name || '角色');
+    let label = '全局';
+    if (wbScope !== 'global') {
+      const c = await getCharacter(worldbookScopeCharacterId(wbScope));
+      label = (c && c.name) || '角色';
+    }
     const data = {
       app: 'clearcall-worldbook',
       version: 1,
@@ -571,7 +710,12 @@ async function importWorldbookFile(e) {
     const data = JSON.parse(await f.text());
     const raw = Array.isArray(data) ? data : (data && Array.isArray(data.entries) ? data.entries : null);
     if (!raw) throw new Error('文件里没有世界书条目');
-    const items = raw.map((x) => Object.assign({}, x, { id: undefined, scope: wbScope }));
+    const characterId = worldbookScopeCharacterId(wbScope);
+    const items = raw.map((x) => Object.assign({}, x, {
+      id: undefined,
+      scope: characterId ? 'character' : 'global',
+      characterId,
+    }));
     const added = await addWorldbookEntries(items);
     if (!added.length) throw new Error('没有有效条目（内容不能为空）');
     await renderWorldbookUI();
@@ -591,10 +735,13 @@ document.querySelectorAll('.app-icon').forEach((btn) => {
     const app = btn.dataset.app;
     if (app === 'settings') {
       loadSaved();
+      loadTriggerSettings();
       $('result').hidden = true;
       showView(viewSettings);
     } else if (app === 'chat') {
       openChat();
+    } else if (app === 'characters') {
+      openCharacters('home');
     } else if (app === 'memory') {
       openMemory();
     } else if (app === 'worldbook') {
@@ -702,10 +849,28 @@ $('btn-test').addEventListener('click', async () => {
 
 // 角色聊天导航
 $('btn-chat-back').addEventListener('click', () => showView(viewHome));
-$('btn-chat-config').addEventListener('click', openCharSettings);
-$('btn-char-settings-back').addEventListener('click', () => showView(viewChat));
-$('input-char-name').addEventListener('input', saveCharConfig);
-$('input-char-persona').addEventListener('input', saveCharConfig);
+$('btn-chat-config').addEventListener('click', () => openCharacters('chat'));
+
+// 角色应用
+$('btn-characters-back').addEventListener('click', () => showView(viewHome));
+$('btn-character-add').addEventListener('click', openCharacterAdd);
+$('file-char-avatar').addEventListener('change', async (e) => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  try {
+    const blob = await fileToAvatar(f);
+    pendingAvatar = { blob, type: 'image/jpeg', name: f.name };
+    if (pendingAvatarUrl) URL.revokeObjectURL(pendingAvatarUrl);
+    pendingAvatarUrl = URL.createObjectURL(blob);
+    const preview = $('char-avatar-preview');
+    const nameInput = $('char-name-input');
+    if (preview) preview.innerHTML = charAvatarHTML(pendingAvatarUrl, nameInput ? nameInput.value : '');
+    toast('头像已选择，保存角色后生效');
+  } catch (err) {
+    toast(err && err.message ? err.message : '头像读取失败');
+  }
+});
 
 // 记忆应用
 $('btn-memory-back').addEventListener('click', () => showView(viewHome));
@@ -724,30 +889,6 @@ $('btn-wb-add').addEventListener('click', openWorldbookAdd);
 $('btn-wb-export').addEventListener('click', exportWorldbook);
 $('btn-wb-import').addEventListener('click', () => $('file-wb-import').click());
 $('file-wb-import').addEventListener('change', importWorldbookFile);
-
-// 头像
-$('btn-upload-avatar').addEventListener('click', () => $('file-avatar').click());
-$('file-avatar').addEventListener('change', async (e) => {
-  const f = e.target.files && e.target.files[0];
-  e.target.value = '';
-  if (!f) return;
-  try {
-    const blob = await fileToAvatar(f);
-    await setCharAvatarBlob(blob, 'image/jpeg', f.name);
-    await updateAvatarPreview();
-    toast('头像已保存');
-  } catch (err) {
-    toast(err && err.message ? err.message : '头像保存失败');
-  }
-});
-$('btn-clear-avatar').addEventListener('click', async () => {
-  try {
-    await clearCharAvatar();
-    await updateAvatarPreview();
-  } catch (err) {
-    toast(err && err.message ? err.message : '清除头像失败');
-  }
-});
 
 // 备份：导出 / 导入
 $('btn-export').addEventListener('click', async () => {
@@ -779,7 +920,9 @@ $('file-import').addEventListener('change', async (e) => {
     const data = JSON.parse(text);
     await applyBackup(data);
     loadSaved();
-    await loadCharConfig();
+    loadTriggerSettings();
+    wbScope = 'global';
+    await updateChatTitle();
     toast('备份已导入');
   } catch (err) {
     toast('导入失败：' + (err && err.message ? err.message : err));
@@ -814,5 +957,6 @@ $('input-countdown-sec').addEventListener('input', saveTriggerSettings);
     toast('旧数据迁移失败：' + (err && err.message ? err.message : err));
   }
   loadSaved();
-  try { await loadCharConfig(); } catch (_) {}
+  loadTriggerSettings();
+  try { await updateChatTitle(); } catch (_) {}
 })();

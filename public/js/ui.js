@@ -9,7 +9,7 @@ const viewSettings = $('view-settings');
 const viewChat = $('view-chat');
 const viewMemory = $('view-memory');
 const viewWorldbook = $('view-worldbook');
-const viewCharSettings = $('view-char-settings');
+const viewCharacters = $('view-characters');
 
 function showView(view) {
   document.querySelectorAll('.app-view').forEach((el) => el.classList.remove('active'));
@@ -149,11 +149,6 @@ function charAvatarHTML(avatar, name) {
   return '<span>' + escapeHtml((name || '角').trim().charAt(0) || '角') + '</span>';
 }
 
-async function updateAvatarPreview() {
-  const c = await getChar();
-  $('avatar-preview').innerHTML = charAvatarHTML(c.avatar, c.name);
-}
-
 async function updateChatTitle() {
   const c = await getChar();
   $('chat-title').textContent = c.name || '角色聊天';
@@ -248,6 +243,148 @@ async function appendTyping() {
 function removeTyping() {
   const t = document.getElementById('typing-row');
   if (t) t.remove();
+}
+
+// ===== 角色应用渲染 =====
+async function renderCharactersUI() {
+  const { list, activeId } = await getCharacters();
+  const rows = await Promise.all(list.map(async (c) => ({ ...c, avatar: await getAvatarUrlById(c.avatarId) })));
+  renderCharacterList(rows, activeId);
+}
+
+function renderCharacterList(characters, activeId) {
+  const box = $('character-list');
+  box.innerHTML = '';
+  if (!characters.length) {
+    const empty = document.createElement('div');
+    empty.className = 'memory-empty';
+    empty.textContent = '还没有角色。点「新建角色」创建人设；聊天和记忆会按角色分开保存。';
+    box.appendChild(empty);
+    return;
+  }
+  characters.forEach((c) => box.appendChild(characterRow(c, c.id === activeId)));
+}
+
+function characterRow(c, isActive) {
+  const row = document.createElement('div');
+  row.className = 'char-item' + (isActive ? ' active' : '');
+  row.addEventListener('click', () => switchActiveCharacter(c.id));
+
+  const avatar = document.createElement('div');
+  avatar.className = 'char-avatar';
+  avatar.innerHTML = charAvatarHTML(c.avatar, c.name);
+  row.appendChild(avatar);
+
+  const info = document.createElement('div');
+  info.className = 'char-info';
+
+  const nameRow = document.createElement('div');
+  nameRow.className = 'char-name-row';
+  const name = document.createElement('div');
+  name.className = 'char-name';
+  name.textContent = c.name || '未命名角色';
+  nameRow.appendChild(name);
+  if (isActive) {
+    const chip = document.createElement('span');
+    chip.className = 'char-active-chip';
+    chip.textContent = '当前';
+    nameRow.appendChild(chip);
+  }
+  info.appendChild(nameRow);
+
+  const persona = document.createElement('div');
+  persona.className = 'char-persona';
+  persona.textContent = String(c.persona || '').trim() || '未填写人设';
+  info.appendChild(persona);
+
+  const actions = document.createElement('div');
+  actions.className = 'char-actions';
+  const editBtn = document.createElement('button');
+  editBtn.type = 'button';
+  editBtn.className = 'memory-link';
+  editBtn.textContent = '编辑';
+  editBtn.addEventListener('click', (e) => { e.stopPropagation(); openCharacterEdit(c.id); });
+  const delBtn = document.createElement('button');
+  delBtn.type = 'button';
+  delBtn.className = 'memory-link danger';
+  delBtn.textContent = '删除';
+  delBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteCharacterConfirm(c.id); });
+  actions.appendChild(editBtn);
+  actions.appendChild(delBtn);
+  info.appendChild(actions);
+
+  row.appendChild(info);
+  return row;
+}
+
+// 渲染「新建 / 编辑角色」表单；character 为空表示新增
+function renderCharacterForm(character, avatarUrl) {
+  const box = $('character-form');
+  box.innerHTML = '';
+  box.hidden = false;
+
+  const title = document.createElement('div');
+  title.className = 'memory-form-title';
+  title.textContent = character ? '编辑角色' : '新建角色';
+  box.appendChild(title);
+
+  const avatarRow = document.createElement('div');
+  avatarRow.className = 'avatar-row';
+  const preview = document.createElement('span');
+  preview.className = 'avatar-preview';
+  preview.id = 'char-avatar-preview';
+  preview.innerHTML = charAvatarHTML(avatarUrl || '', (character && character.name) || '');
+  avatarRow.appendChild(preview);
+
+  const uploadBtn = document.createElement('button');
+  uploadBtn.type = 'button';
+  uploadBtn.className = 'fetch-btn';
+  uploadBtn.textContent = '上传头像';
+  uploadBtn.addEventListener('click', () => $('file-char-avatar').click());
+  avatarRow.appendChild(uploadBtn);
+
+  const clearBtn = document.createElement('button');
+  clearBtn.type = 'button';
+  clearBtn.className = 'fetch-btn';
+  clearBtn.textContent = '清除';
+  clearBtn.addEventListener('click', clearCharacterAvatarForm);
+  avatarRow.appendChild(clearBtn);
+  box.appendChild(avatarRow);
+
+  const name = document.createElement('input');
+  name.id = 'char-name-input';
+  name.className = 'wb-input';
+  name.type = 'text';
+  name.placeholder = '角色名字，例如：小助手';
+  name.value = (character && character.name) || '';
+  name.addEventListener('input', () => {
+    if (!preview.querySelector('img')) preview.innerHTML = charAvatarHTML('', name.value);
+  });
+  box.appendChild(name);
+
+  const persona = document.createElement('textarea');
+  persona.id = 'char-persona-input';
+  persona.className = 'wb-textarea';
+  persona.rows = 5;
+  persona.placeholder = '角色人设，例如：你是一个温柔耐心的助手，用中文回复…';
+  persona.value = (character && character.persona) || '';
+  box.appendChild(persona);
+
+  const btns = document.createElement('div');
+  btns.className = 'wb-form-actions';
+  const saveBtn = document.createElement('button');
+  saveBtn.type = 'button';
+  saveBtn.className = 'fetch-btn';
+  saveBtn.textContent = '保存';
+  saveBtn.addEventListener('click', saveCharacterForm);
+  const cancelBtn = document.createElement('button');
+  cancelBtn.type = 'button';
+  cancelBtn.className = 'fetch-btn';
+  cancelBtn.textContent = '取消';
+  cancelBtn.addEventListener('click', cancelCharacterForm);
+  btns.appendChild(saveBtn);
+  btns.appendChild(cancelBtn);
+  box.appendChild(btns);
 }
 
 // ===== 头像图片处理（返回 Blob，交给 store.js 存入 IndexedDB） =====

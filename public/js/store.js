@@ -142,10 +142,12 @@ const DB_NAME = 'clearcall';
 const DB_VERSION = 1;
 const STORE_DOCS = 'documents';   // 各类结构化文档：角色、聊天记录、未来记忆/各 App 存档
 const STORE_FILES = 'files';      // 图片等二进制 Blob，用稳定 id 引用
-const DOC_CHARACTER = 'character';
-const DOC_CHAT = 'chatHistory';
-const DOC_MEMORY = 'memory';
+const DOC_CHARACTERS = 'characters';   // 角色列表：{ list: [...], activeId }
+const DOC_CHARACTER = 'character';     // 旧版单角色文档（仅用于迁移 / 兼容旧备份）
+const DOC_CHAT = 'chatHistory';        // 旧版聊天文档（迁移用；新数据按角色分仓）
+const DOC_MEMORY = 'memory';           // 旧版记忆文档（迁移用；新数据按角色分仓）
 const DOC_WORLDBOOK = 'worldbook';
+const LEGACY_CHARACTER_ID = 'character';
 
 let _dbPromise = null;
 
@@ -211,6 +213,13 @@ async function putDoc(doc) {
   await txComplete(tx);
 }
 
+async function deleteDoc(id) {
+  const db = await openDB();
+  const tx = db.transaction(STORE_DOCS, 'readwrite');
+  tx.objectStore(STORE_DOCS).delete(id);
+  await txComplete(tx);
+}
+
 async function getFile(id) {
   const db = await openDB();
   const tx = db.transaction(STORE_FILES, 'readonly');
@@ -263,131 +272,234 @@ function mutateDoc(id, mutator) {
   });
 }
 
-function updateCharacter(patch) {
-  return mutateDoc(DOC_CHARACTER, (doc) => {
-    if (doc.name === undefined) doc.name = '';
-    if (doc.persona === undefined) doc.persona = '';
-    if (doc.avatarId === undefined) doc.avatarId = null;
-    Object.assign(doc, patch);
-  });
-}
+// ---------- 角色（IndexedDB，多角色） ----------
+// 角色列表存在 characters 文档里：{ list: [{id,name,persona,avatarId}], activeId }
+// 头像图片以 Blob 存在 files，角色记录只存 avatarId 引用；聊天 / 记忆按角色 id 分仓。
 
-// ---------- 角色（IndexedDB） ----------
-// 头像图片以 Blob 存在 files，角色文档只存 avatarId 引用；显示时再转对象 URL。
-let _avatarCache = { id: null, url: '' };
-
-function revokeAvatarCache() {
-  if (_avatarCache.url) { URL.revokeObjectURL(_avatarCache.url); _avatarCache.url = ''; }
-  _avatarCache.id = null;
-}
-
-async function getAvatarUrl() {
-  const doc = await getDoc(DOC_CHARACTER);
-  const id = (doc && doc.avatarId) || null;
-  if (!id) { revokeAvatarCache(); return ''; }
-  if (_avatarCache.id === id && _avatarCache.url) return _avatarCache.url;
-  const f = await getFile(id);
-  if (!f || !f.blob) { revokeAvatarCache(); return ''; }
-  revokeAvatarCache();
-  _avatarCache.id = id;
-  _avatarCache.url = URL.createObjectURL(f.blob);
-  return _avatarCache.url;
-}
-
-async function getChar() {
-  const doc = await getDoc(DOC_CHARACTER);
+function normalizeCharacter(raw, fallbackId) {
+  if (!raw) return null;
   return {
-    name: (doc && doc.name) || '',
-    persona: (doc && doc.persona) || '',
-    avatar: await getAvatarUrl(),
+    id: raw.id || fallbackId || genId(),
+    name: String(raw.name || '').trim(),
+    persona: String(raw.persona || ''),
+    avatarId: raw.avatarId || null,
+    createdAt: raw.createdAt || Date.now(),
+    updatedAt: raw.updatedAt || Date.now(),
   };
 }
 
-async function setChar(patch) {
-  await updateCharacter(patch || {});
+async function getCharacters() {
+  const doc = await getDoc(DOC_CHARACTERS);
+  const list = (doc && Array.isArray(doc.list))
+    ? doc.list.map((c) => normalizeCharacter(c)).filter(Boolean)
+    : [];
+  let activeId = (doc && doc.activeId) || null;
+  if (!list.some((c) => c.id === activeId)) activeId = list.length ? list[0].id : null;
+  return { list, activeId };
 }
 
-async function setCharAvatarBlob(blob, type, name) {
+async function getActiveCharacterId() {
+  const { activeId } = await getCharacters();
+  return activeId;
+}
+
+async function getActiveCharacter() {
+  const { list, activeId } = await getCharacters();
+  return list.find((c) => c.id === activeId) || null;
+}
+
+async function getCharacter(id) {
+  if (!id) return null;
+  const { list } = await getCharacters();
+  return list.find((c) => c.id === id) || null;
+}
+
+async function setActiveCharacter(id) {
+  await mutateDoc(DOC_CHARACTERS, (doc) => {
+    if (!Array.isArray(doc.list)) doc.list = [];
+    if (doc.list.some((c) => c.id === id)) doc.activeId = id;
+  });
+}
+
+async function addCharacter({ name, persona } = {}) {
+  const record = normalizeCharacter({ name, persona, avatarId: null });
+  await mutateDoc(DOC_CHARACTERS, (doc) => {
+    if (!Array.isArray(doc.list)) doc.list = [];
+    doc.list.push(record);
+    if (!doc.activeId) doc.activeId = record.id;
+  });
+  return record;
+}
+
+async function updateCharacterRecord(id, patch) {
+  await mutateDoc(DOC_CHARACTERS, (doc) => {
+    if (!Array.isArray(doc.list)) doc.list = [];
+    const c = doc.list.find((x) => x.id === id);
+    if (!c) return;
+    if (patch.name !== undefined) c.name = String(patch.name || '').trim();
+    if (patch.persona !== undefined) c.persona = String(patch.persona || '');
+    if (patch.avatarId !== undefined) c.avatarId = patch.avatarId || null;
+    c.updatedAt = Date.now();
+  });
+}
+
+// 头像对象 URL 缓存：avatarId -> url
+const _avatarUrls = new Map();
+
+function revokeAvatarUrl(avatarId) {
+  const url = _avatarUrls.get(avatarId);
+  if (url) { URL.revokeObjectURL(url); _avatarUrls.delete(avatarId); }
+}
+
+function revokeAllAvatarUrls() {
+  _avatarUrls.forEach((url) => URL.revokeObjectURL(url));
+  _avatarUrls.clear();
+}
+
+async function getAvatarUrlById(avatarId) {
+  if (!avatarId) return '';
+  if (_avatarUrls.has(avatarId)) return _avatarUrls.get(avatarId);
+  const f = await getFile(avatarId);
+  if (!f || !f.blob) return '';
+  const url = URL.createObjectURL(f.blob);
+  _avatarUrls.set(avatarId, url);
+  return url;
+}
+
+async function getCharacterAvatarUrl(id) {
+  const c = await getCharacter(id);
+  return c ? getAvatarUrlById(c.avatarId) : '';
+}
+
+async function setCharacterAvatarBlob(characterId, blob, type, name) {
+  const c = await getCharacter(characterId);
+  if (!c) throw new Error('角色不存在');
   const id = genId();
   await putFile({ id, name: name || 'avatar', type: type || (blob && blob.type) || 'image/jpeg', blob });
-  const old = await getDoc(DOC_CHARACTER);
-  const oldId = old && old.avatarId;
-  await updateCharacter({ avatarId: id });
-  if (oldId) { try { await deleteFile(oldId); } catch (_) {} }
-  revokeAvatarCache();
+  await updateCharacterRecord(characterId, { avatarId: id });
+  if (c.avatarId) {
+    revokeAvatarUrl(c.avatarId);
+    try { await deleteFile(c.avatarId); } catch (_) {}
+  }
   return id;
 }
 
-async function clearCharAvatar() {
-  const old = await getDoc(DOC_CHARACTER);
-  const oldId = old && old.avatarId;
-  await updateCharacter({ avatarId: null });
-  if (oldId) { try { await deleteFile(oldId); } catch (_) {} }
-  revokeAvatarCache();
+async function clearCharacterAvatar(characterId) {
+  const c = await getCharacter(characterId);
+  if (!c) return;
+  await updateCharacterRecord(characterId, { avatarId: null });
+  if (c.avatarId) {
+    revokeAvatarUrl(c.avatarId);
+    try { await deleteFile(c.avatarId); } catch (_) {}
+  }
 }
 
-// ---------- 聊天记录（IndexedDB） ----------
-async function getHistory() {
-  const doc = await getDoc(DOC_CHAT);
+// 删除角色：连同它的聊天、记忆、绑定的世界书条目一起清理
+async function deleteCharacter(id) {
+  const c = await getCharacter(id);
+  if (!c) return;
+  if (c.avatarId) {
+    revokeAvatarUrl(c.avatarId);
+    try { await deleteFile(c.avatarId); } catch (_) {}
+  }
+  try { await deleteDoc(chatDocId(id)); } catch (_) {}
+  try { await deleteDoc(memoryDocId(id)); } catch (_) {}
+
+  const wb = await getWorldbook();
+  if (wb.some((e) => e.scope === 'character' && e.characterId === id)) {
+    await putDoc({ id: DOC_WORLDBOOK, entries: wb.filter((e) => !(e.scope === 'character' && e.characterId === id)) });
+  }
+
+  await mutateDoc(DOC_CHARACTERS, (doc) => {
+    if (!Array.isArray(doc.list)) doc.list = [];
+    doc.list = doc.list.filter((x) => x.id !== id);
+    if (doc.activeId === id || !doc.list.some((x) => x.id === doc.activeId)) {
+      doc.activeId = doc.list.length ? doc.list[0].id : null;
+    }
+  });
+}
+
+// 当前角色（聊天、记忆默认都取当前角色）
+async function getChar() {
+  const c = await getActiveCharacter();
+  if (!c) return { id: null, name: '', persona: '', avatar: '' };
+  return { ...c, avatar: await getAvatarUrlById(c.avatarId) };
+}
+
+// ---------- 聊天记录（IndexedDB，按角色分仓） ----------
+function chatDocId(characterId) { return DOC_CHAT + ':' + characterId; }
+
+async function getHistory(characterId) {
+  const id = characterId || await getActiveCharacterId();
+  if (!id) return [];
+  const doc = await getDoc(chatDocId(id));
   const arr = doc && doc.messages;
   return Array.isArray(arr) ? arr : [];
 }
 
 // 原子地修改聊天记录，避免并发写入丢消息
-function mutateHistory(mutator) {
-  return mutateDoc(DOC_CHAT, (doc) => {
+async function mutateHistory(mutator, characterId) {
+  const id = characterId || await getActiveCharacterId();
+  if (!id) throw new Error('请先创建角色');
+  return mutateDoc(chatDocId(id), (doc) => {
     if (!Array.isArray(doc.messages)) doc.messages = [];
     mutator(doc.messages);
   });
 }
 
-// ---------- 记忆（IndexedDB） ----------
+// ---------- 记忆（IndexedDB，按角色分仓） ----------
 // 每条记忆用稳定 id 存，分类 + 一句话事实；以后加向量检索可按 id/text 扩展。
-async function getMemory() {
-  const doc = await getDoc(DOC_MEMORY);
+function memoryDocId(characterId) { return DOC_MEMORY + ':' + characterId; }
+
+async function getMemory(characterId) {
+  const id = characterId || await getActiveCharacterId();
+  if (!id) return { entries: [], lastSummarizedCount: 0 };
+  const doc = await getDoc(memoryDocId(id));
   return {
     entries: (doc && Array.isArray(doc.entries)) ? doc.entries : [],
     lastSummarizedCount: (doc && typeof doc.lastSummarizedCount === 'number') ? doc.lastSummarizedCount : 0,
   };
 }
 
-function mutateMemory(mutator) {
-  return mutateDoc(DOC_MEMORY, (doc) => {
+async function mutateMemory(mutator, characterId) {
+  const id = characterId || await getActiveCharacterId();
+  if (!id) throw new Error('请先创建角色');
+  return mutateDoc(memoryDocId(id), (doc) => {
     if (!Array.isArray(doc.entries)) doc.entries = [];
     if (typeof doc.lastSummarizedCount !== 'number') doc.lastSummarizedCount = 0;
     mutator(doc);
   });
 }
 
-async function addMemoryEntry({ category, text }) {
+async function addMemoryEntry({ category, text }, characterId) {
   const entry = { id: genId(), category: category || 'personal', text: (text || '').trim(), createdAt: Date.now(), updatedAt: Date.now() };
   if (!entry.text) return entry;
-  await mutateMemory((doc) => doc.entries.push(entry));
+  await mutateMemory((doc) => doc.entries.push(entry), characterId);
   return entry;
 }
 
-async function updateMemoryEntry(id, { category, text }) {
+async function updateMemoryEntry(id, { category, text }, characterId) {
   await mutateMemory((doc) => {
     const e = doc.entries.find((x) => x.id === id);
     if (!e) return;
     if (category) e.category = category;
     if (text !== undefined) e.text = (text || '').trim();
     e.updatedAt = Date.now();
-  });
+  }, characterId);
 }
 
-async function deleteMemoryEntry(id) {
+async function deleteMemoryEntry(id, characterId) {
   await mutateMemory((doc) => {
     doc.entries = doc.entries.filter((x) => x.id !== id);
-  });
+  }, characterId);
 }
 
-async function setLastSummarizedCount(n) {
-  await mutateMemory((doc) => { doc.lastSummarizedCount = n; });
+async function setLastSummarizedCount(n, characterId) {
+  await mutateMemory((doc) => { doc.lastSummarizedCount = n; }, characterId);
 }
 
 // 合并新总结：同类别且文字一致的去重，其余追加
-async function mergeMemoryEntries(newEntries) {
+async function mergeMemoryEntries(newEntries, characterId) {
   await mutateMemory((doc) => {
     (newEntries || []).forEach((n) => {
       const text = (n && n.text) ? String(n.text).trim() : '';
@@ -396,7 +508,7 @@ async function mergeMemoryEntries(newEntries) {
       const dup = doc.entries.some((e) => e.category === category && e.text.trim() === text);
       if (!dup) doc.entries.push({ id: genId(), category, text, createdAt: Date.now(), updatedAt: Date.now() });
     });
-  });
+  }, characterId);
 }
 
 // 把记忆条目格式化成发给 AI 的文本
@@ -424,9 +536,11 @@ function buildWorldbookRecord(raw, scope) {
   const e = normalizeWorldbookEntry(raw);
   if (!e) return null;
   const now = Date.now();
+  const isChar = scope === 'character';
   return {
     id: (raw && raw.id) || genId(),
-    scope: scope === 'character' ? 'character' : 'global',
+    scope: isChar ? 'character' : 'global',
+    characterId: isChar ? ((raw && raw.characterId) || null) : null,
     ...e,
     createdAt: (raw && raw.createdAt) || now,
     updatedAt: now,
@@ -455,7 +569,11 @@ async function updateWorldbookEntry(id, patch) {
     if (!e) return;
     const n = normalizeWorldbookEntry({ ...e, ...patch });
     if (!n) return;
-    Object.assign(e, n, { updatedAt: Date.now() });
+    const scope = (patch && (patch.scope === 'character' || patch.scope === 'global')) ? patch.scope : e.scope;
+    const characterId = scope === 'character'
+      ? ((patch && patch.characterId !== undefined) ? patch.characterId : e.characterId) || null
+      : null;
+    Object.assign(e, n, { scope, characterId, updatedAt: Date.now() });
   });
 }
 
@@ -490,31 +608,49 @@ async function buildBackup() {
   const settings = getSettings();
   const trigger = getTriggerModes();
   const memorySettings = getMemorySettings();
-  const charDoc = (await getDoc(DOC_CHARACTER)) || {};
-  const chatDoc = (await getDoc(DOC_CHAT)) || {};
-  const memDoc = (await getDoc(DOC_MEMORY)) || {};
-  const wbDoc = (await getDoc(DOC_WORLDBOOK)) || {};
+  const { list, activeId } = await getCharacters();
   const files = {};
-  const avatarId = charDoc.avatarId || null;
-  if (avatarId) {
-    const f = await getFile(avatarId);
-    if (f && f.blob) {
-      files[avatarId] = { name: f.name || 'avatar', type: f.type || 'image/jpeg', data: await blobToDataUrl(f.blob) };
+  const characters = [];
+  const chats = {};
+  const memories = {};
+
+  for (const c of list) {
+    if (c.avatarId) {
+      const f = await getFile(c.avatarId);
+      if (f && f.blob) {
+        files[c.avatarId] = { name: f.name || 'avatar', type: f.type || 'image/jpeg', data: await blobToDataUrl(f.blob) };
+      }
     }
+    characters.push({
+      id: c.id,
+      name: c.name,
+      persona: c.persona,
+      avatarId: c.avatarId || null,
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
+    });
+
+    const chatDoc = (await getDoc(chatDocId(c.id))) || {};
+    chats[c.id] = Array.isArray(chatDoc.messages) ? chatDoc.messages : [];
+    const memDoc = (await getDoc(memoryDocId(c.id))) || {};
+    memories[c.id] = {
+      entries: Array.isArray(memDoc.entries) ? memDoc.entries : [],
+      lastSummarizedCount: memDoc.lastSummarizedCount || 0,
+    };
   }
+
+  const wbDoc = (await getDoc(DOC_WORLDBOOK)) || {};
   return {
     app: 'clearcall',
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     settings,
     trigger,
     memorySettings,
-    character: { name: charDoc.name || '', persona: charDoc.persona || '', avatarId },
-    chatHistory: Array.isArray(chatDoc.messages) ? chatDoc.messages : [],
-    memory: {
-      entries: Array.isArray(memDoc.entries) ? memDoc.entries : [],
-      lastSummarizedCount: memDoc.lastSummarizedCount || 0,
-    },
+    characters,
+    activeId,
+    chats,
+    memories,
     worldbook: {
       entries: Array.isArray(wbDoc.entries) ? wbDoc.entries : [],
     },
@@ -529,6 +665,33 @@ async function applyBackup(data) {
   setTriggerModes(data.trigger || {});
   setMemorySettings(data.memorySettings || {});
 
+  // 统一成多角色结构；同时兼容旧版（version 1）单角色备份
+  let characters;
+  let activeId;
+  let chats;
+  let memories;
+  if (Array.isArray(data.characters)) {
+    characters = data.characters.map((c) => normalizeCharacter(c)).filter(Boolean);
+    activeId = data.activeId || (characters[0] && characters[0].id) || null;
+    chats = data.chats || {};
+    memories = data.memories || {};
+  } else {
+    const c = data.character || {};
+    const id = LEGACY_CHARACTER_ID;
+    characters = [normalizeCharacter({ id, name: c.name || '', persona: c.persona || '', avatarId: c.avatarId || null })];
+    activeId = id;
+    chats = { [id]: Array.isArray(data.chatHistory) ? data.chatHistory : [] };
+    memories = {
+      [id]: {
+        entries: (data.memory && Array.isArray(data.memory.entries)) ? data.memory.entries : [],
+        lastSummarizedCount: (data.memory && data.memory.lastSummarizedCount) || 0,
+      },
+    };
+  }
+  if (!characters.some((c) => c.id === activeId)) activeId = characters[0] ? characters[0].id : null;
+
+  revokeAllAvatarUrls();
+
   // 图片：先清空旧文件，再写入备份里的（Blob），避免残留孤儿文件
   await clearFiles();
   const files = data.files || {};
@@ -538,24 +701,44 @@ async function applyBackup(data) {
     if (blob) await putFile({ id, name: f.name || 'image', type: f.type || blob.type, blob });
   }
 
-  const c = data.character || {};
-  await putDoc({ id: DOC_CHARACTER, name: c.name || '', persona: c.persona || '', avatarId: c.avatarId || null });
-  await putDoc({ id: DOC_CHAT, messages: Array.isArray(data.chatHistory) ? data.chatHistory : [] });
-
-  const mem = data.memory || {};
-  await putDoc({ id: DOC_MEMORY, entries: Array.isArray(mem.entries) ? mem.entries : [], lastSummarizedCount: mem.lastSummarizedCount || 0 });
+  await putDoc({ id: DOC_CHARACTERS, list: characters, activeId });
+  for (const c of characters) {
+    const chat = chats[c.id];
+    await putDoc({ id: chatDocId(c.id), messages: Array.isArray(chat) ? chat : [] });
+    const mem = memories[c.id] || {};
+    await putDoc({
+      id: memoryDocId(c.id),
+      entries: Array.isArray(mem.entries) ? mem.entries : [],
+      lastSummarizedCount: mem.lastSummarizedCount || 0,
+    });
+  }
 
   const wb = data.worldbook || {};
+  const fallbackCharId = characters[0] ? characters[0].id : null;
   const wbEntries = (Array.isArray(wb.entries) ? wb.entries : [])
-    .map((x) => buildWorldbookRecord(x, x && x.scope))
+    .map((x) => {
+      const scope = (x && x.scope === 'character') ? 'character' : 'global';
+      const withId = scope === 'character'
+        ? Object.assign({}, x, { characterId: (x && x.characterId) || fallbackCharId })
+        : x;
+      return buildWorldbookRecord(withId, scope);
+    })
     .filter(Boolean);
   await putDoc({ id: DOC_WORLDBOOK, entries: wbEntries });
 
-  revokeAvatarCache();
+  // 清理旧版单角色文档，避免残留
+  try { await deleteDoc(DOC_CHARACTER); } catch (_) {}
+  try { await deleteDoc(DOC_CHAT); } catch (_) {}
+  try { await deleteDoc(DOC_MEMORY); } catch (_) {}
 }
 
 // ---------- 旧数据迁移 ----------
 async function migrate() {
+  await migrateLegacyLocalStorage();
+  await migrateToCharacters();
+}
+
+async function migrateLegacyLocalStorage() {
   if (localStorage.getItem(MIGRATED_KEY) === '1') return;
 
   const oldName = localStorage.getItem(OLD_KEYS.name);
@@ -589,4 +772,55 @@ async function migrate() {
   // 迁移成功后清理旧键，避免重复
   Object.keys(OLD_KEYS).forEach((k) => localStorage.removeItem(OLD_KEYS[k]));
   localStorage.setItem(MIGRATED_KEY, '1');
+}
+
+// 单角色结构 → 多角色结构：旧数据归到 id='character' 的角色
+async function migrateToCharacters() {
+  if (await hasDoc(DOC_CHARACTERS)) return;
+
+  const legacyChar = await getDoc(DOC_CHARACTER);
+  const legacyChat = await getDoc(DOC_CHAT);
+  const legacyMem = await getDoc(DOC_MEMORY);
+  const wbDoc = await getDoc(DOC_WORLDBOOK);
+  const wbEntries = Array.isArray(wbDoc && wbDoc.entries) ? wbDoc.entries : [];
+  const hasCharScope = wbEntries.some((e) => e && e.scope === 'character');
+
+  const hasLegacy = !!(legacyChar || legacyChat || legacyMem || hasCharScope);
+  const list = [];
+  let activeId = null;
+
+  if (hasLegacy) {
+    const id = LEGACY_CHARACTER_ID;
+    list.push(normalizeCharacter({
+      id,
+      name: (legacyChar && legacyChar.name) || '',
+      persona: (legacyChar && legacyChar.persona) || '',
+      avatarId: (legacyChar && legacyChar.avatarId) || null,
+    }));
+    activeId = id;
+
+    if (legacyChat && !(await hasDoc(chatDocId(id)))) {
+      await putDoc({ id: chatDocId(id), messages: Array.isArray(legacyChat.messages) ? legacyChat.messages : [] });
+    }
+    if (legacyMem && !(await hasDoc(memoryDocId(id)))) {
+      await putDoc({
+        id: memoryDocId(id),
+        entries: Array.isArray(legacyMem.entries) ? legacyMem.entries : [],
+        lastSummarizedCount: legacyMem.lastSummarizedCount || 0,
+      });
+    }
+    if (hasCharScope) {
+      await putDoc({
+        id: DOC_WORLDBOOK,
+        entries: wbEntries.map((e) => (e && e.scope === 'character' ? Object.assign({}, e, { characterId: e.characterId || id }) : e)),
+      });
+    }
+
+    // 旧文档迁移完成后清理，避免重复迁移
+    try { await deleteDoc(DOC_CHARACTER); } catch (_) {}
+    try { await deleteDoc(DOC_CHAT); } catch (_) {}
+    try { await deleteDoc(DOC_MEMORY); } catch (_) {}
+  }
+
+  await putDoc({ id: DOC_CHARACTERS, list, activeId });
 }
