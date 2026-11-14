@@ -19,9 +19,9 @@
 
       <!-- 主屏幕 -->
       <div class="app-view active" id="view-home">
-        <div class="wallpaper">
-          <div class="wallpaper-brand">ClearCall</div>
-          <div class="wallpaper-slogan">你的虚拟手机</div>
+        <div class="wallpaper home-clock">
+          <div class="home-clock-time" id="home-clock-time">00:00</div>
+          <div class="home-clock-date" id="home-clock-date"></div>
         </div>
         <div class="app-grid">
           <button class="app-icon" data-app="phone">
@@ -219,18 +219,9 @@
               </div>
 
               <div class="field">
-                <span class="field-label">图标壁纸</span>
-                <div class="appearance-preview icon-wallpaper-preview" id="icon-wallpaper-preview">
-                  <span class="preview-icon"></span>
-                  <span class="preview-icon"></span>
-                  <span class="preview-icon"></span>
-                  <span class="preview-icon"></span>
-                </div>
-                <div class="backup-row">
-                  <button type="button" class="fetch-btn" id="btn-icon-wallpaper-pick">上传图标壁纸</button>
-                  <button type="button" class="fetch-btn" id="btn-icon-wallpaper-clear">恢复默认</button>
-                </div>
-                <span class="field-hint">作为每个应用图标的底图，建议使用纹理或纯色图。</span>
+                <span class="field-label">应用图标</span>
+                <div class="icon-custom-list" id="icon-custom-list"></div>
+                <span class="field-hint">每个应用单独设置图标；设置后会隐藏该应用默认的线条图标与底图，不影响其它应用。</span>
               </div>
 
               <div class="field">
@@ -242,7 +233,7 @@
               </div>
 
               <input type="file" id="file-wallpaper" accept="image/*" hidden />
-              <input type="file" id="file-icon-wallpaper" accept="image/*" hidden />
+              <input type="file" id="file-icon-custom" accept="image/*" hidden />
             </div>
           </details>
 

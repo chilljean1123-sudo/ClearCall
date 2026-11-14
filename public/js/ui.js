@@ -26,12 +26,20 @@ function toast(msg) {
   t._timer = setTimeout(() => { t.hidden = true; }, 2200);
 }
 
-// 状态栏时间
+// 状态栏与主屏幕时钟
 function updateTime() {
   const d = new Date();
   const hh = String(d.getHours()).padStart(2, '0');
   const mm = String(d.getMinutes()).padStart(2, '0');
-  document.querySelector('.status-time').textContent = hh + ':' + mm;
+  const time = hh + ':' + mm;
+  document.querySelectorAll('.status-time').forEach((el) => { el.textContent = time; });
+  const clock = $('home-clock-time');
+  if (clock) clock.textContent = time;
+  const date = $('home-clock-date');
+  if (date) {
+    const week = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+    date.textContent = (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + week[d.getDay()];
+  }
 }
 updateTime();
 setInterval(updateTime, 30000);
@@ -1027,12 +1035,12 @@ function fileToWallpaper(file) {
   return fileToImage(file, 1600);
 }
 
-function fileToIconWallpaper(file) {
+function fileToCustomIcon(file) {
   return fileToImage(file, 512);
 }
 
-// ===== 美化：壁纸 / 图标壁纸 / 状态栏 =====
-function applyAppearance(cfg, wallpaperUrl, iconUrl) {
+// ===== 美化：壁纸 / 单个应用图标 / 状态栏 =====
+function applyAppearance(cfg, wallpaperUrl, iconUrls) {
   const home = $('view-home');
   if (wallpaperUrl) {
     home.style.backgroundImage = 'url("' + wallpaperUrl + '")';
@@ -1042,33 +1050,85 @@ function applyAppearance(cfg, wallpaperUrl, iconUrl) {
     home.classList.remove('has-wallpaper');
   }
 
-  const phone = document.querySelector('.phone');
-  if (iconUrl) {
-    phone.classList.add('has-icon-wallpaper');
-    phone.style.setProperty('--icon-wallpaper', 'url("' + iconUrl + '")');
-  } else {
-    phone.classList.remove('has-icon-wallpaper');
-    phone.style.removeProperty('--icon-wallpaper');
-  }
+  const urls = iconUrls || {};
+  document.querySelectorAll('.app-icon').forEach((btn) => {
+    const glyph = btn.querySelector('.app-glyph');
+    if (!glyph) return;
+    const url = urls[btn.dataset.app];
+    if (url) {
+      glyph.classList.add('custom-icon');
+      glyph.style.backgroundImage = 'url("' + url + '")';
+    } else {
+      glyph.classList.remove('custom-icon');
+      glyph.style.backgroundImage = '';
+    }
+  });
 
   document.body.classList.toggle('statusbar-off', !!(cfg && cfg.statusBar === false));
   const chk = $('chk-statusbar');
   if (chk) chk.checked = !(cfg && cfg.statusBar === false);
 
-  renderAppearancePreview(wallpaperUrl, iconUrl);
+  renderAppearancePreview(wallpaperUrl, urls);
 }
 
-function renderAppearancePreview(wallpaperUrl, iconUrl) {
+function renderAppearancePreview(wallpaperUrl, iconUrls) {
   const wp = $('wallpaper-preview');
   if (wp) {
     wp.style.backgroundImage = wallpaperUrl ? 'url("' + wallpaperUrl + '")' : '';
     wp.classList.toggle('has-image', !!wallpaperUrl);
   }
-  const ip = $('icon-wallpaper-preview');
-  if (ip) {
-    ip.style.setProperty('--preview-icon-wallpaper', iconUrl ? 'url("' + iconUrl + '")' : 'none');
-    ip.classList.toggle('has-image', !!iconUrl);
-  }
+  renderIconCustomList(iconUrls || {});
+}
+
+function renderIconCustomList(iconUrls) {
+  const list = $('icon-custom-list');
+  if (!list) return;
+  list.innerHTML = '';
+  document.querySelectorAll('.app-icon').forEach((btn) => {
+    const app = btn.dataset.app;
+    const nameEl = btn.querySelector('.app-name');
+    const name = nameEl ? nameEl.textContent : app;
+    const url = iconUrls[app];
+
+    const row = document.createElement('div');
+    row.className = 'icon-custom-row';
+
+    const preview = document.createElement('span');
+    preview.className = 'icon-custom-preview';
+    if (url) {
+      preview.style.backgroundImage = 'url("' + url + '")';
+      preview.classList.add('has-image');
+    } else {
+      preview.textContent = (name || '?').charAt(0);
+    }
+
+    const label = document.createElement('span');
+    label.className = 'icon-custom-name';
+    label.textContent = name;
+
+    const actions = document.createElement('span');
+    actions.className = 'icon-custom-actions';
+
+    const pick = document.createElement('button');
+    pick.type = 'button';
+    pick.className = 'fetch-btn icon-custom-btn';
+    pick.dataset.iconPick = app;
+    pick.textContent = '上传';
+
+    const clear = document.createElement('button');
+    clear.type = 'button';
+    clear.className = 'fetch-btn icon-custom-btn';
+    clear.dataset.iconClear = app;
+    clear.textContent = '恢复';
+    clear.disabled = !url;
+
+    actions.appendChild(pick);
+    actions.appendChild(clear);
+    row.appendChild(preview);
+    row.appendChild(label);
+    row.appendChild(actions);
+    list.appendChild(row);
+  });
 }
 
 // ===== 记忆应用渲染 =====

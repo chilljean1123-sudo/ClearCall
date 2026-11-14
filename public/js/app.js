@@ -25,6 +25,7 @@ let pendingAvatar = null;      // 新建角色时先暂存头像，保存角色�
 let pendingAvatarUrl = '';
 let pendingRefImage = null;    // 生图参考图，同理暂存
 let pendingRefImageUrl = '';
+let iconUploadTarget = '';
 let pendingChatImage = null;   // 聊天里待发送的相册图片
 let pendingChatImageUrl = '';
 let toolLocationCoords = null; // 手机定位得到的真实坐标
@@ -86,14 +87,15 @@ function save() {
   });
 }
 
-// ---- 美化：应用壁纸、图标壁纸与状态栏开关 ----
+// ---- 美化：应用壁纸、单个图标与状态栏开关 ----
 async function refreshAppearance() {
   const cfg = await getAppearance();
-  const [wallpaperUrl, iconUrl] = await Promise.all([
-    getFileUrl(cfg.wallpaperId),
-    getFileUrl(cfg.iconWallpaperId),
-  ]);
-  applyAppearance(cfg, wallpaperUrl, iconUrl);
+  const apps = Array.from(document.querySelectorAll('.app-icon')).map((b) => b.dataset.app);
+  const iconUrls = {};
+  await Promise.all(apps.map(async (app) => {
+    iconUrls[app] = await getFileUrl(cfg.icons[app] || null);
+  }));
+  applyAppearance(cfg, await getFileUrl(cfg.wallpaperId), iconUrls);
 }
 
 // ---- 角色应用：新建 / 编辑 / 删除 / 切换 ----
@@ -1580,27 +1582,34 @@ $('file-wallpaper').addEventListener('change', async (e) => {
   }
 });
 
-$('btn-icon-wallpaper-pick').addEventListener('click', () => $('file-icon-wallpaper').click());
-$('btn-icon-wallpaper-clear').addEventListener('click', async () => {
-  try {
-    await clearAppearanceImage('icon');
-    await refreshAppearance();
-    toast('图标已恢复默认');
-  } catch (err) {
-    toast('恢复失败：' + (err && err.message ? err.message : err));
+$('icon-custom-list').addEventListener('click', (e) => {
+  const pick = e.target.closest('[data-icon-pick]');
+  if (pick) {
+    iconUploadTarget = pick.dataset.iconPick;
+    $('file-icon-custom').click();
+    return;
+  }
+  const clear = e.target.closest('[data-icon-clear]');
+  if (clear) {
+    const app = clear.dataset.iconClear;
+    clearAppearanceIcon(app).then(refreshAppearance).then(() => toast('图标已恢复默认')).catch((err) => {
+      toast('恢复失败：' + (err && err.message ? err.message : err));
+    });
   }
 });
-$('file-icon-wallpaper').addEventListener('change', async (e) => {
+$('file-icon-custom').addEventListener('change', async (e) => {
   const f = e.target.files && e.target.files[0];
+  const app = iconUploadTarget;
+  iconUploadTarget = '';
   e.target.value = '';
-  if (!f) return;
+  if (!f || !app) return;
   try {
-    const blob = await fileToIconWallpaper(f);
-    await setAppearanceImageBlob('icon', blob, blob.type, f.name);
+    const blob = await fileToCustomIcon(f);
+    await setAppearanceIconBlob(app, blob, blob.type, f.name);
     await refreshAppearance();
-    toast('图标壁纸已更新');
+    toast('图标已更新');
   } catch (err) {
-    toast('图标壁纸设置失败：' + (err && err.message ? err.message : err));
+    toast('图标设置失败：' + (err && err.message ? err.message : err));
   }
 });
 

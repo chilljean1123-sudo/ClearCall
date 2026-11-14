@@ -198,7 +198,7 @@ const DOC_CHAT = 'chatHistory';        // 旧版聊天文档（迁移用；新�
 const DOC_MEMORY = 'memory';           // 旧版记忆文档（迁移用；新数据按角色分仓）
 const DOC_WORLDBOOK = 'worldbook';
 const DOC_STICKERS = 'stickers';       // 表情包按角色分仓：stickers:<角色id>
-const DOC_APPEARANCE = 'appearance';   // 美化：壁纸 / 图标壁纸 / 状态栏开关
+const DOC_APPEARANCE = 'appearance';   // 美化：主屏壁纸 / 各应用图标 / 状态栏开关
 const LEGACY_CHARACTER_ID = 'character';
 
 let _dbPromise = null;
@@ -330,12 +330,22 @@ function genId() {
 }
 
 // ---------- 美化（IndexedDB） ----------
-// 壁纸与图标壁纸的图片存 files，appearance 只存引用 id；状态栏开关是轻量设置。
+// 壁纸与各应用图标图片存 files，appearance 只存引用 id；状态栏开关是轻量设置。
+function normalizeIconIds(raw) {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const out = {};
+  Object.keys(src).forEach((app) => {
+    const id = src[app];
+    if (id) out[app] = id;
+  });
+  return out;
+}
+
 function normalizeAppearance(doc) {
   const d = doc || {};
   return {
     wallpaperId: d.wallpaperId || null,
-    iconWallpaperId: d.iconWallpaperId || null,
+    icons: normalizeIconIds(d.icons),
     statusBar: d.statusBar !== false,
   };
 }
@@ -347,20 +357,20 @@ async function getAppearance() {
 function setAppearance(patch) {
   return mutateDoc(DOC_APPEARANCE, (doc) => {
     const next = Object.assign(normalizeAppearance(doc), patch || {});
-    doc.wallpaperId = next.wallpaperId;
-    doc.iconWallpaperId = next.iconWallpaperId;
+    doc.wallpaperId = next.wallpaperId || null;
+    doc.icons = normalizeIconIds(next.icons);
     doc.statusBar = next.statusBar !== false;
   });
 }
 
-// kind: 'wallpaper' | 'icon'
+// 仅主屏幕壁纸
 async function setAppearanceImageBlob(kind, blob, type, name) {
-  const key = kind === 'icon' ? 'iconWallpaperId' : 'wallpaperId';
+  if (kind !== 'wallpaper') throw new Error('请使用 setAppearanceIconBlob 设置单个图标');
   const cfg = await getAppearance();
-  const oldId = cfg[key];
+  const oldId = cfg.wallpaperId;
   const id = genId();
   await putFile({ id, name: name || kind, type: type || (blob && blob.type) || 'image/jpeg', blob });
-  await setAppearance({ [key]: id });
+  await setAppearance({ wallpaperId: id });
   if (oldId) {
     try { await deleteFile(oldId); } catch (_) {}
     revokeFileUrl(oldId);
@@ -369,14 +379,48 @@ async function setAppearanceImageBlob(kind, blob, type, name) {
 }
 
 async function clearAppearanceImage(kind) {
-  const key = kind === 'icon' ? 'iconWallpaperId' : 'wallpaperId';
+  if (kind !== 'wallpaper') throw new Error('请使用 clearAppearanceIcon 恢复单个图标');
   const cfg = await getAppearance();
-  const oldId = cfg[key];
-  await setAppearance({ [key]: null });
+  const oldId = cfg.wallpaperId;
+  await setAppearance({ wallpaperId: null });
   if (oldId) {
     try { await deleteFile(oldId); } catch (_) {}
     revokeFileUrl(oldId);
   }
+}
+
+// 单个应用图标：只替换该 app 的图标，并清理旧图
+async function setAppearanceIconBlob(app, blob, type, name) {
+  if (!app) throw new Error('缺少应用标识');
+  const cfg = await getAppearance();
+  const oldId = cfg.icons[app];
+  const id = genId();
+  await putFile({ id, name: name || ('icon-' + app), type: type || (blob && blob.type) || 'image/png', blob });
+  const icons = Object.assign({}, cfg.icons);
+  icons[app] = id;
+  await setAppearance({ icons });
+  if (oldId) {
+    try { await deleteFile(oldId); } catch (_) {}
+    revokeFileUrl(oldId);
+  }
+  return id;
+}
+
+async function clearAppearanceIcon(app) {
+  if (!app) return;
+  const cfg = await getAppearance();
+  const oldId = cfg.icons[app];
+  if (!oldId) return;
+  const icons = Object.assign({}, cfg.icons);
+  delete icons[app];
+  await setAppearance({ icons });
+  try { await deleteFile(oldId); } catch (_) {}
+  revokeFileUrl(oldId);
+}
+
+async function getAppearanceIconUrl(app) {
+  const cfg = await getAppearance();
+  return getFileUrl(cfg.icons[app]);
 }
 
 // 在一个事务里完成「读-改-写」，避免并发写丢字段
@@ -936,7 +980,7 @@ async function buildBackup() {
 
   const wbDoc = (await getDoc(DOC_WORLDBOOK)) || {};
   const appearance = await getAppearance();
-  for (const fileId of [appearance.wallpaperId, appearance.iconWallpaperId].filter(Boolean)) {
+  for (const fileId of [appearance.wallpaperId, ...Object.values(appearance.icons)].filter(Boolean)) {
     const f = await getFile(fileId);
     if (f && f.blob) {
       files[fileId] = { name: f.name || 'image', type: f.type || 'image/jpeg', data: await blobToDataUrl(f.blob) };
@@ -1019,7 +1063,7 @@ async function applyBackup(data) {
   await putDoc({
     id: DOC_APPEARANCE,
     wallpaperId: appearance.wallpaperId,
-    iconWallpaperId: appearance.iconWallpaperId,
+    icons: appearance.icons,
     statusBar: appearance.statusBar,
   });
   for (const c of characters) {

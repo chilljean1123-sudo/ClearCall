@@ -141,24 +141,26 @@ body.statusbar-off .statusbar { visibility: hidden; }
 #view-home.has-wallpaper::before {
   background: linear-gradient(180deg, rgba(0, 0, 0, 0.38) 0%, rgba(0, 0, 0, 0.12) 45%, rgba(0, 0, 0, 0.42) 100%);
 }
-.wallpaper {
+.home-clock {
   position: relative;
   z-index: 1;
   flex: 0 0 auto;
-  padding: 26px 20px 20px;
-  background: transparent;
+  padding: 32px 20px 12px;
   text-align: center;
-  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.55);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
 }
-.wallpaper-brand {
-  font-size: 26px;
-  font-weight: 800;
+.home-clock-time {
+  font-size: 64px;
+  font-weight: 200;
+  line-height: 1;
+  letter-spacing: 2px;
+  font-variant-numeric: tabular-nums;
+}
+.home-clock-date {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.72);
+  margin-top: 9px;
   letter-spacing: 0.5px;
-}
-.wallpaper-slogan {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.7);
-  margin-top: 4px;
 }
 
 .app-grid {
@@ -183,6 +185,7 @@ body.statusbar-off .statusbar { visibility: hidden; }
   cursor: pointer;
   padding: 0;
   color: var(--text);
+  -webkit-tap-highlight-color: transparent;
 }
 
 .app-glyph {
@@ -201,19 +204,13 @@ body.statusbar-off .statusbar { visibility: hidden; }
 }
 .app-glyph svg { width: 28px; height: 28px; }
 
-.phone.has-icon-wallpaper .app-glyph {
-  background-image: var(--icon-wallpaper);
-  background-color: var(--card);
-  border-color: rgba(255, 255, 255, 0.24);
+/* 单个应用自定义图标：去掉默认底图、边框与线条图标，只显示上传的图片 */
+.app-glyph.custom-icon {
+  background-color: transparent !important;
+  border-color: transparent !important;
 }
-.phone.has-icon-wallpaper .app-glyph svg {
-  color: #fff;
-  filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.65));
-}
-.phone.has-icon-wallpaper .app-name {
-  color: rgba(255, 255, 255, 0.82);
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
-}
+.app-glyph.custom-icon svg { display: none; }
+
 .app-glyph.accent { background: linear-gradient(160deg, #4f8cff, #3b76e8); color: #fff; border: none; }
 
 .app-icon:active .app-glyph { transform: scale(0.9); }
@@ -268,27 +265,40 @@ body.statusbar-off .statusbar { visibility: hidden; }
 .preview-empty { font-size: 12px; color: rgba(255, 255, 255, 0.7); }
 .wallpaper-preview.has-image .preview-empty { display: none; }
 
-.icon-wallpaper-preview {
-  height: 76px;
+.icon-custom-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.icon-custom-row {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 12px;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--card-border);
+  background: rgba(0, 0, 0, 0.18);
 }
-.preview-icon {
+.icon-custom-preview {
   width: 38px;
   height: 38px;
+  flex: 0 0 auto;
   border-radius: 10px;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  color: var(--muted);
   background-color: var(--card);
   border: 1px solid var(--card-border);
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
 }
-.icon-wallpaper-preview.has-image .preview-icon {
-  background-image: var(--preview-icon-wallpaper);
-  border-color: rgba(255, 255, 255, 0.24);
-}
+.icon-custom-preview.has-image { border-color: rgba(255, 255, 255, 0.24); }
+.icon-custom-name { flex: 1 1 auto; font-size: 13px; }
+.icon-custom-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+.icon-custom-btn { padding: 5px 9px; font-size: 11px; }
+.icon-custom-btn:disabled { opacity: 0.35; cursor: default; }
 
 
 /* ===== 抽屉（设置项 / 角色绑定项） ===== */
