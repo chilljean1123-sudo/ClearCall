@@ -191,7 +191,16 @@ async function fetchModelList() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ baseUrl, apiKey }),
   });
-  return res.json();
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch (_) {
+    return {
+      ok: false,
+      reason: '本地服务返回异常（HTTP ' + res.status + '）',
+      hints: res.status === 504 ? ['请求耗时过长被网关中断，通常是服务商响应太慢', '稍后重试，或换个模型再试'] : ['查看终端日志'],
+    };
+  }
 }
 
 $('btn-fetch-models').addEventListener('click', async () => {
@@ -261,7 +270,13 @@ $('btn-test').addEventListener('click', async () => {
     try {
       data = await res.json();
     } catch (_) {
-      data = { ok: false, reason: '本地服务返回异常（HTTP ' + res.status + '）', hints: ['查看终端日志'] };
+      data = {
+        ok: false,
+        reason: '本地服务返回异常（HTTP ' + res.status + '）',
+        hints: res.status === 504
+          ? ['请求耗时过长被网关中断，通常是服务商响应太慢', '稍后重试，或换个模型再试']
+          : ['查看终端日志'],
+      };
     }
     renderResult(data);
 

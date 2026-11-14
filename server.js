@@ -4,7 +4,7 @@ const path = require('path');
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const TEST_TIMEOUT_MS = 30000;
+const TEST_TIMEOUT_MS = 15000;
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -82,7 +82,12 @@ function classifyStatus(status) {
     case 503:
       return {
         reason: '服务商服务端异常（HTTP ' + status + '）',
-        hints: ['稍后重试', '到服务商状态页确认是否在维护或故障'],
+        hints: [
+          '通常是服务商服务过载、繁忙或正在维护（503 表示繁忙/过载）',
+          '稍等几十秒再重试',
+          '换一个模型名试试（有些模型可能临时不可用）',
+          '到服务商状态页确认是否在维护或故障',
+        ],
       };
     default:
       return {
@@ -167,7 +172,7 @@ async function testConnection({ baseUrl, apiKey, model }) {
     if (err && err.name === 'AbortError') {
       return {
         ok: false,
-        reason: '请求超时（30 秒未响应）',
+        reason: '请求超时（15 秒未响应）',
         hints: ['检查网络是否稳定', '确认接口地址可用（可先在浏览器直接打开该地址看是否报错）', '稍后重试'],
       };
     }
@@ -212,7 +217,7 @@ async function fetchModels({ baseUrl, apiKey }) {
     return { ok: false, reason: c.reason, message: String(errMsg).slice(0, 500), hints: c.hints };
   } catch (err) {
     if (err && err.name === 'AbortError') {
-      return { ok: false, reason: '请求超时（30 秒未响应）', hints: ['检查网络是否稳定', '稍后重试'] };
+      return { ok: false, reason: '请求超时（15 秒未响应）', hints: ['检查网络是否稳定', '稍后重试'] };
     }
     return classifyNetwork(err);
   } finally {
