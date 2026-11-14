@@ -49,6 +49,9 @@ const server = http.createServer(async (req, res) => {
       memory: payload.memory,
       history: payload.history,
       message: payload.message,
+      worldBefore: payload.worldBefore,
+      worldAfter: payload.worldAfter,
+      worldDepth: payload.worldDepth,
     });
     console.log('[api/chat]', result.ok ? 'success' : 'failed', result.reason || '');
     ai.sendJson(res, result);

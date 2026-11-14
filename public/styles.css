@@ -590,3 +590,85 @@ body {
   outline: none;
 }
 .countdown-row input:focus { border-color: var(--accent); }
+
+/* ===== 世界书 ===== */
+.wb-body { flex: 1 1 auto; overflow-y: auto; padding: 14px 14px 24px; }
+.wb-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+.wb-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  color: var(--muted);
+  border-radius: 9px;
+  padding: 8px 6px;
+  font-size: 13px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wb-tab.active {
+  background: rgba(79, 140, 255, 0.16);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.wb-toolbar { display: flex; gap: 8px; margin-bottom: 8px; }
+.wb-toolbar .fetch-btn { flex: 1 1 0; min-width: 0; padding: 9px 0; text-align: center; }
+.wb-hint { font-size: 11px; color: var(--muted); line-height: 1.55; margin: 0 0 12px; }
+.wb-list { display: flex; flex-direction: column; gap: 10px; }
+.wb-empty { color: var(--muted); font-size: 13px; text-align: center; padding: 28px 8px; line-height: 1.6; }
+
+.wb-item { background: var(--card); border: 1px solid var(--card-border); border-radius: 12px; padding: 11px 12px; }
+.wb-item-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 7px; }
+.wb-item-actions { display: flex; gap: 12px; margin-left: auto; }
+.wb-chip { font-size: 11px; border-radius: 6px; padding: 2px 8px; background: rgba(139, 147, 161, 0.14); color: var(--muted); }
+.wb-chip.weight { color: var(--amber); background: rgba(245, 181, 68, 0.14); }
+.wb-chip.prob { color: var(--green); background: rgba(52, 201, 142, 0.14); }
+.wb-keywords { font-size: 12px; color: var(--muted); line-height: 1.5; margin-bottom: 6px; word-break: break-word; }
+.wb-item-text { font-size: 14px; line-height: 1.5; word-break: break-word; white-space: pre-wrap; }
+
+.wb-form {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.wb-input, .wb-select, .wb-textarea {
+  width: 100%;
+  min-width: 0;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  outline: none;
+  font-family: inherit;
+}
+.wb-input:focus, .wb-select:focus, .wb-textarea:focus { border-color: var(--accent); }
+.wb-textarea { resize: vertical; line-height: 1.5; }
+.wb-inline { display: flex; align-items: center; gap: 8px; }
+.wb-inline .wb-select { flex: 1 1 auto; }
+.wb-inline .wb-input.wb-num { flex: 0 0 84px; }
+.wb-label, .wb-unit { font-size: 11px; color: var(--muted); flex: 0 0 auto; }
+.wb-check { display: flex; align-items: center; gap: 6px; font-size: 13px; flex: 0 0 auto; cursor: pointer; }
+.wb-check input[type="checkbox"] {
+  -webkit-appearance: checkbox;
+  appearance: auto;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.wb-form-actions { display: flex; gap: 8px; }
+.wb-form-actions .fetch-btn { flex: 1 1 0; padding: 9px 0; text-align: center; }

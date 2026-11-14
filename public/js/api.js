@@ -32,26 +32,48 @@ function directModelsUrl(baseUrl) {
   return b ? b + '/models' : null;
 }
 
-function directBuildMessages(persona, memory, history, message) {
+function directBuildMessages(persona, memory, history, message, worldBefore, worldAfter, worldDepth) {
   const messages = [];
   const systemParts = [];
+  if (worldBefore && String(worldBefore).trim()) systemParts.push(String(worldBefore).trim());
   if (persona && String(persona).trim()) systemParts.push(String(persona).trim());
+  if (worldAfter && String(worldAfter).trim()) systemParts.push(String(worldAfter).trim());
   if (memory && String(memory).trim()) systemParts.push('【角色长期记忆】\n' + String(memory).trim());
   systemParts.push(DIRECT_FORMAT_INSTRUCTION);
   messages.push({ role: 'system', content: systemParts.join('\n\n') });
+
+  const chats = [];
   if (Array.isArray(history)) {
     history.forEach((m) => {
       if (!m) return;
       const role = m.role === 'assistant' ? 'assistant' : 'user';
       const content = m.content ? String(m.content) : '';
-      if (content.trim()) messages.push({ role, content });
+      if (content.trim()) chats.push({ role, content });
     });
   }
+
+  // 指定注入深度：按「距最新一条消息的条数」插入 system 消息（深度 0 = 紧贴最新消息前）
+  const depthBuckets = new Map();
+  (Array.isArray(worldDepth) ? worldDepth : []).forEach((w) => {
+    if (!w || !String(w.content || '').trim()) return;
+    const d = Math.max(0, Math.floor(Number(w.depth) || 0));
+    let idx = chats.length - d;
+    if (idx < 0) idx = 0;
+    if (idx > chats.length) idx = chats.length;
+    if (!depthBuckets.has(idx)) depthBuckets.set(idx, []);
+    depthBuckets.get(idx).push(String(w.content).trim());
+  });
+  for (let i = 0; i <= chats.length; i++) {
+    const injected = depthBuckets.get(i);
+    if (injected) injected.forEach((content) => messages.push({ role: 'system', content }));
+    if (i < chats.length) messages.push(chats[i]);
+  }
+
   messages.push({ role: 'user', content: String(message) });
   return messages;
 }
 
-async function directChat(baseUrl, apiKey, model, persona, memory, history, message) {
+async function directChat(baseUrl, apiKey, model, persona, memory, history, message, worldBefore, worldAfter, worldDepth) {
   const url = directChatUrl(baseUrl);
   if (!url) return { ok: false, reason: '接口地址不能为空', hints: ['填写服务商提供的 Base URL'] };
   const controller = new AbortController();
@@ -60,7 +82,7 @@ async function directChat(baseUrl, apiKey, model, persona, memory, history, mess
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey },
-      body: JSON.stringify({ model, messages: directBuildMessages(persona, memory, history, message), max_tokens: 1000, stream: false }),
+      body: JSON.stringify({ model, messages: directBuildMessages(persona, memory, history, message, worldBefore, worldAfter, worldDepth), max_tokens: 1000, stream: false }),
       signal: controller.signal,
     });
     const text = await res.text();
@@ -152,7 +174,7 @@ async function requestReply(payload) {
       try { return JSON.parse(text); } catch (_) {}
     }
   } catch (_) { /* 无后端 */ }
-  return directChat(payload.baseUrl, payload.apiKey, payload.model, payload.persona, payload.memory, payload.history, payload.message);
+  return directChat(payload.baseUrl, payload.apiKey, payload.model, payload.persona, payload.memory, payload.history, payload.message, payload.worldBefore, payload.worldAfter, payload.worldDepth);
 }
 
 // 连接测试（走后端 /api/test，无后端则直连）

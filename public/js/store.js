@@ -42,6 +42,52 @@ const MEMORY_CATEGORY_LABELS = {
   style: '风格偏好',
 };
 
+// 世界书注入位置
+const WORLDBOOK_POSITION_LABELS = {
+  before: '角色设定前',
+  after: '角色设定后',
+  depth: '指定深度插入',
+};
+
+// 世界书条目：内容必填；关键词留空 = 无条件触发；概率开关独立于关键词
+function normalizeWorldbookEntry(raw) {
+  if (!raw) return null;
+  const content = String((raw.content !== undefined ? raw.content : raw.text) || '').trim();
+  if (!content) return null;
+
+  let keywords = raw.keywords;
+  if (typeof keywords === 'string') keywords = keywords.split(/[,，、\n]/);
+  if (!Array.isArray(keywords)) keywords = [];
+  keywords = keywords.map((k) => String(k).trim()).filter(Boolean);
+
+  const position = WORLDBOOK_POSITION_LABELS[raw.position] ? raw.position : 'before';
+  let depth = parseInt(raw.depth, 10);
+  if (!Number.isFinite(depth) || depth < 0) depth = 0;
+  let weight = parseFloat(raw.weight);
+  if (!Number.isFinite(weight)) weight = 10;
+  let probability = parseInt(raw.probability, 10);
+  if (!Number.isFinite(probability)) probability = 100;
+  probability = Math.max(0, Math.min(100, probability));
+
+  return {
+    content,
+    keywords,
+    position,
+    depth,
+    weight,
+    probabilityEnabled: !!raw.probabilityEnabled,
+    probability,
+  };
+}
+
+// 从表单/文件文本里拆出关键词（支持中英文逗号、顿号、换行）
+function parseWorldbookKeywords(text) {
+  return String(text || '')
+    .split(/[,，、\n]/)
+    .map((k) => k.trim())
+    .filter(Boolean);
+}
+
 // ---------- AI 接口设置（localStorage） ----------
 function getSettings() {
   return {
@@ -99,6 +145,7 @@ const STORE_FILES = 'files';      // 图片等二进制 Blob，用稳定 id 引�
 const DOC_CHARACTER = 'character';
 const DOC_CHAT = 'chatHistory';
 const DOC_MEMORY = 'memory';
+const DOC_WORLDBOOK = 'worldbook';
 
 let _dbPromise = null;
 
@@ -358,6 +405,66 @@ function formatMemory(entries) {
   return entries.map((e) => '[' + (MEMORY_CATEGORY_LABELS[e.category] || e.category) + '] ' + e.text).join('\n');
 }
 
+// ---------- 世界书（IndexedDB） ----------
+// 条目统一存一个文档，用 scope 区分「全局」与「角色绑定」；角色绑定只匹配当前角色。
+async function getWorldbook() {
+  const doc = await getDoc(DOC_WORLDBOOK);
+  const arr = doc && doc.entries;
+  return Array.isArray(arr) ? arr : [];
+}
+
+function mutateWorldbook(mutator) {
+  return mutateDoc(DOC_WORLDBOOK, (doc) => {
+    if (!Array.isArray(doc.entries)) doc.entries = [];
+    mutator(doc);
+  });
+}
+
+function buildWorldbookRecord(raw, scope) {
+  const e = normalizeWorldbookEntry(raw);
+  if (!e) return null;
+  const now = Date.now();
+  return {
+    id: (raw && raw.id) || genId(),
+    scope: scope === 'character' ? 'character' : 'global',
+    ...e,
+    createdAt: (raw && raw.createdAt) || now,
+    updatedAt: now,
+  };
+}
+
+async function addWorldbookEntry(entry) {
+  const record = buildWorldbookRecord(entry, entry && entry.scope);
+  if (!record) throw new Error('条目内容不能为空');
+  await mutateWorldbook((doc) => doc.entries.push(record));
+  return record;
+}
+
+async function addWorldbookEntries(list) {
+  const records = (Array.isArray(list) ? list : [])
+    .map((x) => buildWorldbookRecord(x, x && x.scope))
+    .filter(Boolean);
+  if (!records.length) return [];
+  await mutateWorldbook((doc) => doc.entries.push(...records));
+  return records;
+}
+
+async function updateWorldbookEntry(id, patch) {
+  await mutateWorldbook((doc) => {
+    const e = doc.entries.find((x) => x.id === id);
+    if (!e) return;
+    const n = normalizeWorldbookEntry({ ...e, ...patch });
+    if (!n) return;
+    Object.assign(e, n, { updatedAt: Date.now() });
+  });
+}
+
+async function deleteWorldbookEntry(id) {
+  await mutateWorldbook((doc) => {
+    doc.entries = doc.entries.filter((x) => x.id !== id);
+  });
+}
+
 // ---------- 备份：构建 / 应用 ----------
 function dataUrlToBlob(dataUrl) {
   const m = /^data:([^;]+);base64,(.*)$/.exec(String(dataUrl || ''));
@@ -386,6 +493,7 @@ async function buildBackup() {
   const charDoc = (await getDoc(DOC_CHARACTER)) || {};
   const chatDoc = (await getDoc(DOC_CHAT)) || {};
   const memDoc = (await getDoc(DOC_MEMORY)) || {};
+  const wbDoc = (await getDoc(DOC_WORLDBOOK)) || {};
   const files = {};
   const avatarId = charDoc.avatarId || null;
   if (avatarId) {
@@ -406,6 +514,9 @@ async function buildBackup() {
     memory: {
       entries: Array.isArray(memDoc.entries) ? memDoc.entries : [],
       lastSummarizedCount: memDoc.lastSummarizedCount || 0,
+    },
+    worldbook: {
+      entries: Array.isArray(wbDoc.entries) ? wbDoc.entries : [],
     },
     files,
   };
@@ -433,6 +544,12 @@ async function applyBackup(data) {
 
   const mem = data.memory || {};
   await putDoc({ id: DOC_MEMORY, entries: Array.isArray(mem.entries) ? mem.entries : [], lastSummarizedCount: mem.lastSummarizedCount || 0 });
+
+  const wb = data.worldbook || {};
+  const wbEntries = (Array.isArray(wb.entries) ? wb.entries : [])
+    .map((x) => buildWorldbookRecord(x, x && x.scope))
+    .filter(Boolean);
+  await putDoc({ id: DOC_WORLDBOOK, entries: wbEntries });
 
   revokeAvatarCache();
 }

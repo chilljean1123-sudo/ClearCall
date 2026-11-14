@@ -6,10 +6,15 @@ let chatSending = false;
 let countdownTick = null;
 let countdownSecRemain = 0;
 let editingMemoryId = null;
+let wbScope = 'global';
+let editingWorldbookId = null;
 
 // 最近聊天直接带上；更早的内容交给记忆总结
 const RECENT_HISTORY_LIMIT = 20;
 const AUTO_SUMMARIZE_MIN_NEW = 20;
+
+// 世界书关键词扫描最近多少条对话
+const WORLDBOOK_SCAN_LIMIT = 6;
 
 // ---- 设置页：读取 / 保存配置 ----
 function loadSaved() {
@@ -114,6 +119,8 @@ function ensureConfigured() {
 async function currentChatPayload(message, priorHistory) {
   const c = await getChar();
   const { entries } = await getMemory();
+  const worldbook = await getWorldbook();
+  const world = buildWorldInfo(worldbook, worldbookScanText(priorHistory, message));
   return {
     baseUrl: $('input-baseurl').value.trim(),
     apiKey: $('input-apikey').value.trim(),
@@ -122,6 +129,9 @@ async function currentChatPayload(message, priorHistory) {
     memory: formatMemory(entries),
     history: Array.isArray(priorHistory) ? priorHistory.slice(-RECENT_HISTORY_LIMIT) : priorHistory,
     message,
+    worldBefore: world.before,
+    worldAfter: world.after,
+    worldDepth: world.depth,
   };
 }
 
@@ -385,6 +395,192 @@ async function autoSummarizeIfNeeded() {
   } catch (_) { /* 自动整理失败静默 */ }
 }
 
+// ---- 世界书：触发判定与提示词组装 ----
+// 关键词是匹配条件；概率是命中之后的独立随机开关。
+function worldbookScanText(priorHistory, message) {
+  const recent = Array.isArray(priorHistory) ? priorHistory.slice(-WORLDBOOK_SCAN_LIMIT) : [];
+  const chatText = recent.map((m) => (m && m.content) ? String(m.content) : '').join('\n');
+  return chatText + '\n' + String(message || '');
+}
+
+function worldbookKeywordHit(entry, text) {
+  const keywords = Array.isArray(entry.keywords) ? entry.keywords.filter((k) => String(k).trim()) : [];
+  if (!keywords.length) return true; // 无关键词 = 无条件触发
+  const hay = String(text || '').toLowerCase();
+  return keywords.some((k) => hay.includes(String(k).toLowerCase()));
+}
+
+function worldbookProbabilityPass(entry) {
+  if (!entry.probabilityEnabled) return true; // 未启用概率 = 命中即生效
+  const p = Number(entry.probability);
+  const percent = Number.isFinite(p) ? Math.max(0, Math.min(100, p)) : 100;
+  return Math.random() * 100 < percent;
+}
+
+// 返回 { before, after, depth: [{ content, depth }] }，已按权重从高到低排列
+function buildWorldInfo(entries, text) {
+  const matched = (Array.isArray(entries) ? entries : [])
+    .filter((e) => e && (e.scope === 'global' || e.scope === 'character'))
+    .filter((e) => String(e.content || '').trim())
+    .filter((e) => worldbookKeywordHit(e, text))
+    .filter((e) => worldbookProbabilityPass(e))
+    .sort((a, b) => (Number(b.weight) || 0) - (Number(a.weight) || 0) || (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0));
+
+  const before = [];
+  const after = [];
+  const depth = [];
+  matched.forEach((e) => {
+    const content = String(e.content).trim();
+    if (e.position === 'after') after.push(content);
+    else if (e.position === 'depth') depth.push({ content, depth: Math.max(0, parseInt(e.depth, 10) || 0) });
+    else before.push(content);
+  });
+  return { before: before.join('\n\n'), after: after.join('\n\n'), depth };
+}
+
+// ---- 世界书应用编排 ----
+async function openWorldbook() {
+  cancelWorldbookForm();
+  await renderWorldbookUI();
+  showView(viewWorldbook);
+}
+
+async function renderWorldbookUI() {
+  const c = await getChar();
+  const entries = await getWorldbook();
+  renderWorldbookTabs([
+    { key: 'global', label: '全局' },
+    { key: 'character', label: c.name || '当前角色' },
+  ], wbScope);
+
+  const list = entries
+    .filter((e) => e.scope === wbScope)
+    .sort((a, b) => (Number(b.weight) || 0) - (Number(a.weight) || 0) || (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0));
+  renderWorldbookList(list);
+}
+
+function switchWorldbookScope(scope) {
+  if (scope !== 'global' && scope !== 'character') return;
+  if (scope === wbScope) return;
+  wbScope = scope;
+  cancelWorldbookForm();
+  renderWorldbookUI();
+}
+
+function openWorldbookAdd() {
+  editingWorldbookId = null;
+  renderWorldbookForm(null);
+}
+
+async function openWorldbookEdit(id) {
+  const entries = await getWorldbook();
+  const e = entries.find((x) => x.id === id);
+  if (!e) return;
+  editingWorldbookId = id;
+  renderWorldbookForm(e);
+}
+
+function cancelWorldbookForm() {
+  editingWorldbookId = null;
+  const box = $('wb-form');
+  box.hidden = true;
+  box.innerHTML = '';
+}
+
+function readWorldbookForm() {
+  const content = $('wb-content').value.trim();
+  if (!content) { toast('条目内容不能为空'); return null; }
+
+  const position = $('wb-position').value;
+  const depth = Math.max(0, parseInt($('wb-depth').value, 10) || 0);
+  let weight = parseFloat($('wb-weight').value);
+  if (!Number.isFinite(weight)) weight = 10;
+  let probability = parseInt($('wb-probability').value, 10);
+  if (!Number.isFinite(probability)) probability = 100;
+  probability = Math.max(0, Math.min(100, probability));
+
+  return {
+    scope: wbScope,
+    content,
+    keywords: parseWorldbookKeywords($('wb-keywords').value),
+    position: WORLDBOOK_POSITION_LABELS[position] ? position : 'before',
+    depth,
+    weight,
+    probabilityEnabled: $('wb-prob-enabled').checked,
+    probability,
+  };
+}
+
+async function saveWorldbookForm() {
+  const data = readWorldbookForm();
+  if (!data) return;
+  try {
+    if (editingWorldbookId) await updateWorldbookEntry(editingWorldbookId, data);
+    else await addWorldbookEntry(data);
+    cancelWorldbookForm();
+    await renderWorldbookUI();
+    toast('条目已保存');
+  } catch (err) {
+    toast('保存失败：' + (err && err.message ? err.message : err));
+  }
+}
+
+async function deleteWorldbookConfirm(id) {
+  try {
+    await deleteWorldbookEntry(id);
+    await renderWorldbookUI();
+    toast('已删除');
+  } catch (err) {
+    toast('删除失败：' + (err && err.message ? err.message : err));
+  }
+}
+
+async function exportWorldbook() {
+  try {
+    const entries = (await getWorldbook()).filter((e) => e.scope === wbScope);
+    if (!entries.length) { toast('当前列表没有条目'); return; }
+    const c = await getChar();
+    const label = wbScope === 'global' ? '全局' : (c.name || '角色');
+    const data = {
+      app: 'clearcall-worldbook',
+      version: 1,
+      scope: wbScope,
+      exportedAt: new Date().toISOString(),
+      entries,
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '世界书-' + label + '-' + new Date().toISOString().slice(0, 10) + '.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast('世界书已导出');
+  } catch (err) {
+    toast('导出失败：' + (err && err.message ? err.message : err));
+  }
+}
+
+async function importWorldbookFile(e) {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  try {
+    const data = JSON.parse(await f.text());
+    const raw = Array.isArray(data) ? data : (data && Array.isArray(data.entries) ? data.entries : null);
+    if (!raw) throw new Error('文件里没有世界书条目');
+    const items = raw.map((x) => Object.assign({}, x, { id: undefined, scope: wbScope }));
+    const added = await addWorldbookEntries(items);
+    if (!added.length) throw new Error('没有有效条目（内容不能为空）');
+    await renderWorldbookUI();
+    toast('已导入 ' + added.length + ' 条');
+  } catch (err) {
+    toast('导入失败：' + (err && err.message ? err.message : err));
+  }
+}
+
 // ===== 事件绑定 =====
 $('tab-select').addEventListener('click', () => setModelMode('select'));
 $('tab-manual').addEventListener('click', () => setModelMode('manual'));
@@ -401,6 +597,8 @@ document.querySelectorAll('.app-icon').forEach((btn) => {
       openChat();
     } else if (app === 'memory') {
       openMemory();
+    } else if (app === 'worldbook') {
+      openWorldbook();
     } else {
       const name = btn.querySelector('.app-name').textContent;
       toast('「' + name + '」功能开发中，请先使用「设置」');
@@ -519,6 +717,13 @@ $('btn-toggle-memory-key').addEventListener('click', () => {
   inp.type = revealing ? 'text' : 'password';
   $('btn-toggle-memory-key').textContent = revealing ? '隐藏' : '显示';
 });
+
+// 世界书应用
+$('btn-wb-back').addEventListener('click', () => showView(viewHome));
+$('btn-wb-add').addEventListener('click', openWorldbookAdd);
+$('btn-wb-export').addEventListener('click', exportWorldbook);
+$('btn-wb-import').addEventListener('click', () => $('file-wb-import').click());
+$('file-wb-import').addEventListener('change', importWorldbookFile);
 
 // 头像
 $('btn-upload-avatar').addEventListener('click', () => $('file-avatar').click());

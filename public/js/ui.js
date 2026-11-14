@@ -8,6 +8,7 @@ const viewHome = $('view-home');
 const viewSettings = $('view-settings');
 const viewChat = $('view-chat');
 const viewMemory = $('view-memory');
+const viewWorldbook = $('view-worldbook');
 const viewCharSettings = $('view-char-settings');
 
 function showView(view) {
@@ -376,6 +377,209 @@ function renderMemoryForm(entry) {
   cancelBtn.className = 'fetch-btn';
   cancelBtn.textContent = '取消';
   cancelBtn.addEventListener('click', cancelMemoryForm);
+  btns.appendChild(saveBtn);
+  btns.appendChild(cancelBtn);
+  box.appendChild(btns);
+}
+
+// ===== 世界书渲染 =====
+function renderWorldbookTabs(scopes, active) {
+  const box = $('wb-tabs');
+  box.innerHTML = '';
+  scopes.forEach((s) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'wb-tab' + (s.key === active ? ' active' : '');
+    btn.textContent = s.label;
+    btn.addEventListener('click', () => switchWorldbookScope(s.key));
+    box.appendChild(btn);
+  });
+}
+
+function wbChip(text, kind) {
+  const span = document.createElement('span');
+  span.className = 'wb-chip' + (kind ? ' ' + kind : '');
+  span.textContent = text;
+  return span;
+}
+
+function worldbookEntryRow(e) {
+  const row = document.createElement('div');
+  row.className = 'wb-item';
+
+  const head = document.createElement('div');
+  head.className = 'wb-item-head';
+  head.appendChild(wbChip('权重 ' + (Number(e.weight) || 0), 'weight'));
+  head.appendChild(wbChip(WORLDBOOK_POSITION_LABELS[e.position] || WORLDBOOK_POSITION_LABELS.before));
+  if (e.position === 'depth') head.appendChild(wbChip('深度 ' + (Number(e.depth) || 0)));
+  if (e.probabilityEnabled) head.appendChild(wbChip('概率 ' + (Number(e.probability) || 0) + '%', 'prob'));
+
+  const actions = document.createElement('span');
+  actions.className = 'wb-item-actions';
+  const editBtn = document.createElement('button');
+  editBtn.type = 'button';
+  editBtn.className = 'memory-link';
+  editBtn.textContent = '编辑';
+  editBtn.addEventListener('click', () => openWorldbookEdit(e.id));
+  const delBtn = document.createElement('button');
+  delBtn.type = 'button';
+  delBtn.className = 'memory-link danger';
+  delBtn.textContent = '删除';
+  delBtn.addEventListener('click', () => deleteWorldbookConfirm(e.id));
+  actions.appendChild(editBtn);
+  actions.appendChild(delBtn);
+  head.appendChild(actions);
+  row.appendChild(head);
+
+  const kw = document.createElement('div');
+  kw.className = 'wb-keywords';
+  const keywords = Array.isArray(e.keywords) ? e.keywords.filter(Boolean) : [];
+  kw.textContent = keywords.length ? '关键词：' + keywords.join(' / ') : '关键词：无（无条件触发）';
+  row.appendChild(kw);
+
+  const text = document.createElement('div');
+  text.className = 'wb-item-text';
+  text.textContent = e.content;
+  row.appendChild(text);
+
+  return row;
+}
+
+function renderWorldbookList(entries) {
+  const list = $('wb-list');
+  list.innerHTML = '';
+  if (!entries.length) {
+    const empty = document.createElement('div');
+    empty.className = 'wb-empty';
+    empty.textContent = '这个列表还没有条目。点「添加条目」新建，或「导入」JSON 文件。';
+    list.appendChild(empty);
+    return;
+  }
+  entries.forEach((e) => list.appendChild(worldbookEntryRow(e)));
+}
+
+// 渲染「新建 / 编辑」表单；entry 为空表示新增
+function renderWorldbookForm(entry) {
+  const box = $('wb-form');
+  box.innerHTML = '';
+  box.hidden = false;
+
+  const title = document.createElement('div');
+  title.className = 'memory-form-title';
+  title.textContent = entry ? '编辑条目' : '新建条目';
+  box.appendChild(title);
+
+  const ta = document.createElement('textarea');
+  ta.id = 'wb-content';
+  ta.className = 'wb-textarea';
+  ta.rows = 4;
+  ta.placeholder = '触发后注入提示词的内容，例如：这个世界里魔法真实存在，法师受雇于公会…';
+  ta.value = (entry && entry.content) || '';
+  box.appendChild(ta);
+
+  const kw = document.createElement('input');
+  kw.id = 'wb-keywords';
+  kw.className = 'wb-input';
+  kw.type = 'text';
+  kw.placeholder = '关键词，用逗号分隔；留空表示无条件触发';
+  kw.value = entry && Array.isArray(entry.keywords) ? entry.keywords.join('，') : '';
+  box.appendChild(kw);
+
+  const posRow = document.createElement('div');
+  posRow.className = 'wb-inline';
+  const pos = document.createElement('select');
+  pos.id = 'wb-position';
+  pos.className = 'wb-select';
+  Object.keys(WORLDBOOK_POSITION_LABELS).forEach((k) => {
+    const o = document.createElement('option');
+    o.value = k;
+    o.textContent = WORLDBOOK_POSITION_LABELS[k];
+    pos.appendChild(o);
+  });
+  pos.value = (entry && entry.position) || 'before';
+  posRow.appendChild(pos);
+
+  const depth = document.createElement('input');
+  depth.id = 'wb-depth';
+  depth.className = 'wb-input wb-num';
+  depth.type = 'number';
+  depth.min = '0';
+  depth.step = '1';
+  depth.placeholder = '深度';
+  depth.value = entry && entry.depth != null ? entry.depth : 0;
+  depth.hidden = pos.value !== 'depth';
+  pos.addEventListener('change', () => { depth.hidden = pos.value !== 'depth'; });
+  posRow.appendChild(depth);
+  box.appendChild(posRow);
+
+  const weightRow = document.createElement('div');
+  weightRow.className = 'wb-inline';
+  const weightLabel = document.createElement('span');
+  weightLabel.className = 'wb-label';
+  weightLabel.textContent = '权重';
+  const weight = document.createElement('input');
+  weight.id = 'wb-weight';
+  weight.className = 'wb-input wb-num';
+  weight.type = 'number';
+  weight.step = '1';
+  weight.value = entry && entry.weight != null ? entry.weight : 10;
+  const weightHint = document.createElement('span');
+  weightHint.className = 'wb-unit';
+  weightHint.textContent = '数字越大越优先';
+  weightRow.appendChild(weightLabel);
+  weightRow.appendChild(weight);
+  weightRow.appendChild(weightHint);
+  box.appendChild(weightRow);
+
+  const probRow = document.createElement('div');
+  probRow.className = 'wb-inline';
+  const probLabel = document.createElement('label');
+  probLabel.className = 'wb-check';
+  const probChk = document.createElement('input');
+  probChk.type = 'checkbox';
+  probChk.id = 'wb-prob-enabled';
+  probChk.checked = !!(entry && entry.probabilityEnabled);
+  const probText = document.createElement('span');
+  probText.textContent = '启用触发概率';
+  probLabel.appendChild(probChk);
+  probLabel.appendChild(probText);
+  probRow.appendChild(probLabel);
+
+  const prob = document.createElement('input');
+  prob.id = 'wb-probability';
+  prob.className = 'wb-input wb-num';
+  prob.type = 'number';
+  prob.min = '0';
+  prob.max = '100';
+  prob.step = '1';
+  prob.value = entry && entry.probability != null ? entry.probability : 100;
+  prob.disabled = !probChk.checked;
+  probChk.addEventListener('change', () => { prob.disabled = !probChk.checked; });
+  probRow.appendChild(prob);
+
+  const unit = document.createElement('span');
+  unit.className = 'wb-unit';
+  unit.textContent = '%';
+  probRow.appendChild(unit);
+  box.appendChild(probRow);
+
+  const depthHint = document.createElement('span');
+  depthHint.className = 'wb-unit';
+  depthHint.textContent = '深度 0 = 紧贴最新消息前；数字越大越靠前。';
+  box.appendChild(depthHint);
+
+  const btns = document.createElement('div');
+  btns.className = 'wb-form-actions';
+  const saveBtn = document.createElement('button');
+  saveBtn.type = 'button';
+  saveBtn.className = 'fetch-btn';
+  saveBtn.textContent = '保存';
+  saveBtn.addEventListener('click', saveWorldbookForm);
+  const cancelBtn = document.createElement('button');
+  cancelBtn.type = 'button';
+  cancelBtn.className = 'fetch-btn';
+  cancelBtn.textContent = '取消';
+  cancelBtn.addEventListener('click', cancelWorldbookForm);
   btns.appendChild(saveBtn);
   btns.appendChild(cancelBtn);
   box.appendChild(btns);
