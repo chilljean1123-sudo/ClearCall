@@ -147,12 +147,14 @@ function charAvatarHTML(avatar, name) {
   return '<span>' + escapeHtml((name || '角').trim().charAt(0) || '角') + '</span>';
 }
 
-function updateAvatarPreview() {
-  $('avatar-preview').innerHTML = charAvatarHTML(getChar().avatar, getChar().name);
+async function updateAvatarPreview() {
+  const c = await getChar();
+  $('avatar-preview').innerHTML = charAvatarHTML(c.avatar, c.name);
 }
 
-function updateChatTitle() {
-  $('chat-title').textContent = getChar().name || '角色聊天';
+async function updateChatTitle() {
+  const c = await getChar();
+  $('chat-title').textContent = c.name || '角色聊天';
 }
 
 function splitReplyIntoBubbles(content) {
@@ -163,7 +165,7 @@ function splitReplyIntoBubbles(content) {
   return s.split('\n').map((p) => p.trim()).filter(Boolean);
 }
 
-function renderMessage(m, index) {
+function renderMessage(m, index, avatar, name) {
   if (m.role === 'user') {
     const row = document.createElement('div');
     row.className = 'msg-row user';
@@ -176,10 +178,10 @@ function renderMessage(m, index) {
 
   const row = document.createElement('div');
   row.className = 'msg-row assistant';
-  const avatar = document.createElement('div');
-  avatar.className = 'msg-avatar';
-  avatar.innerHTML = charAvatarHTML(getChar().avatar, getChar().name);
-  row.appendChild(avatar);
+  const avatarEl = document.createElement('div');
+  avatarEl.className = 'msg-avatar';
+  avatarEl.innerHTML = charAvatarHTML(avatar, name);
+  row.appendChild(avatarEl);
 
   const stack = document.createElement('div');
   stack.className = 'msg-stack';
@@ -210,10 +212,12 @@ function renderMessage(m, index) {
   return row;
 }
 
-function renderChat() {
+async function renderChat() {
   const box = $('chat-messages');
   box.innerHTML = '';
-  getHistory().forEach((m, i) => box.appendChild(renderMessage(m, i)));
+  const history = await getHistory();
+  const c = await getChar();
+  history.forEach((m, i) => box.appendChild(renderMessage(m, i, c.avatar, c.name)));
   scrollChatToBottom();
 }
 
@@ -222,13 +226,14 @@ function scrollChatToBottom() {
   box.scrollTop = box.scrollHeight;
 }
 
-function appendTyping() {
+async function appendTyping() {
+  const c = await getChar();
   const row = document.createElement('div');
   row.className = 'msg-row assistant';
   row.id = 'typing-row';
   const avatar = document.createElement('div');
   avatar.className = 'msg-avatar';
-  avatar.innerHTML = charAvatarHTML(getChar().avatar, getChar().name);
+  avatar.innerHTML = charAvatarHTML(c.avatar, c.name);
   row.appendChild(avatar);
   const bubble = document.createElement('div');
   bubble.className = 'msg-bubble assistant-bubble typing-bubble';
@@ -243,7 +248,7 @@ function removeTyping() {
   if (t) t.remove();
 }
 
-// ===== 头像图片处理 =====
+// ===== 头像图片处理（返回 Blob，交给 store.js 存入 IndexedDB） =====
 function fileToAvatar(file) {
   return new Promise((resolve, reject) => {
     if (!file || !file.type.startsWith('image/')) { reject(new Error('请选择图片文件')); return; }
@@ -263,7 +268,10 @@ function fileToAvatar(file) {
         canvas.width = w;
         canvas.height = h;
         canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL('image/jpeg', 0.85));
+        canvas.toBlob((blob) => {
+          if (blob) resolve(blob);
+          else reject(new Error('图片处理失败'));
+        }, 'image/jpeg', 0.85);
       };
       img.onerror = () => reject(new Error('图片读取失败'));
       img.src = reader.result;

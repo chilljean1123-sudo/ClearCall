@@ -520,6 +520,10 @@ body {
 }
 .generate-btn:disabled { opacity: 0.5; cursor: default; }
 
+/* ===== 备份与恢复 ===== */
+.backup-row { display: flex; gap: 8px; }
+.backup-row .fetch-btn { flex: 1 1 auto; padding: 10px 0; text-align: center; }
+
 /* ===== 回复触发模式设置 ===== */
 .divider { height: 1px; background: var(--card-border); margin: 18px 0; }
 

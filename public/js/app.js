@@ -1,6 +1,6 @@
 // ===== 编排层 / 入口 =====
 // 串联 store.js（存取数据）、api.js（调用模型）、ui.js（界面渲染）。
-// 负责聊天状态机、回复触发模式、以及所有事件绑定。
+// 负责聊天状态机、回复触发模式、备份导入导出、以及所有事件绑定。
 
 let chatSending = false;
 let countdownTick = null;
@@ -26,19 +26,21 @@ function save() {
 }
 
 // ---- 角色：读取 / 保存 ----
-function loadCharConfig() {
-  const c = getChar();
+async function loadCharConfig() {
+  const c = await getChar();
   $('input-char-name').value = c.name;
   $('input-char-persona').value = c.persona;
-  updateAvatarPreview();
-  updateChatTitle();
+  await updateAvatarPreview();
+  await updateChatTitle();
 }
 
-function saveCharConfig() {
-  setCharName($('input-char-name').value.trim());
-  setCharPersona($('input-char-persona').value.trim());
-  updateAvatarPreview();
-  updateChatTitle();
+async function saveCharConfig() {
+  await setChar({
+    name: $('input-char-name').value.trim(),
+    persona: $('input-char-persona').value.trim(),
+  });
+  await updateAvatarPreview();
+  await updateChatTitle();
 }
 
 function loadTriggerSettings() {
@@ -58,21 +60,21 @@ function saveTriggerSettings() {
   });
 }
 
-function openChat() {
-  loadCharConfig();
-  renderChat();
+async function openChat() {
+  await loadCharConfig();
+  await renderChat();
   showView(viewChat);
 }
 
-function openCharSettings() {
-  loadCharConfig();
+async function openCharSettings() {
+  await loadCharConfig();
   loadTriggerSettings();
   showView(viewCharSettings);
 }
 
 // ---- 聊天编排 ----
-function getPending() {
-  const h = getHistory();
+async function getPending() {
+  const h = await getHistory();
   let i = h.length - 1;
   while (i >= 0 && h[i].role === 'user') i--;
   return h.slice(i + 1);
@@ -95,12 +97,13 @@ function ensureConfigured() {
   return true;
 }
 
-function currentChatPayload(message, priorHistory) {
+async function currentChatPayload(message, priorHistory) {
+  const c = await getChar();
   return {
     baseUrl: $('input-baseurl').value.trim(),
     apiKey: $('input-apikey').value.trim(),
     model: getCurrentModel(),
-    persona: getChar().persona,
+    persona: c.persona,
     history: priorHistory,
     message,
   };
@@ -111,10 +114,11 @@ function setChatSending(sending) {
   updateGenerateButton();
 }
 
-function updateGenerateButton() {
+async function updateGenerateButton() {
   const btn = $('btn-batch-send');
   const m = getTriggerModes();
-  const show = m.batch && !isInstantMode() && getPending().length > 0 && !chatSending;
+  const pending = await getPending();
+  const show = m.batch && !isInstantMode() && pending.length > 0 && !chatSending;
   btn.hidden = !show;
   btn.disabled = chatSending;
 }
@@ -138,61 +142,63 @@ function startCountdown() {
 }
 
 // 倒计时只在「有待回复消息 + 无草稿 + 退出输入状态」时启动
-function maybeStartCountdown() {
+async function maybeStartCountdown() {
   const m = getTriggerModes();
-  if (chatSending) return;                 // 请求锁
-  if (m.instant) return;                   // 即时优先
+  if (chatSending) return;
+  if (m.instant) return;
   if (!m.countdown) return;
-  if (getPending().length === 0) return;
-  if ($('input-chat').value.trim() !== '') return; // 还有草稿
-  if (document.activeElement === $('input-chat')) return; // 仍在输入状态
+  const pending = await getPending();
+  if (pending.length === 0) return;
+  if ($('input-chat').value.trim() !== '') return;
+  if (document.activeElement === $('input-chat')) return;
   startCountdown();
 }
 
-function afterFlush() {
-  if (getPending().length === 0) { updateGenerateButton(); return; }
+async function afterFlush() {
+  const pending = await getPending();
+  if (pending.length === 0) { await updateGenerateButton(); return; }
   if (isInstantMode()) flushQueue();
-  else if (getTriggerModes().countdown) maybeStartCountdown();
-  else updateGenerateButton(); // 等手动「生成回复」
+  else if (getTriggerModes().countdown) await maybeStartCountdown();
+  else await updateGenerateButton();
 }
 
 // 提交：消息立刻上屏，并按模式决定何时请求 AI
-function submitMessage(text) {
+async function submitMessage(text) {
   const msg = (text || '').trim();
   if (!msg) return;
 
-  const history = getHistory();
-  history.push({ role: 'user', content: msg });
-  setHistory(history);
-  renderChat();
+  await mutateHistory((arr) => arr.push({ role: 'user', content: msg }));
+  await renderChat();
   $('input-chat').value = '';
-  updateGenerateButton();
+  await updateGenerateButton();
 
   if (isInstantMode()) {
     flushQueue();
   } else if (getTriggerModes().countdown) {
-    maybeStartCountdown();
+    await maybeStartCountdown();
   }
   // 攒消息手动触发：等待点「生成回复」
 }
 
 // 触发：把待回复的用户消息合并成一条请求 AI（请求锁防重复调用）
 async function flushQueue() {
-  if (chatSending) return;         // 请求锁：已有请求在飞
-  const history = getHistory();
-  const pending = getPending();
+  if (chatSending) return;
+  const history = await getHistory();
+  let i = history.length - 1;
+  while (i >= 0 && history[i].role === 'user') i--;
+  const pending = history.slice(i + 1);
   if (pending.length === 0) return;
-  if (!ensureConfigured()) return; // 配置缺失，消息保持待回复
+  if (!ensureConfigured()) return;
 
   clearCountdown();
 
   const combined = pending.map((m) => m.content).join('\n');
   const priorHistory = history.slice(0, history.length - pending.length);
   const baseIndex = history.length; // 回复要插在 pending 之后
-  const payload = currentChatPayload(combined, priorHistory);
+  const payload = await currentChatPayload(combined, priorHistory);
 
   setChatSending(true);
-  appendTyping();
+  await appendTyping();
 
   let result;
   try {
@@ -202,20 +208,18 @@ async function flushQueue() {
   }
 
   removeTyping();
-  const current = getHistory();
   const replyMsg = (result && result.ok)
     ? { role: 'assistant', content: result.reply }
     : { role: 'assistant', content: '', error: true };
-  current.splice(baseIndex, 0, replyMsg); // 插到这批消息之后、期间新消息之前
-  setHistory(current);
-  renderChat();
+  await mutateHistory((arr) => arr.splice(baseIndex, 0, replyMsg)); // 插到这批消息之后、期间新消息之前
+  await renderChat();
   setChatSending(false);
-  afterFlush();
+  await afterFlush();
 }
 
 async function retryReply(index) {
   if (chatSending) return;
-  const history = getHistory();
+  const history = await getHistory();
   if (index <= 0 || !history[index] || history[index].role !== 'assistant' || !history[index].error) return;
 
   // 找到这次失败回复对应的连续用户消息（紧邻 index 之前的 user 串）
@@ -225,10 +229,10 @@ async function retryReply(index) {
   if (start >= index) return;
 
   const combined = history.slice(start, index).map((m) => m.content).join('\n');
-  const payload = currentChatPayload(combined, history.slice(0, start));
+  const payload = await currentChatPayload(combined, history.slice(0, start));
 
   setChatSending(true);
-  appendTyping();
+  await appendTyping();
 
   let result;
   try {
@@ -238,12 +242,13 @@ async function retryReply(index) {
   }
 
   removeTyping();
-  const current = getHistory();
-  current[index] = (result && result.ok)
+  const replyMsg = (result && result.ok)
     ? { role: 'assistant', content: result.reply }
     : { role: 'assistant', content: '', error: true };
-  setHistory(current);
-  renderChat();
+  await mutateHistory((arr) => {
+    if (arr[index] && arr[index].role === 'assistant') arr[index] = replyMsg;
+  });
+  await renderChat();
   setChatSending(false);
 }
 
@@ -376,16 +381,58 @@ $('file-avatar').addEventListener('change', async (e) => {
   e.target.value = '';
   if (!f) return;
   try {
-    const url = await fileToAvatar(f);
-    setCharAvatar(url);
-    updateAvatarPreview();
+    const blob = await fileToAvatar(f);
+    await setCharAvatarBlob(blob, 'image/jpeg', f.name);
+    await updateAvatarPreview();
+    toast('头像已保存');
   } catch (err) {
-    toast(err && err.message ? err.message : '头像上传失败');
+    toast(err && err.message ? err.message : '头像保存失败');
   }
 });
-$('btn-clear-avatar').addEventListener('click', () => {
-  clearCharAvatar();
-  updateAvatarPreview();
+$('btn-clear-avatar').addEventListener('click', async () => {
+  try {
+    await clearCharAvatar();
+    await updateAvatarPreview();
+  } catch (err) {
+    toast(err && err.message ? err.message : '清除头像失败');
+  }
+});
+
+// 备份：导出 / 导入
+$('btn-export').addEventListener('click', async () => {
+  try {
+    const backup = await buildBackup();
+    const json = JSON.stringify(backup, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'clearcall-备份-' + new Date().toISOString().slice(0, 10) + '.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast('备份已导出');
+  } catch (err) {
+    toast('导出失败：' + (err && err.message ? err.message : err));
+  }
+});
+
+$('btn-import').addEventListener('click', () => $('file-import').click());
+$('file-import').addEventListener('change', async (e) => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  try {
+    const text = await f.text();
+    const data = JSON.parse(text);
+    await applyBackup(data);
+    loadSaved();
+    await loadCharConfig();
+    toast('备份已导入');
+  } catch (err) {
+    toast('导入失败：' + (err && err.message ? err.message : err));
+  }
 });
 
 // 聊天输入
@@ -407,3 +454,14 @@ $('chk-instant').addEventListener('change', saveTriggerSettings);
 $('chk-batch').addEventListener('change', saveTriggerSettings);
 $('chk-countdown').addEventListener('change', saveTriggerSettings);
 $('input-countdown-sec').addEventListener('input', saveTriggerSettings);
+
+// 启动：迁移旧数据 → 读取界面
+(async function init() {
+  try {
+    await migrate();
+  } catch (err) {
+    toast('旧数据迁移失败：' + (err && err.message ? err.message : err));
+  }
+  loadSaved();
+  try { await loadCharConfig(); } catch (_) {}
+})();
