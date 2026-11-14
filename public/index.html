@@ -287,6 +287,49 @@
         <input type="file" id="file-sticker-import" accept=".txt,.docx,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden />
       </div>
 
+      <!-- 电话：选择角色 -->
+      <div class="app-view" id="view-call-picker">
+        <header class="app-header">
+          <button class="back-btn" id="btn-call-picker-back" type="button">返回</button>
+          <span class="app-title">电话</span>
+          <span class="app-header-spacer"></span>
+        </header>
+        <div class="call-picker-body">
+          <p class="call-picker-note">选择一位角色拨打电话。通话中发送一条消息就会立即收到回复。</p>
+          <div class="call-picker-list" id="call-picker-list"></div>
+        </div>
+      </div>
+
+      <!-- 电话：通话中 -->
+      <div class="app-view" id="view-call">
+        <div class="call-bg" aria-hidden="true">
+          <span class="call-ripple r1"></span>
+          <span class="call-ripple r2"></span>
+          <span class="call-ripple r3"></span>
+        </div>
+
+        <div class="call-top">
+          <div class="call-status" id="call-status">正在通话</div>
+          <div class="call-timer" id="call-timer">00:00</div>
+        </div>
+
+        <div class="call-avatar-wrap">
+          <div class="call-avatar" id="call-avatar"></div>
+        </div>
+        <div class="call-name" id="call-name">角色</div>
+
+        <div class="call-messages" id="call-messages"></div>
+
+        <div class="call-inputbar">
+          <button type="button" class="call-redial-btn" id="btn-call-redial" title="重新生成上一轮回复（重 roll）">重拨</button>
+          <input id="input-call" type="text" placeholder="说点什么…" autocomplete="off" />
+          <button type="button" class="call-send-btn" id="btn-call-send">发送</button>
+          <button type="button" class="call-hangup-btn" id="btn-call-hangup" title="挂断" aria-label="挂断">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+          </button>
+        </div>
+      </div>
+
       <!-- 角色应用 -->
       <div class="app-view" id="view-characters">
         <header class="app-header">

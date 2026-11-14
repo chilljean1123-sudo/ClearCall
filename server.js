@@ -73,6 +73,31 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // 语音合成接口（返回音频流，不返回 JSON）
+  if (req.method === 'POST' && url.pathname === '/api/tts') {
+    const payload = await ai.readJsonBody(req, 1e6);
+    const result = await ai.speech({
+      baseUrl: payload.baseUrl,
+      apiKey: payload.apiKey,
+      model: payload.model,
+      voice: payload.voice,
+      input: payload.input,
+    });
+    if (!result.ok) {
+      console.log('[api/tts]', 'failed', result.status || '', result.reason || '');
+      ai.sendJson(res, result);
+      return;
+    }
+    console.log('[api/tts]', 'success', result.buffer.length + ' bytes');
+    res.writeHead(200, {
+      'Content-Type': result.contentType,
+      'Content-Length': result.buffer.length,
+      'Cache-Control': 'no-store',
+    });
+    res.end(result.buffer);
+    return;
+  }
+
   // 静态文件
   let pathname = url.pathname;
   if (pathname === '/') pathname = '/index.html';

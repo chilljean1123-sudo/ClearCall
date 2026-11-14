@@ -8,6 +8,15 @@ let countdownSecRemain = 0;
 let editingMemoryId = null;
 let wbScope = 'global';
 let editingWorldbookId = null;
+
+// 通话状态
+let callActive = false;
+let callCharacterId = null;
+let callStartedAt = 0;
+let callTimer = null;
+let callAudio = null;
+let callAudioUrl = '';
+let callSpeechSeq = 0;
 let editingCharacterId = null;
 let charactersReturnTo = 'home';
 let pendingAvatar = null;      // 新建角色时先暂存头像，保存角色后再落库
@@ -263,6 +272,201 @@ async function openChat() {
   showView(viewChat);
 }
 
+// ---- 电话编排 ----
+async function openCallPicker() {
+  clearCountdown();
+  await renderCallPicker();
+  showView(viewCallPicker);
+}
+
+async function startCall(characterId) {
+  if (chatSending) { toast('对方正在回复，稍等再拨'); return; }
+  const c = await getCharacter(characterId);
+  if (!c) { toast('角色不存在'); return; }
+
+  await setActiveCharacter(characterId);
+  clearCountdown();
+  stopCallAudio();
+  callActive = true;
+  callCharacterId = characterId;
+  callStartedAt = Date.now();
+  if (callTimer) clearInterval(callTimer);
+  setCallTimer(0);
+  callTimer = setInterval(() => {
+    setCallTimer(Math.floor((Date.now() - callStartedAt) / 1000));
+  }, 1000);
+
+  $('input-call').value = '';
+  await updateCallScreen(c);
+  setCallStatus(c.voice && c.voice.enabled ? '正在通话 · 语音已开启' : '正在通话');
+  showView(viewCall);
+}
+
+function endCall() {
+  callActive = false;
+  callCharacterId = null;
+  if (callTimer) { clearInterval(callTimer); callTimer = null; }
+  setCallTimer(0);
+  setCallStatus('正在通话');
+  stopCallAudio();
+  showView(viewHome);
+}
+
+async function sendCallMessage() {
+  const input = $('input-call');
+  const msg = input.value.trim();
+  if (!msg) return;
+  if (chatSending) { toast('对方正在回复…'); return; }
+  const characterId = await getActiveCharacterId();
+  if (!characterId) return;
+
+  stopCallAudio();
+  await mutateHistory((arr) => arr.push({ role: 'user', content: msg }), characterId);
+  input.value = '';
+  await renderCallMessages();
+  // 通话模式忽略触发设置：发一条就立即请求回复
+  await flushQueue();
+}
+
+async function redialCall() {
+  if (chatSending) { toast('对方正在回复…'); return; }
+  if (!ensureConfigured()) return;
+  const characterId = await getActiveCharacterId();
+  if (!characterId) return;
+  const history = await getHistory(characterId);
+  if (!history.length) { toast('还没有可以重拨的对话'); return; }
+
+  if (history[history.length - 1].role === 'assistant') {
+    const before = history.length - 2;
+    let j = before;
+    while (j >= 0 && history[j].role === 'user') j--;
+    if (j === before) { toast('没有可以重新生成的消息'); return; }
+    await mutateHistory((arr) => {
+      if (arr.length && arr[arr.length - 1].role === 'assistant') arr.pop();
+    }, characterId);
+  }
+  const pending = await getPending();
+  if (!pending.length) { toast('没有可以重新生成的消息'); return; }
+
+  stopCallAudio();
+  await renderCallMessages();
+  await flushQueue();
+}
+
+function callSpeechText(content) {
+  return String(content || '')
+    .replace(/\[\[sticker:[^\]]+\]\]/gi, '')
+    .replace(/<split>/gi, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+async function playCallSpeech(character, text, index, manual) {
+  const clean = callSpeechText(text);
+  if (!clean) {
+    if (manual) toast('这条回复没有可朗读的文字');
+    return;
+  }
+
+  const v = getVoiceSettings();
+  const baseUrl = v.baseUrl || getSettings().baseUrl;
+  const apiKey = v.apiKey || getSettings().apiKey;
+  const model = (character.voice && character.voice.model) || v.model || 'tts-1';
+  const voice = (character.voice && character.voice.voiceId) || v.voice || 'alloy';
+
+  if (!baseUrl || !apiKey) {
+    setCallVoiceButtonState(index, 'failed');
+    if (manual) toast('请先在「设置 → 语音服务」填写接口地址和 Key');
+    return;
+  }
+
+  stopCallAudio();
+  const seq = callSpeechSeq;
+  setCallVoiceButtonState(index, 'loading');
+  let result;
+  try {
+    result = await requestSpeech({ baseUrl, apiKey, model, voice, input: clean.slice(0, 2000) });
+  } catch (err) {
+    result = { ok: false, reason: err && err.message ? err.message : '语音请求失败' };
+  }
+  if (seq !== callSpeechSeq) return; // 期间挂断或开始了新的朗读
+
+  if (!result || !result.ok) {
+    setCallVoiceButtonState(index, 'failed');
+    if (manual) toast('语音播放失败：' + ((result && result.reason) || '未知错误'));
+    return;
+  }
+
+  playCallBlob(result.blob, index);
+}
+
+function playCallBlob(blob, index) {
+  stopCallAudio();
+  let url = '';
+  try {
+    url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    callAudio = audio;
+    callAudioUrl = url;
+    audio.addEventListener('ended', () => {
+      if (callAudio === audio) {
+        callAudio = null;
+        callAudioUrl = '';
+        URL.revokeObjectURL(url);
+        setCallVoiceButtonState(index, 'idle');
+      }
+    });
+    audio.addEventListener('error', () => {
+      if (callAudio === audio) {
+        callAudio = null;
+        callAudioUrl = '';
+        URL.revokeObjectURL(url);
+        setCallVoiceButtonState(index, 'failed');
+      }
+    });
+    setCallVoiceButtonState(index, 'playing');
+    const p = audio.play();
+    if (p && typeof p.catch === 'function') {
+      p.catch(() => setCallVoiceButtonState(index, 'blocked'));
+    }
+  } catch (_) {
+    if (url) URL.revokeObjectURL(url);
+    callAudio = null;
+    callAudioUrl = '';
+    setCallVoiceButtonState(index, 'failed');
+  }
+}
+
+function stopCallAudio() {
+  callSpeechSeq += 1;
+  if (callAudio) {
+    try { callAudio.pause(); } catch (_) {}
+    callAudio = null;
+  }
+  if (callAudioUrl) {
+    try { URL.revokeObjectURL(callAudioUrl); } catch (_) {}
+    callAudioUrl = '';
+  }
+  resetCallVoiceButtons();
+}
+
+async function speakCallMessage(index) {
+  const c = await getCharacter(callCharacterId || undefined);
+  if (!c) return;
+  if (!c.voice || !c.voice.enabled) { toast('该角色还没有开启语音'); return; }
+  const history = await getHistory();
+  const m = history[index];
+  if (!m || m.role !== 'assistant' || m.error) return;
+  await playCallSpeech(c, m.content, index, true);
+}
+
+async function autoPlayCallReply(reply, index) {
+  if (!callActive || !callCharacterId) return;
+  const c = await getCharacter(callCharacterId);
+  if (!c || !c.voice || !c.voice.enabled) return;
+  await playCallSpeech(c, reply, index, false);
+}
+
 // ---- 聊天编排 ----
 async function getPending() {
   const h = await getHistory();
@@ -365,6 +569,7 @@ function startCountdown() {
 // 倒计时只在「有待回复消息 + 无草稿 + 退出输入状态」时启动
 async function maybeStartCountdown() {
   const m = getTriggerModes();
+  if (callActive) return;
   if (chatSending) return;
   if (m.instant) return;
   if (!m.countdown) return;
@@ -427,7 +632,9 @@ async function flushQueue() {
   const payload = await currentChatPayload(combined, priorHistory, characterId);
 
   setChatSending(true);
-  await appendTyping();
+  const inCall = callActive && callCharacterId === characterId;
+  if (inCall) await appendCallTyping();
+  else await appendTyping();
 
   let result;
   try {
@@ -453,6 +660,10 @@ async function flushQueue() {
     if ((await getActiveCharacterId()) === characterId) {
       await refreshDirectiveChip();
       await renderChat();
+      if (callActive && callCharacterId === characterId) await renderCallMessages();
+    }
+    if (result && result.ok && callActive && callCharacterId === characterId) {
+      autoPlayCallReply(result.reply, baseIndex).catch(() => {});
     }
   }
   setChatSending(false);
@@ -1109,6 +1320,8 @@ document.querySelectorAll('.app-icon').forEach((btn) => {
       showView(viewSettings);
     } else if (app === 'chat') {
       openChat();
+    } else if (app === 'phone') {
+      openCallPicker();
     } else if (app === 'characters') {
       openCharacters('home');
     } else if (app === 'memory') {
@@ -1325,6 +1538,19 @@ $('input-chat').addEventListener('keydown', (e) => {
   }
 });
 $('btn-batch-send').addEventListener('click', () => flushQueue());
+
+// ---- 电话事件 ----
+$('btn-call-picker-back').addEventListener('click', () => showView(viewHome));
+$('btn-call-hangup').addEventListener('click', endCall);
+$('btn-call-send').addEventListener('click', sendCallMessage);
+$('input-call').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendCallMessage();
+  }
+});
+$('btn-call-redial').addEventListener('click', redialCall);
+
 $('btn-chat-plus').addEventListener('click', () => openChatSheet('menu'));
 $('btn-chat-sheet-close').addEventListener('click', closeChatSheet);
 $('chat-sheet-backdrop').addEventListener('click', closeChatSheet);

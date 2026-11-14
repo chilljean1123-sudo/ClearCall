@@ -275,6 +275,79 @@ async function directSummarizeMemory(baseUrl, apiKey, model, content, existing) 
   }
 }
 
+// 语音合成（走后端 /api/tts，无后端则直连；返回音频 Blob）
+function directSpeechUrl(baseUrl) {
+  const b = directNormalizeBase(baseUrl);
+  return b ? b + '/audio/speech' : null;
+}
+
+async function directSpeech(payload) {
+  const url = directSpeechUrl(payload.baseUrl);
+  if (!url) return { ok: false, reason: '语音接口地址不能为空', hints: ['到「设置 → 语音服务」填写接口地址'] };
+  if (!payload.apiKey) return { ok: false, reason: '语音服务 API Key 不能为空', hints: ['到「设置 → 语音服务」粘贴 Key'] };
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DIRECT_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + payload.apiKey },
+      body: JSON.stringify({
+        model: payload.model || 'tts-1',
+        voice: payload.voice || 'alloy',
+        input: String(payload.input || '').slice(0, 4000),
+        response_format: 'mp3',
+      }),
+      signal: controller.signal,
+    });
+    const contentType = res.headers.get('content-type') || '';
+    if (res.ok && contentType.startsWith('audio/')) {
+      return { ok: true, status: res.status, blob: await res.blob() };
+    }
+    const text = await res.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch (_) { data = null; }
+    const errMsg = (data && (data.error && (data.error.message || data.error.code))) || (data && data.message) || text || ('HTTP ' + res.status);
+    return {
+      ok: false,
+      status: res.status,
+      reason: '语音服务返回错误（HTTP ' + res.status + '）',
+      message: String(errMsg).slice(0, 500),
+      hints: ['检查语音接口地址、Key、模型名和音色是否正确'],
+    };
+  } catch (err) {
+    if (err && err.name === 'AbortError') return { ok: false, reason: '语音合成超时（30 秒未响应）', hints: ['稍后重试'] };
+    return {
+      ok: false,
+      reason: '直连语音服务失败（可能是浏览器跨域 CORS 被拦截）：' + (err && err.message ? err.message : err),
+      hints: ['纯静态托管需要语音服务允许浏览器跨域', '建议改用 Vercel 部署（自带代理）'],
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function requestSpeech(payload) {
+  try {
+    const res = await fetch('/api/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const contentType = res.headers.get('content-type') || '';
+    if (res.ok && contentType.startsWith('audio/')) {
+      return { ok: true, status: res.status, blob: await res.blob() };
+    }
+    if (contentType.includes('application/json')) {
+      try {
+        const data = await res.json();
+        if (data && data.ok === false) return data;
+      } catch (_) { /* 继续直连 */ }
+    }
+  } catch (_) { /* 无后端 */ }
+  return directSpeech(payload);
+}
+
 // 记忆整理（走后端 /api/memory，无后端则直连）
 async function requestMemorySummary(payload) {
   try {

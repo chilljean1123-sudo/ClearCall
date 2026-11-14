@@ -10,6 +10,8 @@ const viewChat = $('view-chat');
 const viewMemory = $('view-memory');
 const viewWorldbook = $('view-worldbook');
 const viewCharacters = $('view-characters');
+const viewCallPicker = $('view-call-picker');
+const viewCall = $('view-call');
 
 function showView(view) {
   document.querySelectorAll('.app-view').forEach((el) => el.classList.remove('active'));
@@ -316,12 +318,25 @@ function renderMessage(m, index, avatar, name, ctx) {
     });
   }
 
+  if (ctx && ctx.call && ctx.voiceEnabled && !m.error) {
+    const voice = document.createElement('button');
+    voice.type = 'button';
+    voice.className = 'call-voice-btn';
+    voice.dataset.speakIndex = String(index);
+    voice.textContent = '收听语音';
+    voice.addEventListener('click', () => {
+      if (typeof speakCallMessage === 'function') speakCallMessage(index);
+    });
+    stack.appendChild(voice);
+  }
+
   row.appendChild(stack);
   return row;
 }
 
-async function renderChat() {
-  const box = $('chat-messages');
+async function renderMessagesInto(boxId, options) {
+  const box = $(boxId);
+  if (!box) return;
   box.innerHTML = '';
   const history = await getHistory();
   const c = await getChar();
@@ -333,20 +348,40 @@ async function renderChat() {
       if (url) imageUrls[m.imageId] = url;
     }
   }
-  history.forEach((m, i) => box.appendChild(renderMessage(m, i, c.avatar, c.name, { stickers, imageUrls })));
-  scrollChatToBottom();
-}
-
-function scrollChatToBottom() {
-  const box = $('chat-messages');
+  const limit = (options && options.limit) || 0;
+  const start = limit > 0 ? Math.max(0, history.length - limit) : 0;
+  if (!history.length && options && options.call) {
+    const tip = document.createElement('div');
+    tip.className = 'call-empty';
+    tip.textContent = '拨通了，说点什么吧';
+    box.appendChild(tip);
+    return;
+  }
+  const ctx = {
+    stickers,
+    imageUrls,
+    call: !!(options && options.call),
+    voiceEnabled: !!(c.voice && c.voice.enabled),
+  };
+  for (let i = start; i < history.length; i++) {
+    box.appendChild(renderMessage(history[i], i, c.avatar, c.name, ctx));
+  }
   box.scrollTop = box.scrollHeight;
 }
 
-async function appendTyping() {
+async function renderChat() {
+  await renderMessagesInto('chat-messages', {});
+}
+
+async function renderCallMessages() {
+  await renderMessagesInto('call-messages', { limit: 30, call: true });
+}
+
+async function appendTypingTo(boxId, rowId) {
   const c = await getChar();
   const row = document.createElement('div');
   row.className = 'msg-row assistant';
-  row.id = 'typing-row';
+  row.id = rowId;
   const avatar = document.createElement('div');
   avatar.className = 'msg-avatar';
   avatar.innerHTML = charAvatarHTML(c.avatar, c.name);
@@ -355,13 +390,122 @@ async function appendTyping() {
   bubble.className = 'msg-bubble assistant-bubble typing-bubble';
   bubble.textContent = '正在回复…';
   row.appendChild(bubble);
-  $('chat-messages').appendChild(row);
-  scrollChatToBottom();
+  const box = $(boxId);
+  if (!box) return;
+  box.appendChild(row);
+  box.scrollTop = box.scrollHeight;
+}
+
+async function appendTyping() {
+  await appendTypingTo('chat-messages', 'typing-row');
+}
+
+async function appendCallTyping() {
+  await appendTypingTo('call-messages', 'call-typing-row');
 }
 
 function removeTyping() {
-  const t = document.getElementById('typing-row');
-  if (t) t.remove();
+  ['typing-row', 'call-typing-row'].forEach((id) => {
+    const t = document.getElementById(id);
+    if (t) t.remove();
+  });
+}
+
+// ===== 电话应用 =====
+async function renderCallPicker() {
+  const box = $('call-picker-list');
+  box.innerHTML = '';
+  const { list, activeId } = await getCharacters();
+  if (!list.length) {
+    const empty = document.createElement('div');
+    empty.className = 'call-picker-empty';
+    empty.textContent = '还没有角色，先去「角色」应用创建一个吧';
+    box.appendChild(empty);
+    return;
+  }
+
+  const rows = await Promise.all(list.map(async (c) => ({ c, avatar: await getAvatarUrlById(c.avatarId) })));
+  rows.forEach(({ c, avatar }) => {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'call-pick-row';
+
+    const av = document.createElement('div');
+    av.className = 'call-pick-avatar';
+    av.innerHTML = charAvatarHTML(avatar, c.name);
+    row.appendChild(av);
+
+    const main = document.createElement('div');
+    main.className = 'call-pick-main';
+    const name = document.createElement('div');
+    name.className = 'call-pick-name';
+    name.textContent = (c.name || '未命名角色') + (c.id === activeId ? ' · 当前' : '');
+    main.appendChild(name);
+    const meta = document.createElement('div');
+    meta.className = 'call-pick-meta';
+    meta.textContent = (c.voice && c.voice.enabled)
+      ? '语音已开启 · ' + (c.voice.voiceId || '默认音色')
+      : '未绑定语音';
+    main.appendChild(meta);
+    row.appendChild(main);
+
+    const action = document.createElement('span');
+    action.className = 'call-pick-action';
+    action.textContent = '拨打';
+    row.appendChild(action);
+
+    row.addEventListener('click', () => {
+      if (typeof startCall === 'function') startCall(c.id);
+    });
+    box.appendChild(row);
+  });
+}
+
+async function updateCallScreen(c) {
+  const avatar = await getAvatarUrlById(c.avatarId);
+  $('call-name').textContent = c.name || '角色';
+  $('call-avatar').innerHTML = charAvatarHTML(avatar, c.name);
+  await renderCallMessages();
+}
+
+function setCallStatus(text) {
+  $('call-status').textContent = text;
+}
+
+function formatCallDuration(seconds) {
+  const s = Math.max(0, Math.floor(seconds || 0));
+  const mm = String(Math.floor(s / 60)).padStart(2, '0');
+  const ss = String(s % 60).padStart(2, '0');
+  return mm + ':' + ss;
+}
+
+function setCallTimer(seconds) {
+  $('call-timer').textContent = formatCallDuration(seconds);
+}
+
+const CALL_VOICE_LABELS = {
+  idle: '收听语音',
+  loading: '语音生成中…',
+  playing: '播放中…',
+  blocked: '点按播放',
+  failed: '重试语音',
+};
+
+function setCallVoiceButtonState(index, state) {
+  const btn = document.querySelector('#call-messages .call-voice-btn[data-speak-index="' + index + '"]');
+  if (!btn) return;
+  btn.classList.toggle('loading', state === 'loading');
+  btn.classList.toggle('playing', state === 'playing');
+  btn.disabled = state === 'loading';
+  btn.textContent = CALL_VOICE_LABELS[state] || CALL_VOICE_LABELS.idle;
+}
+
+function resetCallVoiceButtons() {
+  document.querySelectorAll('#call-messages .call-voice-btn').forEach((btn) => {
+    btn.classList.remove('loading', 'playing');
+    btn.disabled = false;
+    btn.textContent = CALL_VOICE_LABELS.idle;
+  });
 }
 
 // ===== 聊天功能抽屉：菜单 + 位置 / 图片 / 表情 / 转账 / 系统指令 =====
