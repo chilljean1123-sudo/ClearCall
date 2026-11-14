@@ -259,10 +259,32 @@
 
         <button type="button" class="generate-btn" id="btn-batch-send" hidden>生成回复</button>
 
+        <div class="directive-chip" id="directive-chip" hidden>
+          <span class="directive-chip-label">系统指令</span>
+          <span class="directive-chip-text" id="directive-chip-text"></span>
+          <button type="button" class="directive-chip-clear" id="btn-directive-clear" aria-label="清除系统指令">×</button>
+        </div>
+
         <div class="chat-inputbar">
+          <button type="button" class="chat-plus-btn" id="btn-chat-plus" aria-label="更多功能">+</button>
           <input id="input-chat" type="text" placeholder="输入消息…" autocomplete="off" />
           <button type="button" class="chat-send-btn" id="btn-chat-send">发送</button>
         </div>
+
+        <!-- 聊天功能抽屉 -->
+        <div class="chat-sheet" id="chat-sheet" hidden>
+          <div class="chat-sheet-backdrop" id="chat-sheet-backdrop"></div>
+          <div class="chat-sheet-panel">
+            <div class="chat-sheet-head">
+              <span class="chat-sheet-title" id="chat-sheet-title">更多功能</span>
+              <button type="button" class="chat-sheet-close" id="btn-chat-sheet-close">关闭</button>
+            </div>
+            <div class="chat-sheet-body" id="chat-sheet-body"></div>
+          </div>
+        </div>
+
+        <input type="file" id="file-chat-image" accept="image/*" hidden />
+        <input type="file" id="file-sticker-import" accept=".txt,.docx,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden />
       </div>
 
       <!-- 角色应用 -->

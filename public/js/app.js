@@ -14,6 +14,9 @@ let pendingAvatar = null;      // 新建角色时先暂存头像，保存角色�
 let pendingAvatarUrl = '';
 let pendingRefImage = null;    // 生图参考图，同理暂存
 let pendingRefImageUrl = '';
+let pendingChatImage = null;   // 聊天里待发送的相册图片
+let pendingChatImageUrl = '';
+let toolLocationCoords = null; // 手机定位得到的真实坐标
 
 // 最近聊天直接带上；更早的内容交给记忆总结
 const RECENT_HISTORY_LIMIT = 20;
@@ -256,6 +259,7 @@ async function openChat() {
   await updateChatTitle();
   await renderChat();
   await updateGenerateButton();
+  await refreshDirectiveChip();
   showView(viewChat);
 }
 
@@ -290,18 +294,40 @@ async function currentChatPayload(message, priorHistory, characterId) {
   const { entries } = await getMemory(id);
   const worldbook = await getWorldbook();
   const world = buildWorldInfo(worldbook, worldbookScanText(priorHistory, message), id);
+
+  let persona = (c && c.persona) || '';
+  const stickers = id ? await getStickers(id) : [];
+  if (stickers.length) persona += '\n\n' + buildStickerPersonaInstruction(stickers);
+
+  const memory = formatMemory(entries);
+  const directive = id ? await getPendingDirective(id) : '';
+  let worldAfter = world.after || '';
+  if (directive) {
+    worldAfter += (worldAfter ? '\n\n' : '') +
+      '【本轮系统指令（最高优先级，越过角色设定）】\n' + directive +
+      '\n请严格执行以上指令来调整本轮回复，不要向用户解释这条指令。';
+  }
+
   return {
     baseUrl: $('input-baseurl').value.trim(),
     apiKey: $('input-apikey').value.trim(),
     model: getCurrentModel(),
-    persona: (c && c.persona) || '',
-    memory: formatMemory(entries),
+    persona,
+    memory,
     history: Array.isArray(priorHistory) ? priorHistory.slice(-RECENT_HISTORY_LIMIT) : priorHistory,
     message,
     worldBefore: world.before,
-    worldAfter: world.after,
+    worldAfter,
     worldDepth: world.depth,
+    directiveUsed: directive,
   };
+}
+
+// 让角色知道可以主动发表情包；名称列表供模型选择
+function buildStickerPersonaInstruction(stickers) {
+  const names = stickers.slice(0, 50).map((s) => s.name).join('、');
+  return '【表情包】你可以在回复中发送表情包。需要发送时，单独输出一行 [[sticker:名称]]，' +
+    '名称必须是以下之一：' + names + '。不要解释这个标记，也不要编造列表之外的名称。';
 }
 
 function setChatSending(sending) {
@@ -366,8 +392,12 @@ async function submitMessage(text) {
   await mutateHistory((arr) => arr.push({ role: 'user', content: msg }));
   await renderChat();
   $('input-chat').value = '';
-  await updateGenerateButton();
+  await triggerAfterUserSend();
+}
 
+// 消息上屏后按触发模式决定何时请求 AI
+async function triggerAfterUserSend() {
+  await updateGenerateButton();
   if (isInstantMode()) {
     flushQueue();
   } else if (getTriggerModes().countdown) {
@@ -414,7 +444,16 @@ async function flushQueue() {
   const stillExists = !!(await getCharacter(characterId));
   if (stillExists) {
     await mutateHistory((arr) => arr.splice(baseIndex, 0, replyMsg), characterId); // 插到这批消息之后、期间新消息之前
-    if ((await getActiveCharacterId()) === characterId) await renderChat();
+    if (result && result.ok) {
+      try {
+        const pending = await getPendingDirective(characterId);
+        if (pending && pending === payload.directiveUsed) await clearPendingDirective(characterId);
+      } catch (_) {}
+    }
+    if ((await getActiveCharacterId()) === characterId) {
+      await refreshDirectiveChip();
+      await renderChat();
+    }
   }
   setChatSending(false);
   await afterFlush();
@@ -454,12 +493,270 @@ async function retryReply(index) {
     await mutateHistory((arr) => {
       if (arr[index] && arr[index].role === 'assistant') arr[index] = replyMsg;
     }, characterId);
-    if ((await getActiveCharacterId()) === characterId) await renderChat();
+    if (result && result.ok) {
+      try {
+        const pending = await getPendingDirective(characterId);
+        if (pending && pending === payload.directiveUsed) await clearPendingDirective(characterId);
+      } catch (_) {}
+    }
+    if ((await getActiveCharacterId()) === characterId) {
+      await refreshDirectiveChip();
+      await renderChat();
+    }
   }
   setChatSending(false);
 }
 
-// ---- 记忆应用编排 ----
+// ---- 聊天功能抽屉：位置 / 图片 / 表情包 / 转账 / 系统指令 ----
+async function openChatSheet(view) {
+  if (view === 'location') toolLocationCoords = null;
+  await renderChatSheet(view);
+  $('chat-sheet').hidden = false;
+  if (view === 'image') setToolImagePreview(pendingChatImageUrl);
+}
+
+function resetPendingChatImage() {
+  if (pendingChatImageUrl) { URL.revokeObjectURL(pendingChatImageUrl); pendingChatImageUrl = ''; }
+  pendingChatImage = null;
+}
+
+function closeChatSheet() {
+  $('chat-sheet').hidden = true;
+  resetPendingChatImage();
+  toolLocationCoords = null;
+}
+
+async function refreshDirectiveChip() {
+  const chip = $('directive-chip');
+  const text = await getPendingDirective();
+  if (!text) {
+    chip.hidden = true;
+    $('directive-chip-text').textContent = '';
+    return;
+  }
+  chip.hidden = false;
+  $('directive-chip-text').textContent = text;
+  $('directive-chip-text').title = text;
+}
+
+async function sendToolUserMessage(message) {
+  const characterId = await getActiveCharacterId();
+  if (!characterId) { toast('请先创建角色'); return; }
+  await mutateHistory((arr) => arr.push(Object.assign({ role: 'user', createdAt: Date.now() }, message)), characterId);
+  closeChatSheet();
+  if ((await getActiveCharacterId()) === characterId) {
+    await renderChat();
+    await triggerAfterUserSend();
+  }
+}
+
+function requestRealLocation() {
+  if (!navigator.geolocation) { toast('当前浏览器不支持定位'); return; }
+  toast('正在获取当前位置…');
+  navigator.geolocation.getCurrentPosition((pos) => {
+    const lat = Number(pos.coords.latitude.toFixed(6));
+    const lng = Number(pos.coords.longitude.toFixed(6));
+    toolLocationCoords = { lat, lng };
+    const nameInput = $('tool-loc-name');
+    const addrInput = $('tool-loc-address');
+    if (nameInput) nameInput.value = '当前位置';
+    if (addrInput) addrInput.value = '纬度 ' + lat + '，经度 ' + lng;
+    updateToolLocationPreview('当前位置');
+    toast('已获取定位，可直接发送');
+  }, (err) => {
+    const map = { 1: '定位权限被拒绝', 2: '无法获取位置信息', 3: '定位超时' };
+    toast((map[err && err.code] || '定位失败') + '，可发送虚拟地点');
+  }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 });
+}
+
+async function sendToolLocation() {
+  const name = $('tool-loc-name').value.trim();
+  const address = $('tool-loc-address').value.trim();
+  if (!name) { toast('请填写地点名称'); return; }
+  const location = { name, address, virtual: !toolLocationCoords };
+  if (toolLocationCoords) {
+    location.lat = toolLocationCoords.lat;
+    location.lng = toolLocationCoords.lng;
+  }
+  const content = '[位置] ' + name + (address ? '（' + address + '）' : '');
+  await sendToolUserMessage({ kind: 'location', content, location });
+}
+
+async function sendToolImage() {
+  const desc = $('tool-image-desc').value.trim();
+  if (!pendingChatImage && !desc) { toast('请选择图片或填写图片描述'); return; }
+  let imageId = null;
+  try {
+    if (pendingChatImage) {
+      imageId = genId();
+      await putFile({
+        id: imageId,
+        name: pendingChatImage.name || 'chat-image',
+        type: pendingChatImage.type || 'image/jpeg',
+        blob: pendingChatImage.blob,
+      });
+    }
+  } catch (err) {
+    toast('图片保存失败：' + (err && err.message ? err.message : err));
+    return;
+  }
+  const content = '[图片]' + (desc ? ' ' + desc : '');
+  await sendToolUserMessage({ kind: 'image', content, description: desc, imageId });
+}
+
+async function sendToolSticker(stickerId) {
+  const stickers = await getStickers();
+  const s = stickers.find((x) => x.id === stickerId);
+  if (!s) return;
+  await sendToolUserMessage({
+    kind: 'sticker',
+    content: '[表情包] ' + s.name,
+    sticker: { id: s.id, name: s.name, url: s.url },
+  });
+}
+
+async function deleteStickerConfirm(stickerId) {
+  if (!window.confirm('删除这个表情包？已发送的消息不受影响。')) return;
+  try {
+    await deleteSticker(null, stickerId);
+    await renderChatSheet('sticker');
+    toast('已删除表情包');
+  } catch (err) {
+    toast('删除失败：' + (err && err.message ? err.message : err));
+  }
+}
+
+async function sendToolTransfer() {
+  const amount = parseFloat($('tool-transfer-amount').value);
+  const note = $('tool-transfer-note').value.trim();
+  if (!Number.isFinite(amount) || amount <= 0) { toast('请输入大于 0 的金额'); return; }
+  if (amount > 100000000) { toast('金额过大'); return; }
+  const fixed = Math.round(amount * 100) / 100;
+  const content = '[转账] ¥' + fixed.toFixed(2) + (note ? ' ' + note : '');
+  await sendToolUserMessage({ kind: 'transfer', content, transfer: { amount: fixed, note } });
+}
+
+async function applyDirectiveFromTool() {
+  const text = $('tool-directive-text').value.trim();
+  if (!text) { toast('请填写系统指令'); return; }
+  try {
+    await setPendingDirective(text);
+    closeChatSheet();
+    await refreshDirectiveChip();
+    toast('已应用，下一轮回复生效');
+  } catch (err) {
+    toast('保存失败：' + (err && err.message ? err.message : err));
+  }
+}
+
+async function clearDirective() {
+  try {
+    await clearPendingDirective();
+    await refreshDirectiveChip();
+    toast('已清除系统指令');
+  } catch (err) {
+    toast('清除失败：' + (err && err.message ? err.message : err));
+  }
+}
+
+// ---- 表情包导入：URL 文本 / txt / docx ----
+function extractImageUrls(text) {
+  const matches = String(text || '').match(/https?:\/\/[^\s<>"'，。；、）)】]+/gi) || [];
+  const seen = new Set();
+  const urls = [];
+  matches.forEach((raw) => {
+    const u = raw.replace(/[.,;:!?]+$/, '');
+    if (!seen.has(u)) { seen.add(u); urls.push(u); }
+  });
+  return urls;
+}
+
+async function importStickerText(text) {
+  const urls = extractImageUrls(text);
+  if (!urls.length) { toast('没有识别到图片链接'); return; }
+  try {
+    const added = await addStickers(null, urls.map((url) => ({ url })));
+    await renderChatSheet('sticker');
+    toast(added.length ? '已导入 ' + added.length + ' 个表情包' : '这些链接已经导入过了');
+  } catch (err) {
+    toast('导入失败：' + (err && err.message ? err.message : err));
+  }
+}
+
+// docx 是 zip：读中央目录，解出 word/document.xml
+async function readZipEntry(file, entryName) {
+  const buf = new Uint8Array(await file.arrayBuffer());
+  const dv = new DataView(buf.buffer);
+  let eocd = -1;
+  const min = Math.max(0, buf.length - 66000);
+  for (let i = buf.length - 22; i >= min; i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error('不是有效的 docx 文件');
+  const count = dv.getUint16(eocd + 10, true);
+  let off = dv.getUint32(eocd + 16, true);
+  for (let i = 0; i < count; i++) {
+    if (dv.getUint32(off, true) !== 0x02014b50) break;
+    const method = dv.getUint16(off + 10, true);
+    const compSize = dv.getUint32(off + 20, true);
+    const fnLen = dv.getUint16(off + 28, true);
+    const extraLen = dv.getUint16(off + 30, true);
+    const commentLen = dv.getUint16(off + 32, true);
+    const localOff = dv.getUint32(off + 42, true);
+    const name = new TextDecoder().decode(buf.subarray(off + 46, off + 46 + fnLen));
+    if (name === entryName) {
+      const lfn = dv.getUint16(localOff + 26, true);
+      const lex = dv.getUint16(localOff + 28, true);
+      const start = localOff + 30 + lfn + lex;
+      const data = buf.subarray(start, start + compSize);
+      if (method === 0) return new TextDecoder().decode(data);
+      if (method !== 8) throw new Error('docx 使用了不支持的压缩方式');
+      if (typeof DecompressionStream === 'undefined') throw new Error('当前浏览器不支持解压 docx，请改用 txt');
+      const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+      return await new Response(stream).text();
+    }
+    off += 46 + fnLen + extraLen + commentLen;
+  }
+  throw new Error('docx 缺少内容文件');
+}
+
+function xmlToPlainText(xml) {
+  return String(xml || '')
+    .replace(/<w:p[^>]*>/g, '\n')
+    .replace(/<w:tab\/>/g, '\t')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&');
+}
+
+async function extractDocxText(file) {
+  let text = '';
+  try { text += xmlToPlainText(await readZipEntry(file, 'word/document.xml')); } catch (_) {}
+  try { text += '\n' + (await readZipEntry(file, 'word/_rels/document.xml.rels')); } catch (_) {}
+  return text;
+}
+
+async function importStickerFile(file) {
+  if (!file) return;
+  try {
+    let text;
+    if (/\.docx$/i.test(file.name) || /wordprocessingml/.test(file.type)) {
+      text = await extractDocxText(file);
+    } else if (/\.txt$/i.test(file.name) || /^text\//.test(file.type)) {
+      text = await file.text();
+    } else {
+      toast('只支持 txt 或 docx 文件');
+      return;
+    }
+    await importStickerText(text);
+  } catch (err) {
+    toast('文件读取失败：' + (err && err.message ? err.message : err));
+  }
+}
+
 async function openMemory() {
   const { activeId } = await getCharacters();
   if (!activeId) {
@@ -927,7 +1224,7 @@ $('btn-test').addEventListener('click', async () => {
 });
 
 // 角色聊天导航
-$('btn-chat-back').addEventListener('click', () => showView(viewHome));
+$('btn-chat-back').addEventListener('click', () => { closeChatSheet(); showView(viewHome); });
 $('btn-chat-config').addEventListener('click', () => openCharacters('chat'));
 
 // 角色应用
@@ -1028,6 +1325,63 @@ $('input-chat').addEventListener('keydown', (e) => {
   }
 });
 $('btn-batch-send').addEventListener('click', () => flushQueue());
+$('btn-chat-plus').addEventListener('click', () => openChatSheet('menu'));
+$('btn-chat-sheet-close').addEventListener('click', closeChatSheet);
+$('chat-sheet-backdrop').addEventListener('click', closeChatSheet);
+$('btn-directive-clear').addEventListener('click', clearDirective);
+
+// 功能抽屉内的按钮统一走事件委托（面板内容会重绘）
+$('chat-sheet-body').addEventListener('click', async (e) => {
+  const del = e.target.closest('[data-sticker-del]');
+  if (del) { await deleteStickerConfirm(del.dataset.stickerDel); return; }
+
+  const sticker = e.target.closest('[data-sticker-send]');
+  if (sticker) { await sendToolSticker(sticker.dataset.stickerSend); return; }
+
+  const preset = e.target.closest('[data-loc-preset]');
+  if (preset) {
+    $('tool-loc-name').value = preset.dataset.locPreset || '';
+    $('tool-loc-address').value = preset.dataset.locAddress || '';
+    updateToolLocationPreview(preset.dataset.locPreset || '');
+    return;
+  }
+
+  const tool = e.target.closest('[data-tool]');
+  if (tool) { await openChatSheet(tool.dataset.tool); return; }
+
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  if (btn.id === 'btn-tool-loc-real') requestRealLocation();
+  else if (btn.id === 'btn-tool-loc-send') await sendToolLocation();
+  else if (btn.id === 'btn-tool-image-pick') $('file-chat-image').click();
+  else if (btn.id === 'btn-tool-image-clear') { resetPendingChatImage(); setToolImagePreview(''); }
+  else if (btn.id === 'btn-tool-image-send') await sendToolImage();
+  else if (btn.id === 'btn-sticker-import-text') await importStickerText($('sticker-import-text').value);
+  else if (btn.id === 'btn-sticker-import-file') $('file-sticker-import').click();
+  else if (btn.id === 'btn-tool-transfer-send') await sendToolTransfer();
+  else if (btn.id === 'btn-tool-directive-apply') await applyDirectiveFromTool();
+});
+
+$('file-chat-image').addEventListener('change', async (e) => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  try {
+    const blob = await fileToImage(f, 720);
+    resetPendingChatImage();
+    pendingChatImage = { blob, type: 'image/jpeg', name: f.name };
+    pendingChatImageUrl = URL.createObjectURL(blob);
+    setToolImagePreview(pendingChatImageUrl);
+  } catch (err) {
+    toast(err && err.message ? err.message : '图片读取失败');
+  }
+});
+
+$('file-sticker-import').addEventListener('change', async (e) => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (f) await importStickerFile(f);
+});
 $('input-chat').addEventListener('input', () => {
   if (countdownTick) clearCountdown(); // 新输入重置倒计时
 });

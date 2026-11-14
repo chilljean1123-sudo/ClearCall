@@ -162,8 +162,109 @@ function splitReplyIntoBubbles(content) {
   return s.split('\n').map((p) => p.trim()).filter(Boolean);
 }
 
-function renderMessage(m, index, avatar, name) {
+function findSticker(stickers, key) {
+  const k = String(key || '').trim();
+  if (!k) return null;
+  return (stickers || []).find((s) => s.name === k || s.id === k || s.url === k) || null;
+}
+
+function miniMapHTML(label) {
+  return '<div class="mini-map"><div class="map-pin"></div>' +
+    '<div class="mini-map-label">' + escapeHtml(label || '位置') + '</div></div>';
+}
+
+function renderUserAttachment(m, ctx) {
+  const row = document.createElement('div');
+  row.className = 'msg-row user';
+
+  if (m.kind === 'sticker') {
+    const s = m.sticker || {};
+    if (s.url) {
+      const img = document.createElement('img');
+      img.className = 'sticker-img';
+      img.src = s.url;
+      img.alt = s.name || '表情包';
+      row.appendChild(img);
+    } else {
+      const b = document.createElement('div');
+      b.className = 'msg-bubble user-bubble';
+      b.textContent = m.content;
+      row.appendChild(b);
+    }
+    return row;
+  }
+
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble user-bubble';
+
+  if (m.kind === 'location') {
+    const loc = m.location || {};
+    bubble.className += ' location-bubble';
+    const map = document.createElement('div');
+    map.innerHTML = miniMapHTML(loc.name || '位置');
+    bubble.appendChild(map.firstChild);
+    const info = document.createElement('div');
+    info.className = 'location-info';
+    const name = document.createElement('div');
+    name.className = 'location-name';
+    name.textContent = loc.name || '位置';
+    info.appendChild(name);
+    if (loc.address) {
+      const addr = document.createElement('div');
+      addr.className = 'location-addr';
+      addr.textContent = loc.address;
+      info.appendChild(addr);
+    }
+    bubble.appendChild(info);
+  } else if (m.kind === 'image') {
+    bubble.className += ' image-bubble';
+    const url = m.imageId && ctx.imageUrls ? ctx.imageUrls[m.imageId] : '';
+    if (url) {
+      const img = document.createElement('img');
+      img.className = 'chat-image';
+      img.src = url;
+      img.alt = m.description || '图片';
+      bubble.appendChild(img);
+    } else {
+      const ph = document.createElement('div');
+      ph.className = 'image-placeholder';
+      ph.textContent = '图片';
+      bubble.appendChild(ph);
+    }
+    if (m.description) {
+      const desc = document.createElement('div');
+      desc.className = 'image-desc';
+      desc.textContent = m.description;
+      bubble.appendChild(desc);
+    }
+  } else if (m.kind === 'transfer') {
+    const tr = m.transfer || {};
+    bubble.className += ' transfer-bubble';
+    const label = document.createElement('div');
+    label.className = 'transfer-label';
+    label.textContent = '转账';
+    const amount = document.createElement('div');
+    amount.className = 'transfer-amount';
+    amount.textContent = '¥' + Number(tr.amount || 0).toFixed(2);
+    bubble.appendChild(label);
+    bubble.appendChild(amount);
+    if (tr.note) {
+      const note = document.createElement('div');
+      note.className = 'transfer-note';
+      note.textContent = tr.note;
+      bubble.appendChild(note);
+    }
+  } else {
+    bubble.textContent = m.content;
+  }
+
+  row.appendChild(bubble);
+  return row;
+}
+
+function renderMessage(m, index, avatar, name, ctx) {
   if (m.role === 'user') {
+    if (m.kind && m.kind !== 'text') return renderUserAttachment(m, ctx || {});
     const row = document.createElement('div');
     row.className = 'msg-row user';
     const bubble = document.createElement('div');
@@ -198,9 +299,19 @@ function renderMessage(m, index, avatar, name) {
   } else {
     const parts = splitReplyIntoBubbles(m.content);
     parts.forEach((part) => {
+      const mm = /^\[\[sticker:(.+?)\]\]$/.exec(part.trim());
+      const sticker = mm ? findSticker(ctx && ctx.stickers, mm[1]) : null;
+      if (sticker) {
+        const img = document.createElement('img');
+        img.className = 'sticker-img';
+        img.src = sticker.url;
+        img.alt = sticker.name;
+        stack.appendChild(img);
+        return;
+      }
       const bubble = document.createElement('div');
       bubble.className = 'msg-bubble assistant-bubble';
-      bubble.textContent = part;
+      bubble.textContent = mm ? '[表情包]' : part;
       stack.appendChild(bubble);
     });
   }
@@ -214,7 +325,15 @@ async function renderChat() {
   box.innerHTML = '';
   const history = await getHistory();
   const c = await getChar();
-  history.forEach((m, i) => box.appendChild(renderMessage(m, i, c.avatar, c.name)));
+  const stickers = await getStickers();
+  const imageUrls = {};
+  for (const m of history) {
+    if (m && m.imageId) {
+      const url = await getFileUrl(m.imageId);
+      if (url) imageUrls[m.imageId] = url;
+    }
+  }
+  history.forEach((m, i) => box.appendChild(renderMessage(m, i, c.avatar, c.name, { stickers, imageUrls })));
   scrollChatToBottom();
 }
 
@@ -243,6 +362,226 @@ async function appendTyping() {
 function removeTyping() {
   const t = document.getElementById('typing-row');
   if (t) t.remove();
+}
+
+// ===== 聊天功能抽屉：菜单 + 位置 / 图片 / 表情 / 转账 / 系统指令 =====
+const CHAT_TOOL_TITLES = {
+  menu: '更多功能',
+  location: '发送位置',
+  image: '发送图片',
+  sticker: '表情包',
+  transfer: '转账',
+  directive: '系统指令',
+};
+
+function uiEl(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function toolActionButton(id, text, primary) {
+  const b = uiEl('button', 'fetch-btn', text);
+  b.type = 'button';
+  b.id = id;
+  if (primary === false) b.style.opacity = '0.85';
+  return b;
+}
+
+function renderChatToolMenu(body) {
+  const grid = uiEl('div', 'tool-grid');
+  [
+    ['location', '位置', '地'],
+    ['image', '图片', '图'],
+    ['sticker', '表情包', '表'],
+    ['transfer', '转账', '¥'],
+    ['directive', '系统指令', '令'],
+  ].forEach(([tool, label, glyph]) => {
+    const tile = uiEl('button', 'tool-tile');
+    tile.type = 'button';
+    tile.dataset.tool = tool;
+    tile.appendChild(uiEl('span', 'tool-tile-glyph', glyph));
+    tile.appendChild(uiEl('span', '', label));
+    grid.appendChild(tile);
+  });
+  body.appendChild(grid);
+  body.appendChild(uiEl('div', 'tool-hint', '位置、图片、表情包和转账会作为消息发送；系统指令不会显示，只影响下一轮回复。'));
+}
+
+function renderLocationTool(body) {
+  const map = uiEl('div', 'mini-map');
+  const pin = uiEl('div', 'map-pin');
+  const label = uiEl('div', 'mini-map-label', '模拟地图预览');
+  label.id = 'tool-loc-preview-label';
+  map.appendChild(pin);
+  map.appendChild(label);
+  body.appendChild(map);
+
+  const presets = uiEl('div', 'tool-presets');
+  [
+    ['咖啡馆', '梧桐路 18 号 · 一楼'],
+    ['公司', '科技园 A 座 12 层'],
+    ['学校', '大学城 东门'],
+    ['公园', '滨河公园 南门'],
+    ['家', '幸福里 3 栋'],
+  ].forEach(([name, addr]) => {
+    const b = uiEl('button', 'tool-preset', name);
+    b.type = 'button';
+    b.dataset.locPreset = name;
+    b.dataset.locAddress = addr;
+    presets.appendChild(b);
+  });
+  body.appendChild(presets);
+
+  const name = uiEl('input', 'wb-input');
+  name.id = 'tool-loc-name';
+  name.type = 'text';
+  name.placeholder = '地点名称，例如：星巴克（人民路店）';
+  body.appendChild(name);
+
+  const addr = uiEl('input', 'wb-input');
+  addr.id = 'tool-loc-address';
+  addr.type = 'text';
+  addr.placeholder = '详细地址（可留空）';
+  body.appendChild(addr);
+
+  const actions = uiEl('div', 'tool-actions');
+  const real = toolActionButton('btn-tool-loc-real', '使用当前定位');
+  const send = toolActionButton('btn-tool-loc-send', '发送位置');
+  actions.appendChild(real);
+  actions.appendChild(send);
+  body.appendChild(actions);
+  body.appendChild(uiEl('div', 'tool-hint', '真实定位需要浏览器授权（HTTPS 或 localhost）；未授权时可直接发送上面的虚拟地点。'));
+}
+
+function renderImageTool(body) {
+  const preview = uiEl('div', 'image-preview', '尚未选择图片');
+  preview.id = 'tool-image-preview';
+  body.appendChild(preview);
+
+  const actions = uiEl('div', 'tool-actions');
+  const pick = toolActionButton('btn-tool-image-pick', '选择相册图片');
+  const clear = toolActionButton('btn-tool-image-clear', '清除');
+  actions.appendChild(pick);
+  actions.appendChild(clear);
+  body.appendChild(actions);
+
+  const desc = uiEl('textarea', 'wb-textarea');
+  desc.id = 'tool-image-desc';
+  desc.rows = 3;
+  desc.placeholder = '图片描述，例如：一只趴在窗台上的橘猫';
+  body.appendChild(desc);
+
+  const send = toolActionButton('btn-tool-image-send', '发送图片');
+  const row = uiEl('div', 'tool-actions');
+  row.appendChild(send);
+  body.appendChild(row);
+  body.appendChild(uiEl('div', 'tool-hint', '相册图片仅在本机预览；AI 读取的是你填写的图片描述。'));
+}
+
+async function renderStickerTool(body) {
+  const stickers = await getStickers();
+  const grid = uiEl('div', 'sticker-grid');
+  grid.id = 'sticker-grid';
+  if (!stickers.length) {
+    grid.appendChild(uiEl('div', 'sticker-empty', '当前角色还没有表情包，先导入一批吧'));
+  } else {
+    stickers.forEach((s) => {
+      const tile = uiEl('div', 'sticker-tile');
+      tile.dataset.stickerSend = s.id;
+      tile.title = s.name;
+      const img = document.createElement('img');
+      img.src = s.url;
+      img.alt = s.name;
+      tile.appendChild(img);
+      const del = uiEl('button', 'sticker-del', '×');
+      del.type = 'button';
+      del.dataset.stickerDel = s.id;
+      del.title = '删除';
+      tile.appendChild(del);
+      grid.appendChild(tile);
+    });
+  }
+  body.appendChild(grid);
+
+  body.appendChild(uiEl('div', 'tool-section-title', '批量导入图片 URL'));
+  const ta = uiEl('textarea', 'wb-textarea');
+  ta.id = 'sticker-import-text';
+  ta.rows = 4;
+  ta.placeholder = '每行一个图片 URL，也可以粘贴含图片链接的文本';
+  body.appendChild(ta);
+
+  const actions = uiEl('div', 'tool-actions');
+  actions.appendChild(toolActionButton('btn-sticker-import-text', '识别并导入'));
+  actions.appendChild(toolActionButton('btn-sticker-import-file', '从 txt / docx 导入'));
+  body.appendChild(actions);
+  body.appendChild(uiEl('div', 'tool-hint', '导入后自动绑定当前角色；角色回复时也可能主动发送这些表情包。'));
+}
+
+function renderTransferTool(body) {
+  const amount = uiEl('input', 'wb-input');
+  amount.id = 'tool-transfer-amount';
+  amount.type = 'number';
+  amount.min = '0.01';
+  amount.step = '0.01';
+  amount.placeholder = '金额，例如：52.00';
+  body.appendChild(amount);
+
+  const note = uiEl('input', 'wb-input');
+  note.id = 'tool-transfer-note';
+  note.type = 'text';
+  note.placeholder = '转账备注（可留空）';
+  body.appendChild(note);
+
+  const row = uiEl('div', 'tool-actions');
+  row.appendChild(toolActionButton('btn-tool-transfer-send', '发送转账'));
+  body.appendChild(row);
+  body.appendChild(uiEl('div', 'tool-hint', '虚拟转账，仅作为聊天内容展示，不产生真实支付。'));
+}
+
+async function renderDirectiveTool(body) {
+  const current = await getPendingDirective();
+  const ta = uiEl('textarea', 'wb-textarea');
+  ta.id = 'tool-directive-text';
+  ta.rows = 4;
+  ta.placeholder = '例如：下一轮回复更冷淡一点，只回一句话，不要主动提问';
+  ta.value = current || '';
+  body.appendChild(ta);
+
+  const row = uiEl('div', 'tool-actions');
+  row.appendChild(toolActionButton('btn-tool-directive-apply', '应用指令'));
+  body.appendChild(row);
+  body.appendChild(uiEl('div', 'tool-hint', '系统指令会越过角色设定，作为最高优先级要求注入下一轮回复，然后自动清除。'));
+}
+
+async function renderChatSheet(view) {
+  const key = CHAT_TOOL_TITLES[view] ? view : 'menu';
+  $('chat-sheet-title').textContent = CHAT_TOOL_TITLES[key];
+  const body = $('chat-sheet-body');
+  body.innerHTML = '';
+  if (key === 'location') renderLocationTool(body);
+  else if (key === 'image') renderImageTool(body);
+  else if (key === 'sticker') await renderStickerTool(body);
+  else if (key === 'transfer') renderTransferTool(body);
+  else if (key === 'directive') await renderDirectiveTool(body);
+  else renderChatToolMenu(body);
+}
+
+function updateToolLocationPreview(name) {
+  const label = $('tool-loc-preview-label');
+  if (label) label.textContent = name || '模拟地图预览';
+}
+
+function setToolImagePreview(url) {
+  const box = $('tool-image-preview');
+  if (!box) return;
+  box.innerHTML = '';
+  if (!url) { box.textContent = '尚未选择图片'; return; }
+  const img = document.createElement('img');
+  img.src = url;
+  img.alt = '待发送图片';
+  box.appendChild(img);
 }
 
 // ===== 角色应用渲染 =====

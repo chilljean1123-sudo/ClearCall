@@ -197,6 +197,7 @@ const DOC_CHARACTER = 'character';     // 旧版单角色文档（仅用于迁�
 const DOC_CHAT = 'chatHistory';        // 旧版聊天文档（迁移用；新数据按角色分仓）
 const DOC_MEMORY = 'memory';           // 旧版记忆文档（迁移用；新数据按角色分仓）
 const DOC_WORLDBOOK = 'worldbook';
+const DOC_STICKERS = 'stickers';       // 表情包按角色分仓：stickers:<角色id>
 const LEGACY_CHARACTER_ID = 'character';
 
 let _dbPromise = null;
@@ -276,6 +277,29 @@ async function getFile(id) {
   return await idbRequest(tx.objectStore(STORE_FILES).get(id));
 }
 
+// 聊天图片的对象 URL 缓存：同一文件多次渲染只创建一次
+const _fileUrlCache = new Map();
+
+async function getFileUrl(id) {
+  if (!id) return '';
+  if (_fileUrlCache.has(id)) return _fileUrlCache.get(id);
+  const f = await getFile(id);
+  if (!f || !f.blob) return '';
+  const url = URL.createObjectURL(f.blob);
+  _fileUrlCache.set(id, url);
+  return url;
+}
+
+function revokeFileUrl(id) {
+  const url = _fileUrlCache.get(id);
+  if (url) { URL.revokeObjectURL(url); _fileUrlCache.delete(id); }
+}
+
+function revokeAllFileUrls() {
+  _fileUrlCache.forEach((url) => URL.revokeObjectURL(url));
+  _fileUrlCache.clear();
+}
+
 async function putFile(file) {
   if (!file || !file.id) throw new Error('文件缺少 id');
   const db = await openDB();
@@ -292,6 +316,7 @@ async function deleteFile(id) {
 }
 
 async function clearFiles() {
+  revokeAllFileUrls();
   const db = await openDB();
   const tx = db.transaction(STORE_FILES, 'readwrite');
   tx.objectStore(STORE_FILES).clear();
@@ -511,8 +536,19 @@ async function deleteCharacter(id) {
     revokeAvatarUrl(refId);
     try { await deleteFile(refId); } catch (_) {}
   }
+  // 聊天里发送过的图片文件也一并清理，避免孤儿 Blob
+  const chatDoc = await getDoc(chatDocId(id));
+  if (chatDoc && Array.isArray(chatDoc.messages)) {
+    for (const m of chatDoc.messages) {
+      if (m && m.imageId) {
+        revokeFileUrl(m.imageId);
+        try { await deleteFile(m.imageId); } catch (_) {}
+      }
+    }
+  }
   try { await deleteDoc(chatDocId(id)); } catch (_) {}
   try { await deleteDoc(memoryDocId(id)); } catch (_) {}
+  try { await deleteDoc(stickerDocId(id)); } catch (_) {}
 
   const wb = await getWorldbook();
   if (wb.some((e) => e.scope === 'character' && e.characterId === id)) {
@@ -553,6 +589,94 @@ async function mutateHistory(mutator, characterId) {
   return mutateDoc(chatDocId(id), (doc) => {
     if (!Array.isArray(doc.messages)) doc.messages = [];
     mutator(doc.messages);
+  });
+}
+
+// 系统指令：只对当前角色生效，下次回复时注入并清除
+async function getPendingDirective(characterId) {
+  const id = characterId || await getActiveCharacterId();
+  if (!id) return '';
+  const doc = await getDoc(chatDocId(id));
+  return (doc && typeof doc.directive === 'string') ? doc.directive : '';
+}
+
+async function setPendingDirective(text, characterId) {
+  const id = characterId || await getActiveCharacterId();
+  if (!id) throw new Error('请先创建角色');
+  const t = String(text || '').trim();
+  await mutateDoc(chatDocId(id), (doc) => {
+    if (t) doc.directive = t;
+    else delete doc.directive;
+  });
+}
+
+async function clearPendingDirective(characterId) {
+  return setPendingDirective('', characterId);
+}
+
+// ---------- 表情包（IndexedDB，按角色分仓） ----------
+// 只存远程图片 URL 和名称，不把表情包图片下载进本地库。
+function stickerDocId(characterId) { return DOC_STICKERS + ':' + characterId; }
+
+function normalizeSticker(raw) {
+  if (!raw) return null;
+  const url = String(raw.url || '').trim();
+  if (!/^https?:\/\//i.test(url)) return null;
+  let name = String(raw.name || '').trim();
+  if (!name) {
+    // 从 URL 末段推导名称，不依赖 URL 构造函数（兼容旧环境）
+    const path = url.split('#')[0].split('?')[0].replace(/^https?:\/\/[^/]+/i, '');
+    const last = path.split('/').filter(Boolean).pop() || '';
+    try { name = decodeURIComponent(last).replace(/\.[a-z0-9]+$/i, ''); } catch (_) { name = last; }
+  }
+  name = name.replace(/[\[\]\r\n]/g, ' ').trim().slice(0, 40) || '表情包';
+  return {
+    id: raw.id || genId(),
+    name,
+    url,
+    createdAt: raw.createdAt || Date.now(),
+  };
+}
+
+async function getStickers(characterId) {
+  const id = characterId || await getActiveCharacterId();
+  if (!id) return [];
+  const doc = await getDoc(stickerDocId(id));
+  const items = doc && doc.items;
+  return Array.isArray(items) ? items.map(normalizeSticker).filter(Boolean) : [];
+}
+
+// 批量导入；按 URL 去重，重名自动加序号，返回新增条目
+async function addStickers(characterId, items) {
+  const id = characterId || await getActiveCharacterId();
+  if (!id) throw new Error('请先创建角色');
+  const incoming = (Array.isArray(items) ? items : []).map(normalizeSticker).filter(Boolean);
+  const added = [];
+  await mutateDoc(stickerDocId(id), (doc) => {
+    if (!Array.isArray(doc.items)) doc.items = [];
+    const urls = new Set(doc.items.map((x) => x.url));
+    const names = new Set(doc.items.map((x) => x.name));
+    incoming.forEach((s) => {
+      if (urls.has(s.url)) return;
+      let n = s.name;
+      let k = 2;
+      while (names.has(n)) { n = s.name + '（' + k + '）'; k++; }
+      s.name = n;
+      urls.add(s.url);
+      names.add(n);
+      doc.items.push(s);
+      added.push(s);
+    });
+  });
+  return added;
+}
+
+async function deleteSticker(characterId, stickerId) {
+  const id = characterId || await getActiveCharacterId();
+  if (!id) throw new Error('请先创建角色');
+  await mutateDoc(stickerDocId(id), (doc) => {
+    if (!Array.isArray(doc.items)) doc.items = [];
+    doc.items = doc.items.filter((x) => x.id !== stickerId);
   });
 }
 
@@ -723,10 +847,15 @@ async function buildBackup() {
   const files = {};
   const characters = [];
   const chats = {};
+  const directives = {};
+  const stickers = {};
   const memories = {};
 
   for (const c of list) {
+    const chatDoc = (await getDoc(chatDocId(c.id))) || {};
+    const messages = Array.isArray(chatDoc.messages) ? chatDoc.messages : [];
     const fileIds = [c.avatarId, c.image && c.image.referenceImageId].filter(Boolean);
+    messages.forEach((m) => { if (m && m.imageId) fileIds.push(m.imageId); });
     for (const fileId of fileIds) {
       const f = await getFile(fileId);
       if (f && f.blob) {
@@ -744,8 +873,9 @@ async function buildBackup() {
       updatedAt: c.updatedAt,
     });
 
-    const chatDoc = (await getDoc(chatDocId(c.id))) || {};
-    chats[c.id] = Array.isArray(chatDoc.messages) ? chatDoc.messages : [];
+    chats[c.id] = messages;
+    directives[c.id] = chatDoc.directive || '';
+    stickers[c.id] = await getStickers(c.id);
     const memDoc = (await getDoc(memoryDocId(c.id))) || {};
     memories[c.id] = {
       entries: Array.isArray(memDoc.entries) ? memDoc.entries : [],
@@ -766,6 +896,8 @@ async function buildBackup() {
     characters,
     activeId,
     chats,
+    directives,
+    stickers,
     memories,
     worldbook: {
       entries: Array.isArray(wbDoc.entries) ? wbDoc.entries : [],
@@ -788,11 +920,15 @@ async function applyBackup(data) {
   let activeId;
   let chats;
   let memories;
+  let directives = {};
+  let stickers = {};
   if (Array.isArray(data.characters)) {
     characters = data.characters.map((c) => normalizeCharacter(c)).filter(Boolean);
     activeId = data.activeId || (characters[0] && characters[0].id) || null;
     chats = data.chats || {};
     memories = data.memories || {};
+    directives = data.directives || {};
+    stickers = data.stickers || {};
   } else {
     const c = data.character || {};
     const id = LEGACY_CHARACTER_ID;
@@ -822,7 +958,15 @@ async function applyBackup(data) {
   await putDoc({ id: DOC_CHARACTERS, list: characters, activeId });
   for (const c of characters) {
     const chat = chats[c.id];
-    await putDoc({ id: chatDocId(c.id), messages: Array.isArray(chat) ? chat : [] });
+    await putDoc({
+      id: chatDocId(c.id),
+      messages: Array.isArray(chat) ? chat : [],
+      directive: directives[c.id] || '',
+    });
+    await putDoc({
+      id: stickerDocId(c.id),
+      items: Array.isArray(stickers[c.id]) ? stickers[c.id].map(normalizeSticker).filter(Boolean) : [],
+    });
     const mem = memories[c.id] || {};
     await putDoc({
       id: memoryDocId(c.id),
