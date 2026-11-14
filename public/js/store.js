@@ -487,6 +487,7 @@ const DEFAULT_FORUM_THEME = {
   subtitle: '今天的瓜，比昨天甜一点',
   npcPrompt: '你是一群爱逛中文论坛的普通网友，说话口语化、有网感，会玩梗但不低俗。',
 };
+const DEFAULT_FORUM_BOARD_ID = 'board-main';
 const DEFAULT_FORUM_PROFILE = {
   name: '我',
   signature: '这个人很懒，什么都没有写。',
@@ -500,6 +501,17 @@ function normalizeForumTheme(raw) {
     title: String(d.title || DEFAULT_FORUM_THEME.title).trim() || DEFAULT_FORUM_THEME.title,
     subtitle: String(d.subtitle !== undefined ? d.subtitle : DEFAULT_FORUM_THEME.subtitle).trim(),
     npcPrompt: String(d.npcPrompt || DEFAULT_FORUM_THEME.npcPrompt).trim() || DEFAULT_FORUM_THEME.npcPrompt,
+  };
+}
+
+function normalizeForumBoard(raw) {
+  const d = raw || {};
+  const theme = normalizeForumTheme(d);
+  return {
+    id: d.id || genId(),
+    title: theme.title,
+    subtitle: theme.subtitle,
+    npcPrompt: theme.npcPrompt,
   };
 }
 
@@ -528,13 +540,14 @@ function normalizeForumComment(raw) {
   };
 }
 
-function normalizeForumPost(raw) {
+function normalizeForumPost(raw, fallbackBoardId) {
   if (!raw) return null;
   const content = String(raw.content || '').trim();
   if (!content) return null;
   const type = raw.authorType === 'character' || raw.authorType === 'user' ? raw.authorType : 'npc';
   return {
     id: raw.id || genId(),
+    boardId: String(raw.boardId || fallbackBoardId || ''),
     authorType: type,
     authorId: raw.authorId || null,
     authorName: String(raw.authorName || (type === 'user' ? '我' : '路人')).trim() || '路人',
@@ -558,11 +571,23 @@ function normalizeForumProfile(raw) {
 
 function normalizeForum(doc) {
   const d = doc || {};
+  let boards = Array.isArray(d.boards) ? d.boards.map(normalizeForumBoard).filter(Boolean) : [];
+  if (!boards.length) boards = [normalizeForumBoard(Object.assign({ id: DEFAULT_FORUM_BOARD_ID }, d.theme || DEFAULT_FORUM_THEME))];
+  const boardIds = new Set(boards.map((b) => b.id));
+  const activeBoardId = boardIds.has(d.activeBoardId) ? d.activeBoardId : boards[0].id;
+  const posts = (Array.isArray(d.posts) ? d.posts : [])
+    .map((p) => normalizeForumPost(p, boards[0].id))
+    .filter(Boolean)
+    .map((p) => {
+      if (!boardIds.has(p.boardId)) p.boardId = boards[0].id;
+      return p;
+    });
   return {
     settings: normalizeForumSettings(d.settings),
-    theme: normalizeForumTheme(d.theme),
+    boards,
+    activeBoardId,
     profile: normalizeForumProfile(d.profile),
-    posts: (Array.isArray(d.posts) ? d.posts : []).map(normalizeForumPost).filter(Boolean),
+    posts,
   };
 }
 
@@ -570,11 +595,29 @@ async function getForum() {
   return normalizeForum(await getDoc(DOC_FORUM));
 }
 
+// 兼容旧数据：把单份 theme 迁移成 boards，并给旧帖子补上 boardId
+function ensureForumBoards(doc) {
+  let boards = Array.isArray(doc.boards) ? doc.boards.map(normalizeForumBoard).filter(Boolean) : [];
+  if (!boards.length) boards = [normalizeForumBoard(Object.assign({ id: DEFAULT_FORUM_BOARD_ID }, doc.theme || DEFAULT_FORUM_THEME))];
+  doc.boards = boards;
+  if (!boards.some((b) => b.id === doc.activeBoardId)) doc.activeBoardId = boards[0].id;
+  delete doc.theme;
+  if (!Array.isArray(doc.posts)) doc.posts = [];
+  const boardIds = new Set(boards.map((b) => b.id));
+  doc.posts = doc.posts
+    .map((p) => normalizeForumPost(p, boards[0].id))
+    .filter(Boolean)
+    .map((p) => {
+      if (!boardIds.has(p.boardId)) p.boardId = boards[0].id;
+      return p;
+    });
+}
+
 function mutateForum(mutator) {
   return mutateDoc(DOC_FORUM, (doc) => {
     if (!Array.isArray(doc.posts)) doc.posts = [];
     if (!doc.settings) doc.settings = normalizeForumSettings();
-    if (!doc.theme) doc.theme = normalizeForumTheme();
+    ensureForumBoards(doc);
     if (!doc.profile) doc.profile = normalizeForumProfile();
     mutator(doc);
   });
@@ -588,7 +631,55 @@ async function updateForumSettings(patch) {
 
 async function updateForumTheme(patch) {
   await mutateForum((doc) => {
-    doc.theme = normalizeForumTheme(Object.assign(normalizeForumTheme(doc.theme), patch || {}));
+    const board = doc.boards.find((b) => b.id === doc.activeBoardId);
+    if (board) Object.assign(board, normalizeForumTheme(Object.assign({}, board, patch || {})));
+  });
+}
+
+async function setActiveForumBoard(boardId) {
+  await mutateForum((doc) => {
+    if (doc.boards.some((b) => b.id === boardId)) doc.activeBoardId = boardId;
+  });
+}
+
+async function addForumBoard(patch) {
+  let board = null;
+  await mutateForum((doc) => {
+    board = normalizeForumBoard(patch);
+    doc.boards.push(board);
+    doc.activeBoardId = board.id;
+  });
+  return board;
+}
+
+async function updateForumBoard(boardId, patch) {
+  await mutateForum((doc) => {
+    const board = doc.boards.find((b) => b.id === boardId);
+    if (!board) return;
+    Object.assign(board, normalizeForumTheme(Object.assign({}, board, patch || {})));
+    board.id = boardId;
+  });
+}
+
+async function saveForumBoards(boards) {
+  await mutateForum((doc) => {
+    const list = (Array.isArray(boards) ? boards : []).map(normalizeForumBoard).filter(Boolean);
+    if (!list.length) return;
+    doc.boards = list;
+    if (!list.some((b) => b.id === doc.activeBoardId)) doc.activeBoardId = list[0].id;
+    const ids = new Set(list.map((b) => b.id));
+    doc.posts.forEach((p) => {
+      if (!ids.has(p.boardId)) p.boardId = list[0].id;
+    });
+  });
+}
+
+async function deleteForumBoard(boardId) {
+  await mutateForum((doc) => {
+    if (doc.boards.length <= 1) return;
+    doc.boards = doc.boards.filter((b) => b.id !== boardId);
+    doc.posts = doc.posts.filter((p) => p.boardId !== boardId);
+    if (doc.activeBoardId === boardId) doc.activeBoardId = doc.boards[0].id;
   });
 }
 
@@ -599,9 +690,11 @@ async function updateForumProfile(patch) {
 }
 
 async function addForumPosts(posts) {
-  const list = (Array.isArray(posts) ? posts : []).map(normalizeForumPost).filter(Boolean);
-  if (!list.length) return [];
+  let list = [];
   await mutateForum((doc) => {
+    list = (Array.isArray(posts) ? posts : [])
+      .map((p) => normalizeForumPost(p, doc.activeBoardId))
+      .filter(Boolean);
     doc.posts = list.concat(doc.posts);
   });
   return list;
@@ -1333,7 +1426,8 @@ async function applyBackup(data) {
   await putDoc({
     id: DOC_FORUM,
     settings: forum.settings,
-    theme: forum.theme,
+    boards: forum.boards,
+    activeBoardId: forum.activeBoardId,
     profile: forum.profile,
     posts: forum.posts,
   });

@@ -1580,7 +1580,9 @@ async function renderForumFeed(forum, tab) {
   }
 
   let posts = forum.posts.slice();
-  if (tab === 'following') {
+  if (tab === 'home') {
+    posts = posts.filter((p) => p.boardId === forum.activeBoardId);
+  } else if (tab === 'following') {
     const bound = new Set(forum.settings.characterIds);
     posts = posts.filter((p) => p.authorType === 'character' && bound.has(p.authorId));
   }
@@ -1776,9 +1778,7 @@ async function renderForumSettings(forum, worldbook, characters) {
   $('input-forum-key').value = forum.settings.apiKey || '';
   $('input-forum-model').value = forum.settings.model || '';
   $('input-forum-count').value = forum.settings.refreshCount || 3;
-  $('input-forum-board-title').value = forum.theme.title || '';
-  $('input-forum-board-subtitle').value = forum.theme.subtitle || '';
-  $('input-forum-npc-prompt').value = forum.theme.npcPrompt || '';
+  renderForumBoardEditors(forum.boards);
 
   const wbBox = $('forum-worldbook-list');
   wbBox.innerHTML = '';
@@ -1839,6 +1839,53 @@ async function renderForumSettings(forum, worldbook, characters) {
   }
 }
 
+function renderForumBoardEditors(boards) {
+  const box = $('forum-board-editor-list');
+  if (!box) return;
+  box.innerHTML = '';
+  boards.forEach((board, index) => {
+    const card = document.createElement('div');
+    card.className = 'forum-board-editor';
+    card.dataset.boardId = board.id;
+
+    const head = document.createElement('div');
+    head.className = 'forum-board-editor-head';
+    const label = document.createElement('span');
+    label.textContent = '板块 ' + (index + 1);
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'forum-board-remove';
+    del.dataset.boardRemove = board.id;
+    del.textContent = '删除';
+    head.appendChild(label);
+    head.appendChild(del);
+    card.appendChild(head);
+
+    const title = document.createElement('input');
+    title.type = 'text';
+    title.className = 'forum-board-title-input';
+    title.placeholder = '板块名称';
+    title.value = board.title;
+    card.appendChild(title);
+
+    const subtitle = document.createElement('input');
+    subtitle.type = 'text';
+    subtitle.className = 'forum-board-subtitle-input';
+    subtitle.placeholder = '一句话简介';
+    subtitle.value = board.subtitle || '';
+    card.appendChild(subtitle);
+
+    const prompt = document.createElement('textarea');
+    prompt.className = 'forum-board-prompt-input';
+    prompt.rows = 3;
+    prompt.placeholder = '这个板块的路人发言风格';
+    prompt.value = board.npcPrompt || '';
+    card.appendChild(prompt);
+
+    box.appendChild(card);
+  });
+}
+
 async function renderForumShareList(characters, forum) {
   const box = $('forum-share-list');
   if (!box) return;
@@ -1888,8 +1935,21 @@ async function renderForumProfileEditor(profile) {
   cv.style.backgroundImage = coverUrl ? 'url("' + coverUrl.replace(/"/g, '%22') + '")' : '';
 }
 
-function renderForumBoard(theme) {
-  $('forum-board-title').textContent = theme.title;
-  $('forum-board-desc').textContent = theme.subtitle || '这个板块还没有简介';
-  $('forum-header-title').textContent = theme.title;
+function renderForumBoard(forum) {
+  const board = forum.boards.find((b) => b.id === forum.activeBoardId) || forum.boards[0];
+  $('forum-board-title').textContent = board.title;
+  $('forum-board-desc').textContent = board.subtitle || '这个板块还没有简介';
+  $('forum-header-title').textContent = board.title;
+
+  const tabs = $('forum-board-tabs');
+  if (!tabs) return;
+  tabs.innerHTML = '';
+  forum.boards.forEach((b) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'forum-board-chip' + (b.id === board.id ? ' active' : '');
+    btn.dataset.boardId = b.id;
+    btn.textContent = b.title;
+    tabs.appendChild(btn);
+  });
 }
