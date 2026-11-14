@@ -314,7 +314,6 @@ const CHAT_KEYS = {
 };
 
 let chatSending = false;
-let pendingQueue = [];
 let countdownTick = null;
 let countdownSecRemain = 0;
 
@@ -554,15 +553,23 @@ function saveTriggerSettings() {
   localStorage.setItem(TRIGGER_KEYS.countdownSec, String(Math.max(1, sec || 3)));
 }
 
+// 待回复的用户消息 = 末尾连续还没有回复的 user 消息
+function getPending() {
+  const h = getHistory();
+  let i = h.length - 1;
+  while (i >= 0 && h[i].role === 'user') i--;
+  return h.slice(i + 1);
+}
+
 function updateQueueBar() {
   const bar = $('queue-bar');
-  const n = pendingQueue.length;
+  const n = getPending().length;
   if (n === 0) {
     bar.hidden = true;
     return;
   }
   bar.hidden = false;
-  let txt = '待发送 ' + n + ' 条';
+  let txt = n + ' 条消息待回复';
   if (countdownTick) txt += ' · ' + countdownSecRemain + ' 秒后自动发送';
   $('queue-count').textContent = txt;
 }
@@ -588,58 +595,60 @@ function startCountdown() {
   }, 1000);
 }
 
-// 倒计时只在「队列非空 + 无草稿 + 退出输入状态」时启动
+// 倒计时只在「有待回复消息 + 无草稿 + 退出输入状态」时启动
 function maybeStartCountdown() {
   const m = getTriggerModes();
   if (chatSending) return;                 // 请求锁
   if (m.instant) return;                   // 即时优先
   if (!m.countdown) return;
-  if (pendingQueue.length === 0) return;
+  if (getPending().length === 0) return;
   if ($('input-chat').value.trim() !== '') return; // 还有草稿
   if (document.activeElement === $('input-chat')) return; // 仍在输入状态
   startCountdown();
 }
 
 function afterFlush() {
-  if (pendingQueue.length === 0) { updateQueueBar(); return; }
+  if (getPending().length === 0) { updateQueueBar(); return; }
   if (isInstantMode()) flushQueue();
   else if (getTriggerModes().countdown) maybeStartCountdown();
-  else updateQueueBar(); // 等手动「批量发送」
+  else updateQueueBar(); // 等手动「生成回复」
 }
 
-// 提交：把输入框内容放进待发送队列（不清空聊天记录，只入队）
+// 提交：消息立刻上屏，并按模式决定何时请求 AI
 function submitMessage(text) {
   const msg = (text || '').trim();
   if (!msg) return;
-  pendingQueue.push(msg);
+
+  const history = getHistory();
+  history.push({ role: 'user', content: msg });
+  setHistory(history);
+  renderChat();
   $('input-chat').value = '';
   updateQueueBar();
+
   if (isInstantMode()) {
     flushQueue();
   } else if (getTriggerModes().countdown) {
     maybeStartCountdown();
   }
-  // 只开「批量」：等待手动点「批量发送」
+  // 攒消息手动触发：等待点「生成回复」
 }
 
-// 触发：把队列消息合并成一条用户消息请求 AI（请求锁防重复调用）
+// 触发：把待回复的用户消息合并成一条请求 AI（请求锁防重复调用）
 async function flushQueue() {
   if (chatSending) return;         // 请求锁：已有请求在飞
-  if (pendingQueue.length === 0) return;
-  if (!ensureConfigured()) return; // 配置缺失，消息留在队列
+  const history = getHistory();
+  const pending = getPending();
+  if (pending.length === 0) return;
+  if (!ensureConfigured()) return; // 配置缺失，消息保持待回复
 
   clearCountdown();
 
-  const combined = pendingQueue.join('\n');
-  pendingQueue = [];
-  updateQueueBar();
+  const combined = pending.map((m) => m.content).join('\n');
+  const priorHistory = history.slice(0, history.length - pending.length);
+  const baseIndex = history.length; // 回复要插在 pending 之后
+  const payload = currentChatPayload(combined, priorHistory);
 
-  const history = getHistory();
-  const payload = currentChatPayload(combined, history.slice());
-
-  history.push({ role: 'user', content: combined });
-  setHistory(history);
-  renderChat();
   setChatSending(true);
   appendTyping();
 
@@ -652,11 +661,10 @@ async function flushQueue() {
 
   removeTyping();
   const current = getHistory();
-  if (result && result.ok) {
-    current.push({ role: 'assistant', content: result.reply });
-  } else {
-    current.push({ role: 'assistant', content: '', error: true });
-  }
+  const replyMsg = (result && result.ok)
+    ? { role: 'assistant', content: result.reply }
+    : { role: 'assistant', content: '', error: true };
+  current.splice(baseIndex, 0, replyMsg); // 插到这批消息之后、期间新消息之前
   setHistory(current);
   renderChat();
   setChatSending(false);
@@ -666,10 +674,16 @@ async function flushQueue() {
 async function retryReply(index) {
   if (chatSending) return;
   const history = getHistory();
-  if (index <= 0 || !history[index - 1] || history[index - 1].role !== 'user') return;
+  if (index <= 0 || !history[index] || history[index].role !== 'assistant' || !history[index].error) return;
 
-  const userMsg = history[index - 1].content;
-  const payload = currentChatPayload(userMsg, history.slice(0, index - 1));
+  // 找到这次失败回复对应的连续用户消息（紧邻 index 之前的 user 串）
+  let start = index - 1;
+  while (start >= 0 && history[start].role === 'user') start--;
+  start += 1;
+  if (start >= index) return;
+
+  const combined = history.slice(start, index).map((m) => m.content).join('\n');
+  const payload = currentChatPayload(combined, history.slice(0, start));
 
   setChatSending(true);
   appendTyping();
