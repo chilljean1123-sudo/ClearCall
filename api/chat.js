@@ -7,6 +7,7 @@ module.exports = async (req, res) => {
     apiKey: payload.apiKey,
     model: payload.model,
     persona: payload.persona,
+    memory: payload.memory,
     history: payload.history,
     message: payload.message,
   });

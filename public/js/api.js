@@ -32,10 +32,11 @@ function directModelsUrl(baseUrl) {
   return b ? b + '/models' : null;
 }
 
-function directBuildMessages(persona, history, message) {
+function directBuildMessages(persona, memory, history, message) {
   const messages = [];
   const systemParts = [];
   if (persona && String(persona).trim()) systemParts.push(String(persona).trim());
+  if (memory && String(memory).trim()) systemParts.push('【角色长期记忆】\n' + String(memory).trim());
   systemParts.push(DIRECT_FORMAT_INSTRUCTION);
   messages.push({ role: 'system', content: systemParts.join('\n\n') });
   if (Array.isArray(history)) {
@@ -50,7 +51,7 @@ function directBuildMessages(persona, history, message) {
   return messages;
 }
 
-async function directChat(baseUrl, apiKey, model, persona, history, message) {
+async function directChat(baseUrl, apiKey, model, persona, memory, history, message) {
   const url = directChatUrl(baseUrl);
   if (!url) return { ok: false, reason: '接口地址不能为空', hints: ['填写服务商提供的 Base URL'] };
   const controller = new AbortController();
@@ -59,7 +60,7 @@ async function directChat(baseUrl, apiKey, model, persona, history, message) {
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey },
-      body: JSON.stringify({ model, messages: directBuildMessages(persona, history, message), max_tokens: 1000, stream: false }),
+      body: JSON.stringify({ model, messages: directBuildMessages(persona, memory, history, message), max_tokens: 1000, stream: false }),
       signal: controller.signal,
     });
     const text = await res.text();
@@ -151,7 +152,7 @@ async function requestReply(payload) {
       try { return JSON.parse(text); } catch (_) {}
     }
   } catch (_) { /* 无后端 */ }
-  return directChat(payload.baseUrl, payload.apiKey, payload.model, payload.persona, payload.history, payload.message);
+  return directChat(payload.baseUrl, payload.apiKey, payload.model, payload.persona, payload.memory, payload.history, payload.message);
 }
 
 // 连接测试（走后端 /api/test，无后端则直连）
@@ -184,4 +185,86 @@ async function fetchModels(baseUrl, apiKey) {
     }
   } catch (_) { /* 无后端 */ }
   return directModels(baseUrl, apiKey);
+}
+
+// 从模型返回文本里解析出 JSON 数组（容忍 markdown 代码块包裹）
+function parseMemoryEntries(text) {
+  let t = String(text || '').trim();
+  t = t.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+  const start = t.indexOf('[');
+  const end = t.lastIndexOf(']');
+  if (start === -1 || end === -1 || end <= start) return [];
+  try {
+    const arr = JSON.parse(t.slice(start, end + 1));
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .map((it) => ({ category: (it && it.category) ? String(it.category) : 'personal', text: (it && it.text) ? String(it.text).trim() : '' }))
+      .filter((it) => it.text);
+  } catch (_) {
+    return [];
+  }
+}
+
+const DIRECT_MEMORY_CATEGORIES = [
+  ['personal', '用户个人信息（称呼、喜好、忌口、身份背景等）'],
+  ['agreement', '约定与待办（用户交代的事、角色答应的承诺、要跟进的事项）'],
+  ['event', '重要事件与进展（正在进行的项目、计划、关键时间点、里程碑）'],
+  ['style', '对话风格偏好（称呼方式、语气、回复长短等聊天习惯）'],
+];
+
+// 记忆整理（直连服务商，无后端时用）
+async function directSummarizeMemory(baseUrl, apiKey, model, content, existing) {
+  const url = directChatUrl(baseUrl);
+  if (!url) return { ok: false, reason: '记忆服务地址不能为空', hints: ['在设置里填好记忆服务地址'] };
+  const catDesc = DIRECT_MEMORY_CATEGORIES.map(([k, d]) => '"' + k + '"：' + d).join('\n');
+  const system = [
+    '你是记忆整理助手。根据聊天内容，提炼出值得长期记住的信息，按四类输出。',
+    '分类定义：',
+    catDesc,
+    '只输出 JSON 数组，每项格式 {"category":"...","text":"一句话事实"}；某类没有就省略。',
+    '不要复述原话，用简洁的一句话概括；只记录稳定、可长期使用的事实，忽略寒暄与临时话题。',
+  ].join('\n');
+  const messages = [
+    { role: 'system', content: system },
+    { role: 'user', content: '已有记忆：\n' + (existing || '（无）') + '\n\n新聊天内容：\n' + String(content) + '\n\n请输出需要新增或更新的记忆（JSON 数组）。' },
+  ];
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DIRECT_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey },
+      body: JSON.stringify({ model, messages, max_tokens: 1000, stream: false }),
+      signal: controller.signal,
+    });
+    const text = await res.text();
+    let data = null; try { data = text ? JSON.parse(text) : null; } catch (_) { data = null; }
+    if (res.ok) {
+      const reply = (data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+      return { ok: true, entries: parseMemoryEntries(reply) };
+    }
+    const errMsg = (data && (data.error && (data.error.message || data.error.code))) || (data && data.message) || text || ('HTTP ' + res.status);
+    return { ok: false, reason: '服务商返回错误（HTTP ' + res.status + '）', message: String(errMsg).slice(0, 500), hints: ['检查记忆服务地址、Key、模型名是否正确'] };
+  } catch (err) {
+    if (err && err.name === 'AbortError') return { ok: false, reason: '请求超时（30 秒未响应）', hints: ['记忆服务可能较慢，稍后重试'] };
+    return { ok: false, reason: '直连失败（可能是浏览器跨域 CORS 被拦截）：' + (err && err.message ? err.message : err), hints: ['建议改用 Vercel 部署（自带代理）'] };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// 记忆整理（走后端 /api/memory，无后端则直连）
+async function requestMemorySummary(payload) {
+  try {
+    const res = await fetch('/api/memory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const text = await res.text();
+    if (isBackendResponse(res, text)) {
+      try { return JSON.parse(text); } catch (_) {}
+    }
+  } catch (_) { /* 无后端 */ }
+  return directSummarizeMemory(payload.baseUrl, payload.apiKey, payload.model, payload.content, payload.existing);
 }

@@ -5,6 +5,11 @@
 let chatSending = false;
 let countdownTick = null;
 let countdownSecRemain = 0;
+let editingMemoryId = null;
+
+// 最近聊天直接带上；更早的内容交给记忆总结
+const RECENT_HISTORY_LIMIT = 20;
+const AUTO_SUMMARIZE_MIN_NEW = 20;
 
 // ---- 设置页：读取 / 保存配置 ----
 function loadSaved() {
@@ -14,6 +19,10 @@ function loadSaved() {
   $('input-model').value = s.model;
   ensureSelectOption(s.model);
   setModelMode(s.modelMode);
+  const m = getMemorySettings();
+  $('input-memory-baseurl').value = m.baseUrl;
+  $('input-memory-apikey').value = m.apiKey;
+  $('input-memory-model').value = m.model;
 }
 
 function save() {
@@ -22,6 +31,11 @@ function save() {
     apiKey: $('input-apikey').value.trim(),
     model: getCurrentModel(),
     modelMode: getModelMode(),
+  });
+  setMemorySettings({
+    baseUrl: $('input-memory-baseurl').value.trim(),
+    apiKey: $('input-memory-apikey').value.trim(),
+    model: $('input-memory-model').value.trim(),
   });
 }
 
@@ -99,12 +113,14 @@ function ensureConfigured() {
 
 async function currentChatPayload(message, priorHistory) {
   const c = await getChar();
+  const { entries } = await getMemory();
   return {
     baseUrl: $('input-baseurl').value.trim(),
     apiKey: $('input-apikey').value.trim(),
     model: getCurrentModel(),
     persona: c.persona,
-    history: priorHistory,
+    memory: formatMemory(entries),
+    history: Array.isArray(priorHistory) ? priorHistory.slice(-RECENT_HISTORY_LIMIT) : priorHistory,
     message,
   };
 }
@@ -155,6 +171,7 @@ async function maybeStartCountdown() {
 }
 
 async function afterFlush() {
+  autoSummarizeIfNeeded(); // 后台整理旧内容，不阻塞聊天
   const pending = await getPending();
   if (pending.length === 0) { await updateGenerateButton(); return; }
   if (isInstantMode()) flushQueue();
@@ -252,6 +269,122 @@ async function retryReply(index) {
   setChatSending(false);
 }
 
+// ---- 记忆应用编排 ----
+async function openMemory() {
+  await renderMemory();
+  cancelMemoryForm();
+  showView(viewMemory);
+}
+
+function openMemoryAdd() {
+  editingMemoryId = null;
+  renderMemoryForm(null);
+}
+
+async function openMemoryEdit(id) {
+  const { entries } = await getMemory();
+  const e = entries.find((x) => x.id === id);
+  if (!e) return;
+  editingMemoryId = id;
+  renderMemoryForm(e);
+}
+
+async function saveMemoryForm() {
+  const category = $('memory-category').value;
+  const text = $('memory-text').value.trim();
+  if (!text) { toast('记忆内容不能为空'); return; }
+  try {
+    if (editingMemoryId) await updateMemoryEntry(editingMemoryId, { category, text });
+    else await addMemoryEntry({ category, text });
+    cancelMemoryForm();
+    await renderMemory();
+    toast('记忆已保存');
+  } catch (err) {
+    toast('保存失败：' + (err && err.message ? err.message : err));
+  }
+}
+
+function cancelMemoryForm() {
+  editingMemoryId = null;
+  const box = $('memory-form');
+  box.hidden = true;
+  box.innerHTML = '';
+}
+
+async function deleteMemoryEntryConfirm(id) {
+  try {
+    await deleteMemoryEntry(id);
+    await renderMemory();
+    toast('已删除');
+  } catch (err) {
+    toast('删除失败：' + (err && err.message ? err.message : err));
+  }
+}
+
+// 独立记忆服务优先；未填则复用聊天用的 AI 接口
+function getEffectiveMemorySettings() {
+  const m = getMemorySettings();
+  if (m.baseUrl && m.apiKey && m.model) return m;
+  const s = getSettings();
+  return { baseUrl: s.baseUrl, apiKey: s.apiKey, model: s.model };
+}
+
+function historyToText(messages) {
+  return (messages || []).map((m) => (m.role === 'assistant' ? '角色' : '用户') + '：' + (m.content || '')).join('\n');
+}
+
+// 手动「整理」：把尚未总结的聊天内容提炼成记忆
+async function summarizeChatToMemory() {
+  const ms = getEffectiveMemorySettings();
+  if (!ms.baseUrl || !ms.apiKey || !ms.model) {
+    toast('请先在「设置」填好记忆服务地址、Key 和模型');
+    return;
+  }
+  const history = await getHistory();
+  const { entries, lastSummarizedCount } = await getMemory();
+  const content = historyToText(history.slice(lastSummarizedCount));
+  if (!content.trim()) { toast('没有需要整理的新内容'); return; }
+
+  toast('正在整理记忆…');
+  try {
+    const data = await requestMemorySummary({
+      baseUrl: ms.baseUrl, apiKey: ms.apiKey, model: ms.model,
+      content, existing: formatMemory(entries),
+    });
+    if (!data.ok) { toast('整理失败：' + (data.reason || '未知错误')); return; }
+    const newEntries = data.entries || [];
+    await mergeMemoryEntries(newEntries);
+    await setLastSummarizedCount(history.length);
+    await renderMemory();
+    toast('已整理 ' + newEntries.length + ' 条记忆');
+  } catch (err) {
+    toast('整理失败：' + (err && err.message ? err.message : err));
+  }
+}
+
+// 自动整理：聊天较长后，把超出最近窗口的旧内容悄悄总结（失败不打扰）
+async function autoSummarizeIfNeeded() {
+  const history = await getHistory();
+  const { entries, lastSummarizedCount } = await getMemory();
+  const targetEnd = history.length - RECENT_HISTORY_LIMIT;
+  if (targetEnd <= lastSummarizedCount) return;
+  if (targetEnd - lastSummarizedCount < AUTO_SUMMARIZE_MIN_NEW) return;
+  const ms = getEffectiveMemorySettings();
+  if (!ms.baseUrl || !ms.apiKey || !ms.model) return;
+  const content = historyToText(history.slice(lastSummarizedCount, targetEnd));
+  if (!content.trim()) return;
+  try {
+    const data = await requestMemorySummary({
+      baseUrl: ms.baseUrl, apiKey: ms.apiKey, model: ms.model,
+      content, existing: formatMemory(entries),
+    });
+    if (data.ok) {
+      await mergeMemoryEntries(data.entries || []);
+      await setLastSummarizedCount(targetEnd);
+    }
+  } catch (_) { /* 自动整理失败静默 */ }
+}
+
 // ===== 事件绑定 =====
 $('tab-select').addEventListener('click', () => setModelMode('select'));
 $('tab-manual').addEventListener('click', () => setModelMode('manual'));
@@ -266,6 +399,8 @@ document.querySelectorAll('.app-icon').forEach((btn) => {
       showView(viewSettings);
     } else if (app === 'chat') {
       openChat();
+    } else if (app === 'memory') {
+      openMemory();
     } else {
       const name = btn.querySelector('.app-name').textContent;
       toast('「' + name + '」功能开发中，请先使用「设置」');
@@ -373,6 +508,17 @@ $('btn-chat-config').addEventListener('click', openCharSettings);
 $('btn-char-settings-back').addEventListener('click', () => showView(viewChat));
 $('input-char-name').addEventListener('input', saveCharConfig);
 $('input-char-persona').addEventListener('input', saveCharConfig);
+
+// 记忆应用
+$('btn-memory-back').addEventListener('click', () => showView(viewHome));
+$('btn-memory-summarize').addEventListener('click', summarizeChatToMemory);
+$('btn-memory-add').addEventListener('click', openMemoryAdd);
+$('btn-toggle-memory-key').addEventListener('click', () => {
+  const inp = $('input-memory-apikey');
+  const revealing = inp.type === 'password';
+  inp.type = revealing ? 'text' : 'password';
+  $('btn-toggle-memory-key').textContent = revealing ? '隐藏' : '显示';
+});
 
 // 头像
 $('btn-upload-avatar').addEventListener('click', () => $('file-avatar').click());

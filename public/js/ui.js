@@ -7,6 +7,7 @@ const $ = (id) => document.getElementById(id);
 const viewHome = $('view-home');
 const viewSettings = $('view-settings');
 const viewChat = $('view-chat');
+const viewMemory = $('view-memory');
 const viewCharSettings = $('view-char-settings');
 
 function showView(view) {
@@ -279,4 +280,103 @@ function fileToAvatar(file) {
     reader.onerror = () => reject(new Error('文件读取失败'));
     reader.readAsDataURL(file);
   });
+}
+
+// ===== 记忆应用渲染 =====
+async function renderMemory() {
+  const list = $('memory-list');
+  list.innerHTML = '';
+  const { entries } = await getMemory();
+  if (!entries.length) {
+    const empty = document.createElement('div');
+    empty.className = 'memory-empty';
+    empty.textContent = '还没有记忆。点「整理」从聊天里总结，或点「添加记忆」手动写一条。';
+    list.appendChild(empty);
+    return;
+  }
+  entries.forEach((e) => list.appendChild(memoryEntryRow(e)));
+}
+
+function memoryEntryRow(e) {
+  const row = document.createElement('div');
+  row.className = 'memory-item';
+
+  const head = document.createElement('div');
+  head.className = 'memory-item-head';
+  const chip = document.createElement('span');
+  chip.className = 'memory-chip';
+  chip.textContent = MEMORY_CATEGORY_LABELS[e.category] || e.category;
+  head.appendChild(chip);
+
+  const actions = document.createElement('span');
+  actions.className = 'memory-item-actions';
+  const editBtn = document.createElement('button');
+  editBtn.type = 'button';
+  editBtn.className = 'memory-link';
+  editBtn.textContent = '编辑';
+  editBtn.addEventListener('click', () => openMemoryEdit(e.id));
+  const delBtn = document.createElement('button');
+  delBtn.type = 'button';
+  delBtn.className = 'memory-link danger';
+  delBtn.textContent = '删除';
+  delBtn.addEventListener('click', () => deleteMemoryEntryConfirm(e.id));
+  actions.appendChild(editBtn);
+  actions.appendChild(delBtn);
+  head.appendChild(actions);
+  row.appendChild(head);
+
+  const text = document.createElement('div');
+  text.className = 'memory-item-text';
+  text.textContent = e.text;
+  row.appendChild(text);
+
+  return row;
+}
+
+// 渲染「添加 / 编辑」表单；entry 为空表示新增
+function renderMemoryForm(entry) {
+  const box = $('memory-form');
+  box.innerHTML = '';
+  box.hidden = false;
+
+  const title = document.createElement('div');
+  title.className = 'memory-form-title';
+  title.textContent = entry ? '编辑记忆' : '添加记忆';
+  box.appendChild(title);
+
+  const sel = document.createElement('select');
+  sel.id = 'memory-category';
+  sel.className = 'memory-select';
+  Object.keys(MEMORY_CATEGORY_LABELS).forEach((k) => {
+    const o = document.createElement('option');
+    o.value = k;
+    o.textContent = MEMORY_CATEGORY_LABELS[k];
+    sel.appendChild(o);
+  });
+  sel.value = (entry && entry.category) || 'personal';
+  box.appendChild(sel);
+
+  const ta = document.createElement('textarea');
+  ta.id = 'memory-text';
+  ta.className = 'memory-textarea';
+  ta.rows = 3;
+  ta.placeholder = '一句话记录，例如：用户叫小明，喜欢喝美式咖啡';
+  ta.value = (entry && entry.text) || '';
+  box.appendChild(ta);
+
+  const btns = document.createElement('div');
+  btns.className = 'memory-form-actions';
+  const saveBtn = document.createElement('button');
+  saveBtn.type = 'button';
+  saveBtn.className = 'fetch-btn';
+  saveBtn.textContent = '保存';
+  saveBtn.addEventListener('click', saveMemoryForm);
+  const cancelBtn = document.createElement('button');
+  cancelBtn.type = 'button';
+  cancelBtn.className = 'fetch-btn';
+  cancelBtn.textContent = '取消';
+  cancelBtn.addEventListener('click', cancelMemoryForm);
+  btns.appendChild(saveBtn);
+  btns.appendChild(cancelBtn);
+  box.appendChild(btns);
 }

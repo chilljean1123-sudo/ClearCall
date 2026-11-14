@@ -28,6 +28,20 @@ const OLD_KEYS = {
 };
 const MIGRATED_KEY = 'clearcall.migrated';
 
+// 记忆服务（独立配置，用于整理长期记忆）
+const MEMORY_KEYS = {
+  baseUrl: 'clearcall.memoryBaseUrl',
+  apiKey: 'clearcall.memoryApiKey',
+  model: 'clearcall.memoryModel',
+};
+
+const MEMORY_CATEGORY_LABELS = {
+  personal: '个人信息',
+  agreement: '约定与待办',
+  event: '事件与进展',
+  style: '风格偏好',
+};
+
 // ---------- AI 接口设置（localStorage） ----------
 function getSettings() {
   return {
@@ -62,6 +76,21 @@ function setTriggerModes(m) {
   localStorage.setItem(TRIGGER_KEYS.countdownSec, String(Math.max(1, (m && m.countdownSec) || 3)));
 }
 
+// ---------- 记忆服务设置（localStorage） ----------
+function getMemorySettings() {
+  return {
+    baseUrl: localStorage.getItem(MEMORY_KEYS.baseUrl) || '',
+    apiKey: localStorage.getItem(MEMORY_KEYS.apiKey) || '',
+    model: localStorage.getItem(MEMORY_KEYS.model) || '',
+  };
+}
+
+function setMemorySettings(s) {
+  localStorage.setItem(MEMORY_KEYS.baseUrl, (s && s.baseUrl) || '');
+  localStorage.setItem(MEMORY_KEYS.apiKey, (s && s.apiKey) || '');
+  localStorage.setItem(MEMORY_KEYS.model, (s && s.model) || '');
+}
+
 // ---------- IndexedDB 基础 ----------
 const DB_NAME = 'clearcall';
 const DB_VERSION = 1;
@@ -69,6 +98,7 @@ const STORE_DOCS = 'documents';   // 各类结构化文档：角色、聊天记�
 const STORE_FILES = 'files';      // 图片等二进制 Blob，用稳定 id 引用
 const DOC_CHARACTER = 'character';
 const DOC_CHAT = 'chatHistory';
+const DOC_MEMORY = 'memory';
 
 let _dbPromise = null;
 
@@ -264,6 +294,70 @@ function mutateHistory(mutator) {
   });
 }
 
+// ---------- 记忆（IndexedDB） ----------
+// 每条记忆用稳定 id 存，分类 + 一句话事实；以后加向量检索可按 id/text 扩展。
+async function getMemory() {
+  const doc = await getDoc(DOC_MEMORY);
+  return {
+    entries: (doc && Array.isArray(doc.entries)) ? doc.entries : [],
+    lastSummarizedCount: (doc && typeof doc.lastSummarizedCount === 'number') ? doc.lastSummarizedCount : 0,
+  };
+}
+
+function mutateMemory(mutator) {
+  return mutateDoc(DOC_MEMORY, (doc) => {
+    if (!Array.isArray(doc.entries)) doc.entries = [];
+    if (typeof doc.lastSummarizedCount !== 'number') doc.lastSummarizedCount = 0;
+    mutator(doc);
+  });
+}
+
+async function addMemoryEntry({ category, text }) {
+  const entry = { id: genId(), category: category || 'personal', text: (text || '').trim(), createdAt: Date.now(), updatedAt: Date.now() };
+  if (!entry.text) return entry;
+  await mutateMemory((doc) => doc.entries.push(entry));
+  return entry;
+}
+
+async function updateMemoryEntry(id, { category, text }) {
+  await mutateMemory((doc) => {
+    const e = doc.entries.find((x) => x.id === id);
+    if (!e) return;
+    if (category) e.category = category;
+    if (text !== undefined) e.text = (text || '').trim();
+    e.updatedAt = Date.now();
+  });
+}
+
+async function deleteMemoryEntry(id) {
+  await mutateMemory((doc) => {
+    doc.entries = doc.entries.filter((x) => x.id !== id);
+  });
+}
+
+async function setLastSummarizedCount(n) {
+  await mutateMemory((doc) => { doc.lastSummarizedCount = n; });
+}
+
+// 合并新总结：同类别且文字一致的去重，其余追加
+async function mergeMemoryEntries(newEntries) {
+  await mutateMemory((doc) => {
+    (newEntries || []).forEach((n) => {
+      const text = (n && n.text) ? String(n.text).trim() : '';
+      if (!text) return;
+      const category = (n && n.category) || 'personal';
+      const dup = doc.entries.some((e) => e.category === category && e.text.trim() === text);
+      if (!dup) doc.entries.push({ id: genId(), category, text, createdAt: Date.now(), updatedAt: Date.now() });
+    });
+  });
+}
+
+// 把记忆条目格式化成发给 AI 的文本
+function formatMemory(entries) {
+  if (!Array.isArray(entries) || !entries.length) return '';
+  return entries.map((e) => '[' + (MEMORY_CATEGORY_LABELS[e.category] || e.category) + '] ' + e.text).join('\n');
+}
+
 // ---------- 备份：构建 / 应用 ----------
 function dataUrlToBlob(dataUrl) {
   const m = /^data:([^;]+);base64,(.*)$/.exec(String(dataUrl || ''));
@@ -288,8 +382,10 @@ function blobToDataUrl(blob) {
 async function buildBackup() {
   const settings = getSettings();
   const trigger = getTriggerModes();
+  const memorySettings = getMemorySettings();
   const charDoc = (await getDoc(DOC_CHARACTER)) || {};
   const chatDoc = (await getDoc(DOC_CHAT)) || {};
+  const memDoc = (await getDoc(DOC_MEMORY)) || {};
   const files = {};
   const avatarId = charDoc.avatarId || null;
   if (avatarId) {
@@ -304,8 +400,13 @@ async function buildBackup() {
     exportedAt: new Date().toISOString(),
     settings,
     trigger,
+    memorySettings,
     character: { name: charDoc.name || '', persona: charDoc.persona || '', avatarId },
     chatHistory: Array.isArray(chatDoc.messages) ? chatDoc.messages : [],
+    memory: {
+      entries: Array.isArray(memDoc.entries) ? memDoc.entries : [],
+      lastSummarizedCount: memDoc.lastSummarizedCount || 0,
+    },
     files,
   };
 }
@@ -315,6 +416,7 @@ async function applyBackup(data) {
 
   setSettings(data.settings || {});
   setTriggerModes(data.trigger || {});
+  setMemorySettings(data.memorySettings || {});
 
   // 图片：先清空旧文件，再写入备份里的（Blob），避免残留孤儿文件
   await clearFiles();
@@ -328,6 +430,9 @@ async function applyBackup(data) {
   const c = data.character || {};
   await putDoc({ id: DOC_CHARACTER, name: c.name || '', persona: c.persona || '', avatarId: c.avatarId || null });
   await putDoc({ id: DOC_CHAT, messages: Array.isArray(data.chatHistory) ? data.chatHistory : [] });
+
+  const mem = data.memory || {};
+  await putDoc({ id: DOC_MEMORY, entries: Array.isArray(mem.entries) ? mem.entries : [], lastSummarizedCount: mem.lastSummarizedCount || 0 });
 
   revokeAvatarCache();
 }

@@ -9,7 +9,7 @@
 - 前端：`public/`（index.html / styles.css / js/）
 - 前端分层：`js/store.js`（数据存取）· `js/api.js`（模型调用）· `js/ui.js`（界面渲染）· `js/app.js`（编排入口）
 - 本地 Node 服务：`server.js`
-- Vercel Serverless：`api/`（chat / test / models）
+- Vercel Serverless：`api/`（chat / test / models / memory）
 - 共享代理逻辑：`lib/ai.js`
 
 ## 铁律（先想清楚再动手）
@@ -27,6 +27,8 @@
 - 备份导出/导入走 `store.js` 的 `buildBackup()` / `applyBackup()`，图片在备份里转 base64 dataUrl。
 - 存取失败（尤其 `QuotaExceededError` 空间不足）要转成友好提示，别静默丢数据。
 - 改动存储结构时，旧数据要先迁移（见 `store.js` 的 `migrate()`），迁移成功再清理旧键。
+- 角色记忆按「个人信息 / 约定与待办 / 事件与进展 / 风格偏好」四类，条目用稳定 id 存 `memory` 文档，预留向量检索扩展（按 id/text 扩展即可）。
+- 聊天上下文：最近 20 条直接带上，更早内容整理成记忆总结注入 system；记忆服务独立配置，留空则复用聊天 AI 接口。
 
 ## 风格约束
 

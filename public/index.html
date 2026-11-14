@@ -44,6 +44,10 @@
             <span class="app-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span>
             <span class="app-name">聊天</span>
           </button>
+          <button class="app-icon" data-app="memory">
+            <span class="app-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></span>
+            <span class="app-name">记忆</span>
+          </button>
           <button class="app-icon" data-app="settings">
             <span class="app-glyph accent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span>
             <span class="app-name">设置</span>
@@ -104,13 +108,32 @@
           <div class="divider"></div>
 
           <div class="field">
+            <span class="field-label">记忆服务（独立配置，用于整理长期记忆）</span>
+            <input id="input-memory-baseurl" type="text" placeholder="记忆服务地址，例如 https://api.deepseek.com" autocomplete="off" />
+          </div>
+          <div class="field">
+            <span class="field-label">记忆服务 Key</span>
+            <span class="key-wrap">
+              <input id="input-memory-apikey" type="password" placeholder="sk-..." autocomplete="off" />
+              <button type="button" class="toggle-key" id="btn-toggle-memory-key">显示</button>
+            </span>
+          </div>
+          <div class="field">
+            <span class="field-label">记忆服务模型</span>
+            <input id="input-memory-model" type="text" placeholder="例如 deepseek-chat" autocomplete="off" />
+            <span class="field-hint">留空则复用上面的 AI 接口做记忆整理。</span>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="field">
             <span class="field-label">备份与恢复</span>
             <div class="backup-row">
               <button type="button" class="fetch-btn" id="btn-export">导出备份</button>
               <button type="button" class="fetch-btn" id="btn-import">导入备份</button>
               <input type="file" id="file-import" accept="application/json,.json" hidden />
             </div>
-            <span class="field-hint">备份包含 AI 设置、角色（含头像图片）和聊天记录；导入会覆盖当前数据。备份文件内含 API Key，请妥善保管。</span>
+            <span class="field-hint">备份包含 AI 设置、记忆服务设置、角色（含头像图片）、聊天记录和记忆；导入会覆盖当前数据。备份文件内含 API Key，请妥善保管。</span>
           </div>
         </div>
       </div>
@@ -130,6 +153,21 @@
         <div class="chat-inputbar">
           <input id="input-chat" type="text" placeholder="输入消息…" autocomplete="off" />
           <button type="button" class="chat-send-btn" id="btn-chat-send">发送</button>
+        </div>
+      </div>
+
+      <!-- 记忆应用 -->
+      <div class="app-view" id="view-memory">
+        <header class="app-header">
+          <button class="back-btn" id="btn-memory-back" type="button">返回</button>
+          <span class="app-title">记忆</span>
+          <button class="chat-config-btn" id="btn-memory-summarize" type="button">整理</button>
+        </header>
+
+        <div class="memory-body">
+          <button type="button" class="fetch-btn" id="btn-memory-add">添加记忆</button>
+          <div class="memory-form" id="memory-form" hidden></div>
+          <div class="memory-list" id="memory-list"></div>
         </div>
       </div>
 
