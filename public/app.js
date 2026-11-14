@@ -4,6 +4,7 @@ const KEYS = {
   baseUrl: 'clearcall.baseUrl',
   apiKey: 'clearcall.apiKey',
   model: 'clearcall.model',
+  modelMode: 'clearcall.modelMode',
 };
 
 const viewHome = $('view-home');
@@ -32,19 +33,73 @@ function updateTime() {
 updateTime();
 setInterval(updateTime, 30000);
 
-// 读取 / 保存配置到本地浏览器
+// ===== 模型名：选择 / 手动填写 两种模式 =====
+function getModelMode() {
+  return $('tab-select').classList.contains('active') ? 'select' : 'manual';
+}
+
+function setModelMode(mode) {
+  const isSelect = mode === 'select';
+  $('tab-select').classList.toggle('active', isSelect);
+  $('tab-manual').classList.toggle('active', !isSelect);
+  $('wrap-select').hidden = !isSelect;
+  $('wrap-manual').hidden = isSelect;
+}
+
+function getCurrentModel() {
+  return getModelMode() === 'select' ? $('select-model').value.trim() : $('input-model').value.trim();
+}
+
+function ensureSelectOption(value) {
+  if (!value) return;
+  const sel = $('select-model');
+  if (!Array.from(sel.options).some((o) => o.value === value)) {
+    const opt = document.createElement('option');
+    opt.value = value;
+    opt.textContent = value;
+    sel.appendChild(opt);
+  }
+  sel.value = value;
+}
+
+function populateModels(models) {
+  const sel = $('select-model');
+  const prev = sel.value;
+  sel.innerHTML = '';
+  const empty = document.createElement('option');
+  empty.value = '';
+  empty.textContent = models.length ? '请选择一个模型' : '未获取到模型，请切到「手动填写」';
+  sel.appendChild(empty);
+  models.forEach((m) => {
+    const opt = document.createElement('option');
+    opt.value = m;
+    opt.textContent = m;
+    sel.appendChild(opt);
+  });
+  if (prev) ensureSelectOption(prev);
+}
+
+$('tab-select').addEventListener('click', () => setModelMode('select'));
+$('tab-manual').addEventListener('click', () => setModelMode('manual'));
+
+// ===== 读取 / 保存配置 =====
 function loadSaved() {
   $('input-baseurl').value = localStorage.getItem(KEYS.baseUrl) || '';
   $('input-apikey').value = localStorage.getItem(KEYS.apiKey) || '';
-  $('input-model').value = localStorage.getItem(KEYS.model) || '';
+  const model = localStorage.getItem(KEYS.model) || '';
+  $('input-model').value = model;
+  ensureSelectOption(model);
+  setModelMode(localStorage.getItem(KEYS.modelMode) || 'select');
 }
+
 function save() {
   localStorage.setItem(KEYS.baseUrl, $('input-baseurl').value.trim());
   localStorage.setItem(KEYS.apiKey, $('input-apikey').value.trim());
-  localStorage.setItem(KEYS.model, $('input-model').value.trim());
+  localStorage.setItem(KEYS.model, getCurrentModel());
+  localStorage.setItem(KEYS.modelMode, getModelMode());
 }
 
-// 主屏幕应用图标
+// ===== 主屏幕应用图标 =====
 document.querySelectorAll('.app-icon').forEach((btn) => {
   btn.addEventListener('click', () => {
     const app = btn.dataset.app;
@@ -59,10 +114,8 @@ document.querySelectorAll('.app-icon').forEach((btn) => {
   });
 });
 
-// 返回主屏幕
 $('btn-back').addEventListener('click', () => showView(viewHome));
 
-// 显示 / 隐藏 API Key
 $('btn-toggle-key').addEventListener('click', () => {
   const inp = $('input-apikey');
   const revealing = inp.type === 'password';
@@ -70,7 +123,7 @@ $('btn-toggle-key').addEventListener('click', () => {
   $('btn-toggle-key').textContent = revealing ? '隐藏' : '显示';
 });
 
-// 渲染测试结果
+// ===== 结果渲染 =====
 function renderResult(data) {
   const result = $('result');
   result.innerHTML = '';
@@ -129,11 +182,64 @@ function renderResult(data) {
   }
 }
 
-// 连接测试
+// ===== 拉取模型列表 =====
+async function fetchModelList() {
+  const baseUrl = $('input-baseurl').value.trim();
+  const apiKey = $('input-apikey').value.trim();
+  const res = await fetch('/api/models', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ baseUrl, apiKey }),
+  });
+  return res.json();
+}
+
+$('btn-fetch-models').addEventListener('click', async () => {
+  save();
+  const btn = $('btn-fetch-models');
+  const result = $('result');
+  btn.disabled = true;
+  btn.textContent = '拉取中…';
+  result.hidden = false;
+  result.className = 'result loading';
+  result.textContent = '正在获取模型列表…';
+
+  try {
+    const data = await fetchModelList();
+    if (data.ok) {
+      const list = data.models || [];
+      populateModels(list);
+      setModelMode('select');
+      result.className = 'result success';
+      result.innerHTML = '';
+      const title = document.createElement('div');
+      title.className = 'result-title';
+      title.textContent = '已获取 ' + list.length + ' 个模型';
+      result.appendChild(title);
+      const hint = document.createElement('div');
+      hint.className = 'result-meta';
+      hint.textContent = '请在下方「模型名」下拉框里选择。';
+      result.appendChild(hint);
+    } else {
+      renderResult(data);
+    }
+  } catch (err) {
+    renderResult({
+      ok: false,
+      reason: '无法连接本地服务：' + (err && err.message ? err.message : err),
+      hints: ['确认本地服务已启动（在终端运行 node server.js 或 npm start）'],
+    });
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '拉取模型';
+  }
+});
+
+// ===== 连接测试 =====
 $('btn-test').addEventListener('click', async () => {
   const baseUrl = $('input-baseurl').value.trim();
   const apiKey = $('input-apikey').value.trim();
-  const model = $('input-model').value.trim();
+  const model = getCurrentModel();
   save();
 
   const result = $('result');
@@ -158,6 +264,16 @@ $('btn-test').addEventListener('click', async () => {
       data = { ok: false, reason: '本地服务返回异常（HTTP ' + res.status + '）', hints: ['查看终端日志'] };
     }
     renderResult(data);
+
+    // 连接成功后自动拉取一次模型列表，方便下次直接选择
+    if (data && data.ok) {
+      try {
+        const ml = await fetchModelList();
+        if (ml && ml.ok && Array.isArray(ml.models) && ml.models.length) {
+          populateModels(ml.models);
+        }
+      } catch (_) { /* 静默失败 */ }
+    }
   } catch (err) {
     renderResult({
       ok: false,

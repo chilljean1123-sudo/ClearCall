@@ -16,14 +16,26 @@ const MIME = {
   '.ico': 'image/x-icon',
 };
 
-// 把用户填的“接口地址”规范成 /chat/completions 完整路径
-function normalizeEndpoint(baseUrl) {
+// 把用户填的“接口地址”规范成基础地址（去掉结尾斜杠和 /chat/completions）
+function normalizeBase(baseUrl) {
   let u = (baseUrl || '').trim();
   if (!u) return null;
   if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
-  u = u.replace(/\/+$/, ''); // 去掉结尾斜杠
-  if (/\/chat\/completions$/i.test(u)) return u; // 已经是完整路径
-  return u + '/chat/completions';
+  u = u.replace(/\/+$/, '');
+  if (/\/chat\/completions$/i.test(u)) u = u.slice(0, -'/chat/completions'.length);
+  return u;
+}
+
+// 聊天补全接口完整路径
+function chatEndpoint(baseUrl) {
+  const base = normalizeBase(baseUrl);
+  return base ? base + '/chat/completions' : null;
+}
+
+// 模型列表接口完整路径
+function modelsEndpoint(baseUrl) {
+  const base = normalizeBase(baseUrl);
+  return base ? base + '/models' : null;
 }
 
 // 根据 HTTP 状态码给出“原因 + 下一步检查”
@@ -103,7 +115,7 @@ function classifyNetwork(err) {
 }
 
 async function testConnection({ baseUrl, apiKey, model }) {
-  const endpoint = normalizeEndpoint(baseUrl);
+  const endpoint = chatEndpoint(baseUrl);
   if (!endpoint) {
     return { ok: false, reason: '接口地址不能为空', hints: ['填写服务商提供的 Base URL，例如 https://api.deepseek.com 或 https://api.openai.com/v1'] };
   }
@@ -165,6 +177,49 @@ async function testConnection({ baseUrl, apiKey, model }) {
   }
 }
 
+async function fetchModels({ baseUrl, apiKey }) {
+  const url = modelsEndpoint(baseUrl);
+  if (!url) {
+    return { ok: false, reason: '接口地址不能为空', hints: ['填写服务商提供的 Base URL，例如 https://api.deepseek.com 或 https://api.openai.com/v1'] };
+  }
+  if (!apiKey) {
+    return { ok: false, reason: 'API Key 不能为空', hints: ['在设置页粘贴你的 API Key'] };
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TEST_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: { Authorization: 'Bearer ' + apiKey },
+      signal: controller.signal,
+    });
+    const text = await res.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch (_) { data = null; }
+
+    if (res.ok) {
+      const models = ((data && Array.isArray(data.data)) ? data.data : [])
+        .map((m) => (m && m.id) || null)
+        .filter(Boolean)
+        .sort();
+      return { ok: true, models };
+    }
+
+    const errMsg = (data && (data.error && (data.error.message || data.error.code))) || (data && data.message) || text || ('HTTP ' + res.status);
+    const c = classifyStatus(res.status);
+    return { ok: false, reason: c.reason, message: String(errMsg).slice(0, 500), hints: c.hints };
+  } catch (err) {
+    if (err && err.name === 'AbortError') {
+      return { ok: false, reason: '请求超时（30 秒未响应）', hints: ['检查网络是否稳定', '稍后重试'] };
+    }
+    return classifyNetwork(err);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
 
@@ -189,6 +244,24 @@ const server = http.createServer(async (req, res) => {
       });
       // 只记录结果状态，绝不记录 API Key
       console.log('[api/test]', result.ok ? 'success' : 'failed', result.status || '', result.reason || '');
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify(result));
+    });
+    return;
+  }
+
+  // 获取模型列表接口
+  if (req.method === 'POST' && url.pathname === '/api/models') {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+      if (body.length > 1e6) req.destroy();
+    });
+    req.on('end', async () => {
+      let payload = {};
+      try { payload = JSON.parse(body || '{}'); } catch (_) { payload = {}; }
+      const result = await fetchModels({ baseUrl: payload.baseUrl, apiKey: payload.apiKey });
+      console.log('[api/models]', result.ok ? 'success (' + (result.models ? result.models.length : 0) + ' 个模型)' : 'failed', result.reason || '');
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify(result));
     });

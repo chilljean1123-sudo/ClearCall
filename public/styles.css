@@ -310,3 +310,52 @@ body {
   max-width: 80vw;
   text-align: center;
 }
+
+/* ===== 模型名：选择 / 手动填写 切换 ===== */
+[hidden] { display: none !important; }
+
+.mode-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+.mode-tab {
+  flex: 1;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  color: var(--muted);
+  border-radius: 9px;
+  padding: 8px 0;
+  font-size: 13px;
+  cursor: pointer;
+}
+.mode-tab.active {
+  background: rgba(79, 140, 255, 0.16);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.model-select-wrap { display: flex; gap: 8px; }
+.model-select-wrap select {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 11px 12px;
+  font-size: 14px;
+  outline: none;
+}
+.model-select-wrap select:focus { border-color: var(--accent); }
+
+.model-manual-wrap { display: block; }
+
+.fetch-btn {
+  flex: 0 0 auto;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  color: var(--accent);
+  border-radius: 10px;
+  padding: 0 12px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.fetch-btn:disabled { opacity: 0.6; cursor: default; }

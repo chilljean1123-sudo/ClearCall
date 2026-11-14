@@ -73,10 +73,25 @@
             </span>
           </label>
 
-          <label class="field">
+          <div class="field">
             <span class="field-label">模型名</span>
-            <input id="input-model" type="text" placeholder="例如 deepseek-chat / gpt-4o-mini" autocomplete="off" />
-          </label>
+            <div class="mode-tabs">
+              <button type="button" class="mode-tab active" id="tab-select" data-mode="select">选择模型</button>
+              <button type="button" class="mode-tab" id="tab-manual" data-mode="manual">手动填写</button>
+            </div>
+
+            <div class="model-select-wrap" id="wrap-select">
+              <select id="select-model">
+                <option value="">请先点「拉取模型」获取列表</option>
+              </select>
+              <button type="button" class="fetch-btn" id="btn-fetch-models">拉取模型</button>
+            </div>
+
+            <div class="model-manual-wrap" id="wrap-manual" hidden>
+              <input id="input-model" type="text" placeholder="例如 deepseek-chat / gpt-4o-mini" autocomplete="off" />
+            </div>
+            <span class="field-hint">可先「拉取模型」从列表选择，或切到「手动填写」直接输入</span>
+          </div>
 
           <button class="test-btn" id="btn-test" type="button">连接测试</button>
 
