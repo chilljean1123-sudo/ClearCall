@@ -6,7 +6,8 @@
 
 浏览器里运行的「虚拟小手机」，核心是 AI 角色聊天。
 
-- 前端：`public/`（index.html / styles.css / app.js）
+- 前端：`public/`（index.html / styles.css / js/）
+- 前端分层：`js/store.js`（数据存取）· `js/api.js`（模型调用）· `js/ui.js`（界面渲染）· `js/app.js`（编排入口）
 - 本地 Node 服务：`server.js`
 - Vercel Serverless：`api/`（chat / test / models）
 - 共享代理逻辑：`lib/ai.js`
@@ -16,6 +17,7 @@
 - 新增「用户可以创建的内容」时，同时考虑它的**编辑**和**删除**。
 - 新增「可以开启的功能」时，同时考虑它的**关闭方式**。
 - 改任何东西前，先读相关现有代码，不要凭空假设结构。
+- 按职责分层：界面（DOM）、存取数据（localStorage）、调用模型（请求）各归各的文件，新功能沿用已有层，别把多种职责堆进一个文件。
 
 ## 风格约束
 
