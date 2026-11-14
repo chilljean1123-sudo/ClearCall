@@ -199,6 +199,7 @@ const DOC_MEMORY = 'memory';           // 旧版记忆文档（迁移用；新�
 const DOC_WORLDBOOK = 'worldbook';
 const DOC_STICKERS = 'stickers';       // 表情包按角色分仓：stickers:<角色id>
 const DOC_APPEARANCE = 'appearance';   // 美化：主屏壁纸 / 各应用图标 / 状态栏开关
+const DOC_NOTIFICATION = 'notification'; // 通知：开关 / 自定义提示音 / 后台保活
 const LEGACY_CHARACTER_ID = 'character';
 
 let _dbPromise = null;
@@ -421,6 +422,61 @@ async function clearAppearanceIcon(app) {
 async function getAppearanceIconUrl(app) {
   const cfg = await getAppearance();
   return getFileUrl(cfg.icons[app]);
+}
+
+// ---------- 通知（IndexedDB） ----------
+// 通知开关与保活开关是轻量设置；提示音 Blob 存 files，文档只存引用。
+function normalizeNotification(doc) {
+  const d = doc || {};
+  return {
+    enabled: !!d.enabled,
+    keepAlive: !!d.keepAlive,
+    soundId: d.soundId || null,
+    soundName: d.soundName || '',
+    soundType: d.soundType || '',
+  };
+}
+
+async function getNotificationConfig() {
+  return normalizeNotification(await getDoc(DOC_NOTIFICATION));
+}
+
+function setNotificationConfig(patch) {
+  return mutateDoc(DOC_NOTIFICATION, (doc) => {
+    const next = Object.assign(normalizeNotification(doc), patch || {});
+    doc.enabled = !!next.enabled;
+    doc.keepAlive = !!next.keepAlive;
+    doc.soundId = next.soundId || null;
+    doc.soundName = next.soundName || '';
+    doc.soundType = next.soundType || '';
+  });
+}
+
+async function setNotificationSound(blob, type, name) {
+  if (!blob) throw new Error('缺少提示音文件');
+  const cfg = await getNotificationConfig();
+  const oldId = cfg.soundId;
+  const id = genId();
+  await putFile({ id, name: name || 'notification-sound', type: type || blob.type || 'audio/mpeg', blob });
+  await setNotificationConfig({ soundId: id, soundName: name || '提示音', soundType: type || blob.type || '' });
+  if (oldId) {
+    try { await deleteFile(oldId); } catch (_) {}
+    revokeFileUrl(oldId);
+  }
+  return id;
+}
+
+async function clearNotificationSound() {
+  const cfg = await getNotificationConfig();
+  if (!cfg.soundId) return;
+  await setNotificationConfig({ soundId: null, soundName: '', soundType: '' });
+  try { await deleteFile(cfg.soundId); } catch (_) {}
+  revokeFileUrl(cfg.soundId);
+}
+
+async function getNotificationSoundUrl() {
+  const cfg = await getNotificationConfig();
+  return getFileUrl(cfg.soundId);
 }
 
 // 在一个事务里完成「读-改-写」，避免并发写丢字段
@@ -980,7 +1036,9 @@ async function buildBackup() {
 
   const wbDoc = (await getDoc(DOC_WORLDBOOK)) || {};
   const appearance = await getAppearance();
-  for (const fileId of [appearance.wallpaperId, ...Object.values(appearance.icons)].filter(Boolean)) {
+  const notification = await getNotificationConfig();
+  const appearanceFileIds = [appearance.wallpaperId, ...Object.values(appearance.icons), notification.soundId].filter(Boolean);
+  for (const fileId of appearanceFileIds) {
     const f = await getFile(fileId);
     if (f && f.blob) {
       files[fileId] = { name: f.name || 'image', type: f.type || 'image/jpeg', data: await blobToDataUrl(f.blob) };
@@ -996,6 +1054,7 @@ async function buildBackup() {
     voiceSettings,
     imageSettings,
     appearance,
+    notification,
     characters,
     activeId,
     chats,
@@ -1065,6 +1124,15 @@ async function applyBackup(data) {
     wallpaperId: appearance.wallpaperId,
     icons: appearance.icons,
     statusBar: appearance.statusBar,
+  });
+  const notification = normalizeNotification(data.notification);
+  await putDoc({
+    id: DOC_NOTIFICATION,
+    enabled: notification.enabled,
+    keepAlive: notification.keepAlive,
+    soundId: notification.soundId,
+    soundName: notification.soundName,
+    soundType: notification.soundType,
   });
   for (const c of characters) {
     const chat = chats[c.id];

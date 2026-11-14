@@ -30,6 +30,13 @@ let pendingChatImage = null;   // 聊天里待发送的相册图片
 let pendingChatImageUrl = '';
 let toolLocationCoords = null; // 手机定位得到的真实坐标
 
+// 通知与后台保活
+let notifyAudio = null;        // 自定义提示音播放器
+let keepAliveAudio = null;     // 后台保活用的静音音频
+let keepAliveUrl = '';
+let keepAliveRetryBound = false;
+let notifySwReg = null;
+
 // 最近聊天直接带上；更早的内容交给记忆总结
 const RECENT_HISTORY_LIMIT = 20;
 const AUTO_SUMMARIZE_MIN_NEW = 20;
@@ -97,6 +104,245 @@ async function refreshAppearance() {
   }));
   applyAppearance(cfg, await getFileUrl(cfg.wallpaperId), iconUrls);
 }
+
+// ---- 通知：浏览器推送 / 自定义提示音 / 后台保活 ----
+function notifySupported() {
+  return typeof Notification !== 'undefined';
+}
+
+function updateNotifyHint() {
+  const el = $('notify-status-hint');
+  if (!el) return;
+  if (!notifySupported()) {
+    el.textContent = '当前浏览器不支持系统通知，请换用 Chrome / Safari 等浏览器。';
+    return;
+  }
+  if (Notification.permission === 'granted') {
+    el.textContent = '通知权限已授权；页面切到后台时，角色回复会推送浏览器通知。';
+  } else if (Notification.permission === 'denied') {
+    el.textContent = '通知权限被拒绝，请在浏览器地址栏的网站设置里重新允许通知。';
+  } else {
+    el.textContent = '尚未授权通知，首次开启或发送测试通知时会请求权限。';
+  }
+}
+
+async function loadNotificationSettings() {
+  const cfg = await getNotificationConfig();
+  const enabled = $('chk-notify-enabled');
+  const keepAlive = $('chk-keepalive');
+  if (enabled) enabled.checked = cfg.enabled;
+  if (keepAlive) keepAlive.checked = cfg.keepAlive;
+  const nameEl = $('notify-sound-name');
+  if (nameEl) {
+    nameEl.textContent = cfg.soundId
+      ? '当前提示音：' + (cfg.soundName || '已上传')
+      : '未设置，使用系统默认提示音';
+  }
+  const hasSound = !!cfg.soundId;
+  if ($('btn-notify-sound-test')) $('btn-notify-sound-test').disabled = !hasSound;
+  if ($('btn-notify-sound-clear')) $('btn-notify-sound-clear').disabled = !hasSound;
+  updateNotifyHint();
+}
+
+// 注册 Service Worker：移动端浏览器只允许通过 Service Worker 弹通知
+async function registerNotifyServiceWorker() {
+  if (typeof navigator === 'undefined' || !navigator.serviceWorker) return null;
+  try {
+    notifySwReg = await navigator.serviceWorker.register('sw.js');
+    return notifySwReg;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function ensureNotifyPermission() {
+  if (!notifySupported()) {
+    toast('当前浏览器不支持系统通知');
+    return false;
+  }
+  if (Notification.permission === 'granted') return true;
+  if (Notification.permission === 'denied') {
+    updateNotifyHint();
+    toast('通知权限已被拒绝，请在浏览器设置里允许通知');
+    return false;
+  }
+  try {
+    const permission = await Notification.requestPermission();
+    updateNotifyHint();
+    return permission === 'granted';
+  } catch (_) {
+    updateNotifyHint();
+    return false;
+  }
+}
+
+async function sendBrowserNotification(title, options) {
+  if (!notifySupported() || Notification.permission !== 'granted') return false;
+  const opts = Object.assign({ tag: 'clearcall-reply' }, options || {});
+  try {
+    if (!notifySwReg && navigator.serviceWorker) {
+      notifySwReg = await navigator.serviceWorker.getRegistration();
+    }
+    if (notifySwReg && notifySwReg.showNotification) {
+      await notifySwReg.showNotification(title, opts);
+      return true;
+    }
+  } catch (_) {}
+  try {
+    new Notification(title, opts);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function stopNotificationAudio() {
+  if (!notifyAudio) return;
+  try { notifyAudio.pause(); notifyAudio.currentTime = 0; } catch (_) {}
+  notifyAudio = null;
+}
+
+async function playNotificationSound() {
+  stopNotificationAudio();
+  let url = '';
+  try { url = await getNotificationSoundUrl(); } catch (_) {}
+  if (!url || typeof Audio === 'undefined') return false;
+  try {
+    const audio = new Audio(url);
+    audio.volume = 1;
+    notifyAudio = audio;
+    audio.onended = () => { if (notifyAudio === audio) notifyAudio = null; };
+    await audio.play();
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function testBrowserNotification() {
+  const ok = await ensureNotifyPermission();
+  if (!ok) return;
+  const cfg = await getNotificationConfig();
+  const played = cfg.soundId ? await playNotificationSound() : false;
+  const sent = await sendBrowserNotification('虚拟手机测试通知', {
+    body: '通知已开启，角色回复时会在这里提醒你。',
+    tag: 'clearcall-test',
+    silent: played,
+  });
+  if (sent) toast('已发送测试通知');
+  else toast('通知发送失败，请允许通知权限后再试');
+}
+
+// 角色回复通知：仅在页面处于后台、非通话中时推送
+async function notifyCharacterReply(characterId, reply) {
+  if (callActive) return;
+  if (typeof document !== 'undefined' && !document.hidden) return;
+  if (!notifySupported() || Notification.permission !== 'granted') return;
+  let cfg;
+  try { cfg = await getNotificationConfig(); } catch (_) { return; }
+  if (!cfg.enabled) return;
+
+  const c = await getCharacter(characterId);
+  if (!c) return;
+  const body = String(reply || '')
+    .replace(/\[\[sticker:[^\]]*\]\]/g, '')
+    .replace(/<split>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80) || '发来一条新消息';
+  let played = false;
+  if (cfg.soundId) played = await playNotificationSound();
+  await sendBrowserNotification(c.name || '角色', {
+    body,
+    tag: 'clearcall-' + characterId,
+    silent: played,
+  });
+}
+
+// 1 秒静音 WAV：循环播放让后台页面尽量不被浏览器挂起
+function buildSilentWav(seconds) {
+  const sampleRate = 8000;
+  const sampleCount = Math.max(1, Math.round(sampleRate * (seconds || 1)));
+  const dataSize = sampleCount * 2;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+  const writeText = (offset, text) => {
+    for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i));
+  };
+  writeText(0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeText(8, 'WAVE');
+  writeText(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);          // PCM
+  view.setUint16(22, 1, true);          // 单声道
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true); // 字节率
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeText(36, 'data');
+  view.setUint32(40, dataSize, true);
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
+function stopKeepAlive() {
+  if (keepAliveAudio) {
+    try { keepAliveAudio.pause(); keepAliveAudio.loop = false; } catch (_) {}
+    keepAliveAudio.src = '';
+    keepAliveAudio = null;
+  }
+  if (keepAliveUrl) {
+    URL.revokeObjectURL(keepAliveUrl);
+    keepAliveUrl = '';
+  }
+}
+
+async function startKeepAlive() {
+  if (typeof Audio === 'undefined') return false;
+  if (!keepAliveAudio) {
+    keepAliveUrl = URL.createObjectURL(buildSilentWav(1));
+    const audio = new Audio(keepAliveUrl);
+    audio.loop = true;
+    audio.volume = 0;
+    audio.preload = 'auto';
+    keepAliveAudio = audio;
+  }
+  try {
+    await keepAliveAudio.play();
+    return true;
+  } catch (_) {
+    scheduleKeepAliveRetry();
+    return false;
+  }
+}
+
+// 浏览器要求用户手势后才能播放音频：拦截失败时等下一次点击重试
+function scheduleKeepAliveRetry() {
+  if (keepAliveRetryBound) return;
+  keepAliveRetryBound = true;
+  const retry = async () => {
+    document.removeEventListener('pointerdown', retry);
+    document.removeEventListener('touchstart', retry);
+    keepAliveRetryBound = false;
+    let cfg;
+    try { cfg = await getNotificationConfig(); } catch (_) { return; }
+    if (cfg.keepAlive) startKeepAlive().catch(() => {});
+  };
+  document.addEventListener('pointerdown', retry, { once: true });
+  document.addEventListener('touchstart', retry, { once: true });
+}
+
+async function setKeepAliveEnabled(on) {
+  await setNotificationConfig({ keepAlive: !!on });
+  if (!on) {
+    stopKeepAlive();
+    return true;
+  }
+  const ok = await startKeepAlive();
+  if (!ok) toast('浏览器拦截了后台音频，点一下页面即可重试');
+  return ok;
+}
+
 
 // ---- 角色应用：新建 / 编辑 / 删除 / 切换 ----
 async function openCharacters(returnTo) {
@@ -688,6 +934,9 @@ async function flushQueue() {
     if (result && result.ok && callActive && callCharacterId === characterId) {
       autoPlayCallReply(result.reply, baseIndex).catch(() => {});
     }
+    if (result && result.ok) {
+      notifyCharacterReply(characterId, result.reply).catch(() => {});
+    }
   }
   setChatSending(false);
   if (pendingCallMemory && pendingCallMemory.characterId === characterId) {
@@ -741,6 +990,9 @@ async function retryReply(index) {
     if ((await getActiveCharacterId()) === characterId) {
       await refreshDirectiveChip();
       await renderChat();
+    }
+    if (result && result.ok) {
+      notifyCharacterReply(characterId, result.reply).catch(() => {});
     }
   }
   setChatSending(false);
@@ -1383,6 +1635,7 @@ document.querySelectorAll('.app-icon').forEach((btn) => {
       loadSaved();
       loadTriggerSettings();
       refreshAppearance();
+      loadNotificationSettings().catch(() => {});
       $('result').hidden = true;
       showView(viewSettings);
     } else if (app === 'chat') {
@@ -1654,6 +1907,12 @@ $('file-import').addEventListener('change', async (e) => {
     loadSaved();
     loadTriggerSettings();
     await refreshAppearance();
+    await loadNotificationSettings().catch(() => {});
+    try {
+      const ncfg = await getNotificationConfig();
+      if (ncfg.keepAlive) startKeepAlive().catch(() => {});
+      else stopKeepAlive();
+    } catch (_) {}
     wbScope = 'global';
     await updateChatTitle();
     toast('备份已导入');
@@ -1752,6 +2011,70 @@ $('chk-batch').addEventListener('change', saveTriggerSettings);
 $('chk-countdown').addEventListener('change', saveTriggerSettings);
 $('input-countdown-sec').addEventListener('input', saveTriggerSettings);
 
+// 通知：开关 / 测试 / 提示音 / 后台保活
+$('chk-notify-enabled').addEventListener('change', async () => {
+  const on = $('chk-notify-enabled').checked;
+  if (on) {
+    const ok = await ensureNotifyPermission();
+    if (!ok) {
+      $('chk-notify-enabled').checked = false;
+      await setNotificationConfig({ enabled: false });
+      updateNotifyHint();
+      return;
+    }
+  }
+  await setNotificationConfig({ enabled: on });
+  updateNotifyHint();
+  toast(on ? '通知已开启：页面在后台时会推送角色回复' : '通知已关闭');
+});
+
+$('btn-notify-test').addEventListener('click', () => {
+  testBrowserNotification().catch(() => toast('测试通知发送失败'));
+});
+
+$('btn-notify-sound-pick').addEventListener('click', () => $('file-notify-sound').click());
+
+$('file-notify-sound').addEventListener('change', async (e) => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  if (f.type && !/^audio\//.test(f.type)) {
+    toast('请选择音频文件');
+    return;
+  }
+  try {
+    await setNotificationSound(f, f.type || 'audio/mpeg', f.name || '提示音');
+    await loadNotificationSettings();
+    toast('提示音已保存');
+  } catch (err) {
+    toast('提示音保存失败：' + (err && err.message ? err.message : err));
+  }
+});
+
+$('btn-notify-sound-test').addEventListener('click', async () => {
+  const played = await playNotificationSound();
+  if (!played) toast('提示音播放失败，请先点一下页面后重试');
+});
+
+$('btn-notify-sound-clear').addEventListener('click', async () => {
+  try {
+    await clearNotificationSound();
+    stopNotificationAudio();
+    await loadNotificationSettings();
+    toast('提示音已清除');
+  } catch (err) {
+    toast('清除失败：' + (err && err.message ? err.message : err));
+  }
+});
+
+$('chk-keepalive').addEventListener('change', async () => {
+  try {
+    await setKeepAliveEnabled($('chk-keepalive').checked);
+  } catch (err) {
+    toast('后台保活设置失败：' + (err && err.message ? err.message : err));
+  }
+});
+
 // 启动：迁移旧数据 → 读取界面
 (async function init() {
   try {
@@ -1763,4 +2086,9 @@ $('input-countdown-sec').addEventListener('input', saveTriggerSettings);
   loadTriggerSettings();
   try { await refreshAppearance(); } catch (_) {}
   try { await updateChatTitle(); } catch (_) {}
+  registerNotifyServiceWorker().catch(() => {});
+  try {
+    const ncfg = await getNotificationConfig();
+    if (ncfg.keepAlive) scheduleKeepAliveRetry(); // 等首次点击后启动静音音频
+  } catch (_) {}
 })();

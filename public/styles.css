@@ -27,6 +27,10 @@ html, body {
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+button, [role="button"], summary, label, a {
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
@@ -364,6 +368,18 @@ body.statusbar-off .statusbar { visibility: hidden; }
 .field input::placeholder { color: #5a6270; }
 
 .field-hint { display: block; font-size: 11px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
+
+/* ===== 通知设置 ===== */
+.notify-actions { display: flex; gap: 8px; margin-top: 8px; }
+.notify-actions .fetch-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 9px 0;
+  text-align: center;
+  font-size: 12px;
+}
+.notify-actions .fetch-btn:disabled { opacity: 0.4; }
+#notify-sound-name { word-break: break-all; }
 
 .key-wrap { display: flex; gap: 8px; }
 .key-wrap input { flex: 1 1 auto; }

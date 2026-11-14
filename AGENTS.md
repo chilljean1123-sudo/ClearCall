@@ -38,6 +38,7 @@
 - 电话应用复用角色的聊天记录；通话内发送忽略回复触发设置，直接请求 AI；「重拨」会删掉最后一条角色回复后重新请求。语音合成走后端 `/api/tts`（Vercel 为 `api/tts.js`），无后端时直连 `/audio/speech`；只有角色开启语音才自动播放，浏览器拦截时降级为气泡上的「点按播放」。
 - 电话挂断后要把本次新增对话写入该角色记忆（`rememberCallToMemory`）：记忆服务可用时走摘要，未配置或失败时写一条本地摘要兜底，之后再把 `lastSummarizedCount` 推进到最新，避免重复整理。
 - 美化数据：主屏壁纸与每个应用图标的图片都存 `files`，`appearance` 用 `wallpaperId` + `icons: { appId: fileId }` 记录引用；禁止用一张图统一覆盖所有图标。单个应用设置自定义图标后，用 `.app-glyph.custom-icon` 隐藏默认底图、边框、线条图标，只显示上传图片。状态栏只做覆盖层，`.app-view` 统一用 `--statusbar-space` 预留安全区，关闭状态栏时只隐藏内容、不取消占位。
+- 通知数据：开关与后台保活存 `notification` 文档（`enabled`、`keepAlive`、`soundId` / `soundName` / `soundType`），自定义提示音 Blob 存 `files`，备份随 `files` 一起导出；换提示音或清除时要删除旧文件。
 
 ## 风格约束
 
@@ -67,6 +68,8 @@
 - 「消息上屏」和「请求 AI」是两个阶段：三种触发模式都先上屏，区别只在何时调 AI。
 - 消息要「立刻可见」再谈触发，不要出现发送后看不到自己消息的情况。
 - 角色回复只输出角色说的话，格式/身份指令走 system 消息注入，别写进用户消息。
+- 浏览器通知：移动端 Chrome 必须通过 Service Worker 的 `showNotification` 才能弹出，`new Notification()` 只作桌面兜底；仅页面切到后台且非通话中时推送。
+- 后台保活用 1 秒静音 WAV 循环播放，浏览器自动播放策略会拦截，需等用户下一次点击后重试；关闭开关时立即停止并释放对象 URL。
 
 ## 待补充
 
