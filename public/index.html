@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>我的虚拟手机</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <h1 class="page-title">我的虚拟手机</h1>
+  <p class="page-subtitle">在浏览器里运行 · 先在「设置」里配置 AI 接口即可使用</p>
+
+  <div class="phone">
+    <div class="phone-notch"></div>
+    <div class="screen">
+      <div class="statusbar">
+        <span class="status-time">9:41</span>
+        <span class="status-right">
+          <span class="signal-bars"><i></i><i></i><i></i><i></i></span>
+          <span class="battery"><span class="battery-fill"></span></span>
+        </span>
+      </div>
+
+      <!-- 主屏幕 -->
+      <div class="app-view active" id="view-home">
+        <div class="wallpaper">
+          <div class="wallpaper-brand">ClearCall</div>
+          <div class="wallpaper-slogan">你的虚拟手机</div>
+        </div>
+        <div class="app-grid">
+          <button class="app-icon" data-app="phone">
+            <span class="app-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg></span>
+            <span class="app-name">电话</span>
+          </button>
+          <button class="app-icon" data-app="sms">
+            <span class="app-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+            <span class="app-name">信息</span>
+          </button>
+          <button class="app-icon" data-app="camera">
+            <span class="app-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></span>
+            <span class="app-name">相机</span>
+          </button>
+          <button class="app-icon" data-app="settings">
+            <span class="app-glyph accent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span>
+            <span class="app-name">设置</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 设置应用 -->
+      <div class="app-view" id="view-settings">
+        <header class="app-header">
+          <button class="back-btn" id="btn-back" type="button">返回</button>
+          <span class="app-title">设置</span>
+          <span class="app-header-spacer"></span>
+        </header>
+
+        <div class="settings-body">
+          <h2 class="settings-title">AI 接口设置</h2>
+          <p class="settings-note">配置只保存在你本机浏览器里，不会上传到服务器，也不会写进日志。</p>
+
+          <label class="field">
+            <span class="field-label">接口地址（Base URL）</span>
+            <input id="input-baseurl" type="text" placeholder="例如 https://api.deepseek.com 或 https://api.openai.com/v1" autocomplete="off" />
+            <span class="field-hint">留空会自动补 https://，并追加 /chat/completions</span>
+          </label>
+
+          <label class="field">
+            <span class="field-label">API Key</span>
+            <span class="key-wrap">
+              <input id="input-apikey" type="password" placeholder="sk-..." autocomplete="off" />
+              <button type="button" class="toggle-key" id="btn-toggle-key">显示</button>
+            </span>
+          </label>
+
+          <label class="field">
+            <span class="field-label">模型名</span>
+            <input id="input-model" type="text" placeholder="例如 deepseek-chat / gpt-4o-mini" autocomplete="off" />
+          </label>
+
+          <button class="test-btn" id="btn-test" type="button">连接测试</button>
+
+          <div class="result" id="result" hidden></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
