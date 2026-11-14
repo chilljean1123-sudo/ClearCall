@@ -13,6 +13,7 @@ const viewCharacters = $('view-characters');
 const viewCallPicker = $('view-call-picker');
 const viewCall = $('view-call');
 const viewForum = $('view-forum');
+const viewEmail = $('view-email');
 
 function showView(view) {
   document.querySelectorAll('.app-view').forEach((el) => el.classList.remove('active'));
@@ -543,6 +544,7 @@ const CHAT_TOOL_TITLES = {
   sticker: '表情包',
   transfer: '转账',
   directive: '系统指令',
+  mail: '发邮件',
 };
 
 function uiEl(tag, className, text) {
@@ -568,6 +570,7 @@ function renderChatToolMenu(body) {
     ['sticker', '表情包', '表'],
     ['transfer', '转账', '¥'],
     ['directive', '系统指令', '令'],
+    ['mail', '邮件', '邮'],
   ].forEach(([tool, label, glyph]) => {
     const tile = uiEl('button', 'tool-tile');
     tile.type = 'button';
@@ -577,7 +580,7 @@ function renderChatToolMenu(body) {
     grid.appendChild(tile);
   });
   body.appendChild(grid);
-  body.appendChild(uiEl('div', 'tool-hint', '位置、图片、表情包和转账会作为消息发送；系统指令不会显示，只影响下一轮回复。'));
+  body.appendChild(uiEl('div', 'tool-hint', '位置、图片、表情包、转账和邮件会进入对应应用；系统指令不会显示，只影响下一轮回复。'));
 }
 
 function renderLocationTool(body) {
@@ -726,6 +729,45 @@ async function renderDirectiveTool(body) {
   body.appendChild(uiEl('div', 'tool-hint', '系统指令会越过角色设定，作为最高优先级要求注入下一轮回复，然后自动清除。'));
 }
 
+async function renderMailTool(body) {
+  const { list, activeId } = await getCharacters();
+  if (!list.length) {
+    body.appendChild(uiEl('div', 'tool-hint', '还没有角色。先到角色应用创建一个人设，才能让他给你写信。'));
+    return;
+  }
+
+  const toField = uiEl('div', 'field');
+  toField.appendChild(uiEl('span', 'field-label', '发信角色'));
+  const select = uiEl('select');
+  select.id = 'tool-mail-character';
+  list.forEach((c) => {
+    const opt = uiEl('option', '', c.name || '未命名角色');
+    opt.value = c.id;
+    if (c.id === activeId) opt.selected = true;
+    select.appendChild(opt);
+  });
+  toField.appendChild(select);
+  body.appendChild(toField);
+
+  const delayField = uiEl('div', 'field');
+  delayField.appendChild(uiEl('span', 'field-label', '定时发送（小时）'));
+  const delay = uiEl('input');
+  delay.id = 'tool-mail-delay-hours';
+  delay.type = 'number';
+  delay.min = '1';
+  delay.max = '720';
+  delay.step = '1';
+  delay.value = '24';
+  delayField.appendChild(delay);
+  body.appendChild(delayField);
+
+  const row = uiEl('div', 'tool-actions');
+  row.appendChild(toolActionButton('btn-tool-mail-now', '现在就发一篇'));
+  row.appendChild(toolActionButton('btn-tool-mail-schedule', '按定时发送', false));
+  body.appendChild(row);
+  body.appendChild(uiEl('div', 'tool-hint', '邮件会出现在邮箱应用里，内容按角色人设和记忆来写，约 500-1000 字。定时任务在页面打开时检查并送达。'));
+}
+
 async function renderChatSheet(view) {
   const key = CHAT_TOOL_TITLES[view] ? view : 'menu';
   $('chat-sheet-title').textContent = CHAT_TOOL_TITLES[key];
@@ -736,6 +778,7 @@ async function renderChatSheet(view) {
   else if (key === 'sticker') await renderStickerTool(body);
   else if (key === 'transfer') renderTransferTool(body);
   else if (key === 'directive') await renderDirectiveTool(body);
+  else if (key === 'mail') await renderMailTool(body);
   else renderChatToolMenu(body);
 }
 
@@ -1952,4 +1995,136 @@ function renderForumBoard(forum) {
     btn.textContent = b.title;
     tabs.appendChild(btn);
   });
+}
+
+// ===== 邮箱渲染 =====
+function formatMailTime(ts) {
+  const d = new Date(ts);
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  if (d.toDateString() === now.toDateString()) return pad(d.getHours()) + ':' + pad(d.getMinutes());
+  if (d.getFullYear() === now.getFullYear()) return (d.getMonth() + 1) + '月' + d.getDate() + '日';
+  return d.getFullYear() + '/' + (d.getMonth() + 1) + '/' + d.getDate();
+}
+
+function mailSnippet(body) {
+  return String(body || '').replace(/\s+/g, ' ').trim();
+}
+
+function mailAvatarEl(name, url) {
+  const el = document.createElement('span');
+  el.className = 'mail-avatar';
+  if (url) el.style.backgroundImage = 'url("' + url + '")';
+  else el.textContent = String(name || '?').slice(0, 1);
+  return el;
+}
+
+async function renderMailList(email, characters, folder) {
+  const list = $('mail-list');
+  list.innerHTML = '';
+  const charMap = new Map(characters.map((c) => [c.id, c]));
+  const avatars = {};
+  await Promise.all(characters.map(async (c) => {
+    avatars[c.id] = await getAvatarUrlById(c.avatarId);
+  }));
+
+  const mails = email.mails.filter((m) => (folder === 'sent' ? m.direction === 'out' : m.direction === 'in'));
+  if (!mails.length) {
+    const empty = uiEl('div', 'mail-empty');
+    empty.appendChild(uiEl('div', 'mail-empty-title', folder === 'sent' ? '还没有寄出的信' : '收件箱空空的'));
+    empty.appendChild(uiEl('div', 'mail-empty-text', folder === 'sent'
+      ? '点右下角「＋」给角色写一封，或在聊天工具的「邮件」里让他先写给你。'
+      : '到邮箱设置里勾选角色，或去聊天工具的「邮件」里让角色现在就写一篇。'));
+    list.appendChild(empty);
+    return;
+  }
+
+  mails.forEach((m) => {
+    const c = charMap.get(m.characterId);
+    const displayName = m.direction === 'out'
+      ? '发给 ' + (c ? (c.name || '角色') : m.characterName)
+      : (c ? (c.name || '角色') : m.characterName);
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'mail-row' + (m.direction === 'in' && !m.read ? ' unread' : '');
+    row.dataset.mailId = m.id;
+
+    row.appendChild(mailAvatarEl(displayName, m.direction === 'out' ? '' : (c ? avatars[c.id] : '')));
+
+    const main = uiEl('span', 'mail-main');
+    const top = uiEl('span', 'mail-row-top');
+    top.appendChild(uiEl('span', 'mail-sender', displayName));
+    top.appendChild(uiEl('span', 'mail-time', formatMailTime(m.createdAt)));
+    main.appendChild(top);
+    main.appendChild(uiEl('span', 'mail-subject', m.subject));
+    main.appendChild(uiEl('span', 'mail-snippet', mailSnippet(m.body).slice(0, 80)));
+    row.appendChild(main);
+
+    if (m.direction === 'in' && !m.read) row.appendChild(uiEl('span', 'mail-dot'));
+    list.appendChild(row);
+  });
+}
+
+async function renderMailDetail(mail, characters, folder) {
+  const body = $('mail-detail-body');
+  body.innerHTML = '';
+  const c = characters.find((x) => x.id === mail.characterId);
+  const name = mail.direction === 'out' ? '我' : (c ? c.name : mail.characterName);
+  const avatar = mail.direction === 'out' ? '' : (c ? await getAvatarUrlById(c.avatarId) : '');
+  const targetName = c ? (c.name || '角色') : mail.characterName;
+
+  body.appendChild(uiEl('div', 'mail-detail-subject', mail.subject));
+
+  const meta = uiEl('div', 'mail-detail-meta');
+  meta.appendChild(mailAvatarEl(name, avatar));
+  const info = uiEl('div', 'mail-main');
+  info.appendChild(uiEl('div', 'mail-detail-from', name));
+  info.appendChild(uiEl('div', 'mail-detail-to', formatMailTime(mail.createdAt) + ' · ' + (mail.direction === 'out' ? '收件人：' + targetName : '收件人：我')));
+  meta.appendChild(info);
+  body.appendChild(meta);
+
+  body.appendChild(uiEl('div', 'mail-detail-text', mail.body));
+
+  if (mail.direction === 'in' && folder !== 'sent') {
+    const reply = uiEl('button', 'mail-reply-btn', '回复这封信');
+    reply.type = 'button';
+    reply.id = 'btn-mail-reply';
+    body.appendChild(reply);
+  }
+}
+
+function renderMailComposeOptions(characters, selectedId) {
+  const sel = $('mail-compose-to');
+  sel.innerHTML = '';
+  characters.forEach((c) => {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = c.name || '未命名角色';
+    if (c.id === selectedId) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  if (!sel.value && characters.length) sel.value = characters[0].id;
+}
+
+function renderMailSettings(email, characters) {
+  const box = $('mail-character-list');
+  box.innerHTML = '';
+  if (!characters.length) {
+    box.appendChild(uiEl('div', 'field-hint', '还没有角色，先到角色应用创建角色。'));
+  } else {
+    const bound = new Set(email.settings.characterIds);
+    characters.forEach((c) => {
+      const row = document.createElement('label');
+      row.className = 'forum-check-row';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = 'mail-char-check';
+      cb.dataset.characterId = c.id;
+      cb.checked = bound.has(c.id);
+      row.appendChild(cb);
+      row.appendChild(uiEl('span', '', c.name || '未命名角色'));
+      box.appendChild(row);
+    });
+  }
+  $('mail-interval-hours').value = String(email.settings.intervalHours || 24);
 }

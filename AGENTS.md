@@ -39,6 +39,10 @@
 - 电话挂断后要把本次新增对话写入该角色记忆（`rememberCallToMemory`）：记忆服务可用时走摘要，未配置或失败时写一条本地摘要兜底，之后再把 `lastSummarizedCount` 推进到最新，避免重复整理。
 - 美化数据：主屏壁纸与每个应用图标的图片都存 `files`，`appearance` 用 `wallpaperId` + `icons: { appId: fileId }` 记录引用；禁止用一张图统一覆盖所有图标。单个应用设置自定义图标后，用 `.app-glyph.custom-icon` 隐藏默认底图、边框、线条图标，只显示上传图片。状态栏只做覆盖层，`.app-view` 统一用 `--statusbar-space` 预留安全区，关闭状态栏时只隐藏内容、不取消占位。
 - 通知数据：开关与后台保活存 `notification` 文档（`enabled`、`keepAlive`、`soundId` / `soundName` / `soundType`），自定义提示音 Blob 存 `files`，备份随 `files` 一起导出；换提示音或清除时要删除旧文件。
+- Dock 只放核心应用（论坛、邮箱），不把聊天/角色/设置重复塞进 Dock，后续新应用继续往 Dock 里加；主屏应用网格保持完整入口。
+- 邮箱数据存 `email` 文档：`settings`（`characterIds`、`intervalHours` 默认 24、`lastCheckedAt`）、`mails`（`direction: in | out`、`characterId`、`characterName` 快照、主题、正文、已读）、`pending`（聊天工具预约的定时任务 `characterId` / `dueAt`）。邮件生成走 `/api/email`（Vercel 为 `api/email.js`），无后端时直连兼容接口；提示词必须带角色人设、记忆和最近聊天，要求 500-1000 字、符合角色语言风格，并输出 `{subject, body}` JSON。角色来信、用户发信都要写入该角色记忆。
+- 邮箱定时调度在页面启动、打开邮箱、回到前台时检查：每个绑定角色按 `intervalHours` 最多一封，每次最多生成 2 封，60 秒内不重复检查；`pending` 任务到期后立即生成，成功才移除。删除角色时从邮箱绑定和 `pending` 中清理，历史邮件保留 `characterName` 快照。
+- 聊天工具「邮件」复用同一套邮箱数据：可以立即生成一封，也可以按小时数写入 `pending` 预约送达。
 - 论坛数据集中存在 `forum` 文档：`settings`（独立 API、`refreshCount`、`worldbookIds`、`characterIds`）、`boards`（多个板块，每个含 `id`/标题/简介/路人提示词）、`activeBoardId`、`profile`（昵称/签名/头像/背景图 id）、`posts`。帖子 `authorType: npc | character | user`，并带 `boardId` 归属板块；角色帖带 `authorId`，评论挂在帖子 `comments` 上。旧数据里的单份 `theme` 会在读写时自动迁移成 `boards`。首页只显示当前板块的帖子，关注/我的跨板块；刷新入口是板块下方的下拉栏（可改生成条数），不设悬浮刷新钮；「我的」页全屏显示并隐藏论坛顶栏、板块与刷新栏。删除板块会同时删除板块内帖子，且至少保留一个板块。用户主页图片 Blob 存 `files`，文档只存 `avatarId` / `coverId`；换图或清除时删除旧文件。删除角色时从 `settings.characterIds` 解绑，但保留历史帖子的作者名快照。
 - 论坛生成走后端 `/api/forum`（Vercel 为 `api/forum.js`，共享 `lib/ai.js` 的 `forumChat()`），未部署后端时直连 OpenAI 兼容接口；论坛 API 留空则复用主 AI 配置。刷新生成的帖子要写入绑定角色的记忆；分享帖子到聊天室时写入 `kind: 'forum'` 卡片消息，并写一条记忆。
 

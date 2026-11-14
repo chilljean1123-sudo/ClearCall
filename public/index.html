@@ -64,17 +64,9 @@
             <span class="app-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2z"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="13" y2="12"/></svg></span>
             <span class="app-name">论坛</span>
           </button>
-          <button class="dock-icon" data-app="chat" type="button">
-            <span class="app-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span>
-            <span class="app-name">聊天</span>
-          </button>
-          <button class="dock-icon" data-app="characters" type="button">
-            <span class="app-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
-            <span class="app-name">角色</span>
-          </button>
-          <button class="dock-icon" data-app="settings" type="button">
-            <span class="app-glyph accent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span>
-            <span class="app-name">设置</span>
+          <button class="dock-icon" data-app="mail" type="button">
+            <span class="app-glyph accent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg></span>
+            <span class="app-name">邮箱</span>
           </button>
         </nav>
       </div>
@@ -259,6 +251,84 @@
 
         <input type="file" id="file-forum-avatar" accept="image/*" hidden />
         <input type="file" id="file-forum-cover" accept="image/*" hidden />
+      </div>
+
+      <!-- 邮箱应用 -->
+      <div class="app-view" id="view-email">
+        <header class="mail-header">
+          <button class="back-btn" id="btn-mail-back" type="button">返回</button>
+          <span class="mail-header-title">邮箱</span>
+          <button class="mail-icon-btn" id="btn-mail-settings" type="button">设置</button>
+        </header>
+
+        <div class="mail-toolbar">
+          <div class="mail-filters">
+            <button class="mail-filter active" data-mail-folder="inbox" type="button">收件箱</button>
+            <button class="mail-filter" data-mail-folder="sent" type="button">已发送</button>
+          </div>
+          <button class="mail-check-btn" id="btn-mail-check" type="button">检查新邮件</button>
+        </div>
+
+        <div class="mail-scroll">
+          <div class="mail-list" id="mail-list"></div>
+        </div>
+
+        <button class="mail-fab" id="btn-mail-compose" type="button" aria-label="写邮件">＋</button>
+
+        <section class="forum-panel mail-panel" id="mail-detail" hidden>
+          <header class="forum-panel-head">
+            <button class="back-btn" id="btn-mail-detail-back" type="button">返回</button>
+            <span class="forum-panel-title">邮件详情</span>
+            <button class="mail-icon-btn" id="btn-mail-delete" type="button">删除</button>
+          </header>
+          <div class="forum-panel-body mail-detail-body" id="mail-detail-body"></div>
+        </section>
+
+        <section class="forum-panel mail-panel" id="mail-compose" hidden>
+          <header class="forum-panel-head">
+            <button class="back-btn" id="btn-mail-compose-close" type="button">取消</button>
+            <span class="forum-panel-title" id="mail-compose-title">写邮件</span>
+            <span class="app-header-spacer"></span>
+          </header>
+          <div class="forum-panel-body">
+            <label class="field">
+              <span class="field-label">收件角色</span>
+              <select id="mail-compose-to"></select>
+            </label>
+            <label class="field">
+              <span class="field-label">主题</span>
+              <input id="mail-compose-subject" type="text" placeholder="给这封信起个主题" />
+            </label>
+            <label class="field">
+              <span class="field-label">正文</span>
+              <textarea id="mail-compose-text" rows="12" placeholder="写下你想说的话…"></textarea>
+            </label>
+            <button class="test-btn" id="btn-mail-send" type="button">发送</button>
+            <div class="field-hint" id="mail-compose-hint"></div>
+          </div>
+        </section>
+
+        <section class="forum-panel mail-panel" id="mail-settings" hidden>
+          <header class="forum-panel-head">
+            <button class="back-btn" id="btn-mail-settings-close" type="button">返回</button>
+            <span class="forum-panel-title">邮箱设置</span>
+            <span class="app-header-spacer"></span>
+          </header>
+          <div class="forum-panel-body">
+            <p class="field-hint">勾选会定时给你写信的角色。每个角色按下面的间隔各写一封，内容会参考人设与记忆。</p>
+            <div class="field">
+              <span class="field-label">写信角色</span>
+              <div class="forum-check-list" id="mail-character-list"></div>
+            </div>
+            <label class="field">
+              <span class="field-label">来信间隔（小时）</span>
+              <input id="mail-interval-hours" type="number" min="1" max="720" step="1" value="24" />
+              <span class="field-hint">默认 24 小时；填 1 表示每小时最多一封。</span>
+            </label>
+            <button class="test-btn" id="btn-mail-settings-save" type="button">保存邮箱设置</button>
+            <div class="field-hint" id="mail-settings-hint"></div>
+          </div>
+        </section>
       </div>
 
       <!-- 设置应用 -->

@@ -74,6 +74,22 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // 邮箱内容生成接口（角色来信，输出主题 / 正文 JSON）
+  if (req.method === 'POST' && url.pathname === '/api/email') {
+    const payload = await ai.readJsonBody(req, 5e6);
+    const result = await ai.emailChat({
+      baseUrl: payload.baseUrl,
+      apiKey: payload.apiKey,
+      model: payload.model,
+      system: payload.system,
+      user: payload.user,
+      maxTokens: payload.maxTokens,
+    });
+    console.log('[api/email]', result.ok ? 'success' : 'failed', result.reason || '');
+    ai.sendJson(res, result);
+    return;
+  }
+
   // 记忆整理接口
   if (req.method === 'POST' && url.pathname === '/api/memory') {
     const payload = await ai.readJsonBody(req, 5e6);

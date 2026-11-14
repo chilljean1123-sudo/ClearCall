@@ -201,6 +201,7 @@ const DOC_STICKERS = 'stickers';       // 表情包按角色分仓：stickers:<�
 const DOC_APPEARANCE = 'appearance';   // 美化：主屏壁纸 / 各应用图标 / 状态栏开关
 const DOC_NOTIFICATION = 'notification'; // 通知：开关 / 自定义提示音 / 后台保活
 const DOC_FORUM = 'forum';             // 论坛：绑定设置 / 主题 / 帖子 / 用户主页
+const DOC_EMAIL = 'email';             // 邮箱：角色来信 / 已发送 / 定时任务
 const LEGACY_CHARACTER_ID = 'character';
 
 let _dbPromise = null;
@@ -750,6 +751,124 @@ async function clearForumProfileImage(kind) {
   try { await deleteFile(oldId); } catch (_) {}
 }
 
+// ---------- 邮箱（IndexedDB） ----------
+// 每个角色会按间隔给用户写信；也支持用户在聊天工具里预约定时发信。
+const DEFAULT_EMAIL_SETTINGS = { intervalHours: 24 };
+
+function normalizeEmailSettings(raw) {
+  const d = raw || {};
+  let interval = parseInt(d.intervalHours, 10);
+  if (!Number.isFinite(interval)) interval = DEFAULT_EMAIL_SETTINGS.intervalHours;
+  interval = Math.max(1, Math.min(720, interval));
+  return {
+    characterIds: Array.isArray(d.characterIds)
+      ? Array.from(new Set(d.characterIds.filter(Boolean)))
+      : [],
+    intervalHours: interval,
+    lastCheckedAt: Number(d.lastCheckedAt) || 0,
+  };
+}
+
+function normalizeEmailMail(raw) {
+  if (!raw) return null;
+  const body = String(raw.body || '').trim();
+  if (!body) return null;
+  const direction = raw.direction === 'out' ? 'out' : 'in';
+  return {
+    id: raw.id || genId(),
+    characterId: raw.characterId || null,
+    characterName: String(raw.characterName || '').trim() || '角色',
+    direction,
+    subject: String(raw.subject || '').trim() || '(无主题)',
+    body,
+    createdAt: Number(raw.createdAt) || Date.now(),
+    read: direction === 'out' ? true : !!raw.read,
+  };
+}
+
+function normalizeEmailPending(raw) {
+  if (!raw || !raw.characterId) return null;
+  const dueAt = Number(raw.dueAt);
+  if (!Number.isFinite(dueAt)) return null;
+  return {
+    id: raw.id || genId(),
+    characterId: raw.characterId,
+    dueAt,
+    createdAt: Number(raw.createdAt) || Date.now(),
+  };
+}
+
+function normalizeEmail(doc) {
+  const d = doc || {};
+  const mails = (Array.isArray(d.mails) ? d.mails : [])
+    .map(normalizeEmailMail)
+    .filter(Boolean)
+    .sort((a, b) => b.createdAt - a.createdAt);
+  return {
+    settings: normalizeEmailSettings(d.settings),
+    mails,
+    pending: (Array.isArray(d.pending) ? d.pending : []).map(normalizeEmailPending).filter(Boolean),
+  };
+}
+
+async function getEmail() {
+  return normalizeEmail(await getDoc(DOC_EMAIL));
+}
+
+function mutateEmail(mutator) {
+  return mutateDoc(DOC_EMAIL, (doc) => {
+    doc.settings = normalizeEmailSettings(doc.settings);
+    if (!Array.isArray(doc.mails)) doc.mails = [];
+    if (!Array.isArray(doc.pending)) doc.pending = [];
+    mutator(doc);
+    if (doc.mails.length > 400) doc.mails.length = 400;
+  });
+}
+
+async function updateEmailSettings(patch) {
+  await mutateEmail((doc) => {
+    doc.settings = normalizeEmailSettings(Object.assign(normalizeEmailSettings(doc.settings), patch || {}));
+  });
+}
+
+async function addEmailMail(mail) {
+  let added = null;
+  await mutateEmail((doc) => {
+    added = normalizeEmailMail(mail);
+    if (!added) return;
+    doc.mails.unshift(added);
+  });
+  return added;
+}
+
+async function markEmailRead(mailId) {
+  await mutateEmail((doc) => {
+    const m = doc.mails.find((x) => x.id === mailId);
+    if (m) m.read = true;
+  });
+}
+
+async function deleteEmailMail(mailId) {
+  await mutateEmail((doc) => {
+    doc.mails = doc.mails.filter((x) => x.id !== mailId);
+  });
+}
+
+async function addEmailPendingJob(job) {
+  let record = null;
+  await mutateEmail((doc) => {
+    record = normalizeEmailPending(job);
+    if (record) doc.pending.push(record);
+  });
+  return record;
+}
+
+async function removeEmailPendingJob(jobId) {
+  await mutateEmail((doc) => {
+    doc.pending = doc.pending.filter((x) => x.id !== jobId);
+  });
+}
+
 // 在一个事务里完成「读-改-写」，避免并发写丢字段
 function mutateDoc(id, mutator) {
   return new Promise((resolve, reject) => {
@@ -978,6 +1097,14 @@ async function deleteCharacter(id) {
       if (doc.settings && Array.isArray(doc.settings.characterIds)) {
         doc.settings.characterIds = doc.settings.characterIds.filter((x) => x !== id);
       }
+    });
+  } catch (_) {}
+
+  // 邮箱里解绑该角色；历史邮件保留角色名快照
+  try {
+    await mutateEmail((doc) => {
+      doc.settings.characterIds = doc.settings.characterIds.filter((x) => x !== id);
+      doc.pending = doc.pending.filter((x) => x.characterId !== id);
     });
   } catch (_) {}
 
@@ -1318,6 +1445,7 @@ async function buildBackup() {
   const appearance = await getAppearance();
   const notification = await getNotificationConfig();
   const forum = await getForum();
+  const email = await getEmail();
   const appearanceFileIds = [
     appearance.wallpaperId,
     ...Object.values(appearance.icons),
@@ -1343,6 +1471,7 @@ async function buildBackup() {
     appearance,
     notification,
     forum,
+    email,
     characters,
     activeId,
     chats,
@@ -1430,6 +1559,13 @@ async function applyBackup(data) {
     activeBoardId: forum.activeBoardId,
     profile: forum.profile,
     posts: forum.posts,
+  });
+  const email = normalizeEmail(data.email);
+  await putDoc({
+    id: DOC_EMAIL,
+    settings: email.settings,
+    mails: email.mails,
+    pending: email.pending,
   });
   for (const c of characters) {
     const chat = chats[c.id];

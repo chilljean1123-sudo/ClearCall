@@ -44,6 +44,12 @@ let forumEditingPostId = null;
 let forumSharePostId = null;
 let forumGenerating = false;
 
+// 邮箱
+let mailFolder = 'inbox';
+let mailDetailId = null;
+let mailGenerating = false;
+let mailSchedulerTimer = null;
+
 // 最近聊天直接带上；更早的内容交给记忆总结
 const RECENT_HISTORY_LIMIT = 20;
 const AUTO_SUMMARIZE_MIN_NEW = 20;
@@ -2211,6 +2217,325 @@ async function handleForumProfileFile(kind, file) {
   }
 }
 
+// ---------------- 邮箱 ----------------
+function emailApiConfig() {
+  const s = getSettings();
+  return {
+    baseUrl: s.baseUrl || $('input-baseurl').value.trim(),
+    apiKey: s.apiKey || $('input-apikey').value.trim(),
+    model: s.model || getCurrentModel(),
+  };
+}
+
+function parseEmailJson(text) {
+  let s = String(text || '').trim();
+  s = s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  const start = s.indexOf('{');
+  const end = s.lastIndexOf('}');
+  if (start >= 0 && end > start) s = s.slice(start, end + 1);
+  try {
+    const data = JSON.parse(s);
+    const subject = String((data && (data.subject || data.title)) || '').trim();
+    const body = String((data && (data.body || data.content)) || '').trim();
+    if (body.length >= 50) return { subject: subject || '写给你的一封信', body };
+  } catch (_) {}
+  if (s.length >= 200 && s.indexOf('{') === -1) {
+    return { subject: '写给你的一封信', body: s };
+  }
+  return null;
+}
+
+async function buildEmailSystemPrompt(character, characterId) {
+  const { entries } = await getMemory(characterId);
+  const history = await getHistory(characterId);
+  const email = await getEmail();
+  const lastOut = email.mails.find((m) => m.characterId === characterId && m.direction === 'out');
+  const parts = [
+    '你正在扮演「' + (character.name || '角色') + '」，用第一人称给用户写一封私人邮件。',
+    '【角色人设】',
+    (character.persona || '（暂无详细人设，请按角色名字的气质自然发挥）'),
+    '【你记得的事】',
+    formatMemory(entries) || '（暂时没有长期记忆，请从日常写起）',
+    '【最近的聊天片段】',
+    historyToText(history.slice(-12)) || '（最近没有聊天记录）',
+  ];
+  if (lastOut) {
+    parts.push('【对方最近寄给你的信】');
+    parts.push('主题：' + lastOut.subject);
+    parts.push('正文：' + lastOut.body.slice(0, 1200));
+    parts.push('这封信你还没有回，请在邮件里自然地回应对方，但不要写成逐条回复。');
+  }
+  parts.push('【写作要求】');
+  parts.push('1. 完全用角色的口吻和用词习惯，有情绪、有生活细节，不要像 AI 客服或公文。');
+  parts.push('2. 正文 500-1000 个汉字，可以写日常、见闻、思绪或对用户的关心；不要分点罗列。');
+  parts.push('3. 不要解释自己在扮演角色，不要提到 AI、模型或提示词，也不要写邮件格式说明。');
+  parts.push('4. 只输出 JSON，格式：{"subject":"不超过 20 字的主题","body":"正文"}');
+  return parts.join('\n');
+}
+
+async function generateCharacterEmail(characterId) {
+  const character = await getCharacter(characterId);
+  if (!character) throw new Error('角色不存在或已被删除');
+  const api = emailApiConfig();
+  if (!api.baseUrl || !api.apiKey || !api.model) {
+    throw new Error('请先到设置里配置 AI 接口地址、API Key 和模型名');
+  }
+  const system = await buildEmailSystemPrompt(character, characterId);
+  const data = await requestEmailChat({
+    baseUrl: api.baseUrl,
+    apiKey: api.apiKey,
+    model: api.model,
+    system,
+    user: '请现在写下这封邮件。' + (character.name ? '署名用「' + character.name + '」。' : ''),
+    maxTokens: 2600,
+  });
+  if (!data || !data.ok) throw new Error((data && (data.reason || data.message)) || '邮件生成失败');
+  const parsed = parseEmailJson(data.reply);
+  if (!parsed) throw new Error('模型没有返回有效的邮件内容，请稍后重试或换模型');
+
+  const mail = await addEmailMail({
+    direction: 'in',
+    characterId,
+    characterName: character.name || '角色',
+    subject: parsed.subject,
+    body: parsed.body,
+    read: false,
+    createdAt: Date.now(),
+  });
+  await addMemoryEntry({
+    category: 'event',
+    text: '你给用户写了一封邮件《' + parsed.subject + '》，内容大意：' + parsed.body.slice(0, 160) + '…',
+  }, characterId);
+  return mail;
+}
+
+async function refreshMailUI() {
+  const email = await getEmail();
+  const { list } = await getCharacters();
+  document.querySelectorAll('.mail-filter').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.mailFolder === mailFolder);
+  });
+  await renderMailList(email, list, mailFolder);
+}
+
+function hideMailPanels() {
+  $('mail-detail').hidden = true;
+  $('mail-compose').hidden = true;
+  $('mail-settings').hidden = true;
+}
+
+async function openMail() {
+  mailFolder = 'inbox';
+  hideMailPanels();
+  showView(viewEmail);
+  await refreshMailUI();
+  runEmailSchedule().catch(() => {});
+}
+
+async function openMailDetail(mailId) {
+  const [email, { list }] = await Promise.all([getEmail(), getCharacters()]);
+  const mail = email.mails.find((m) => m.id === mailId);
+  if (!mail) return;
+  if (mail.direction === 'in' && !mail.read) await markEmailRead(mailId);
+  mailDetailId = mailId;
+  await renderMailDetail(mail, list, mailFolder);
+  $('mail-detail').hidden = false;
+}
+
+function closeMailDetail() {
+  $('mail-detail').hidden = true;
+  if (viewEmail.classList.contains('active')) refreshMailUI().catch(() => {});
+}
+
+async function openMailCompose(options) {
+  const { list } = await getCharacters();
+  if (!list.length) {
+    toast('还没有角色，先到角色应用创建一个');
+    return;
+  }
+  const opt = options || {};
+  renderMailComposeOptions(list, opt.characterId);
+  $('mail-compose-title').textContent = opt.title || '写邮件';
+  $('mail-compose-subject').value = opt.subject || '';
+  $('mail-compose-text').value = opt.body || '';
+  $('mail-compose-hint').textContent = '';
+  $('mail-compose').hidden = false;
+}
+
+async function submitMailCompose() {
+  const characterId = $('mail-compose-to').value;
+  const subject = $('mail-compose-subject').value.trim();
+  const body = $('mail-compose-text').value.trim();
+  if (!characterId) { toast('请选择收件角色'); return; }
+  if (!subject) { toast('请填写邮件主题'); return; }
+  if (!body) { toast('请写一点正文再寄出'); return; }
+  const character = await getCharacter(characterId);
+  if (!character) { toast('角色不存在'); return; }
+  await addEmailMail({
+    direction: 'out',
+    characterId,
+    characterName: character.name || '角色',
+    subject,
+    body,
+    read: true,
+    createdAt: Date.now(),
+  });
+  await addMemoryEntry({
+    category: 'event',
+    text: '你收到了用户寄来的一封邮件《' + subject + '》，内容：' + body.slice(0, 160) + '…',
+  }, characterId);
+  $('mail-compose').hidden = true;
+  mailFolder = 'sent';
+  await refreshMailUI();
+  toast('邮件已寄出');
+}
+
+async function openMailSettings() {
+  const [email, { list }] = await Promise.all([getEmail(), getCharacters()]);
+  renderMailSettings(email, list);
+  const bound = email.settings.characterIds.length;
+  $('mail-settings-hint').textContent = bound
+    ? '已选择 ' + bound + ' 个角色，每 ' + email.settings.intervalHours + ' 小时检查一次来信。'
+    : '还没有选择角色，邮箱不会自动收到来信。';
+  $('mail-settings').hidden = false;
+}
+
+async function saveMailSettings() {
+  const ids = Array.from(document.querySelectorAll('.mail-char-check'))
+    .filter((cb) => cb.checked)
+    .map((cb) => cb.dataset.characterId);
+  let interval = parseInt($('mail-interval-hours').value, 10);
+  if (!Number.isFinite(interval)) interval = 24;
+  interval = Math.max(1, Math.min(720, interval));
+  $('mail-interval-hours').value = String(interval);
+  await updateEmailSettings({ characterIds: ids, intervalHours: interval });
+  $('mail-settings-hint').textContent = ids.length
+    ? '已保存：' + ids.length + ' 个角色，每 ' + interval + ' 小时最多各写一封。'
+    : '已保存：暂不自动收信。';
+  toast('邮箱设置已保存');
+}
+
+async function checkMailNow() {
+  const result = await runEmailSchedule({ manual: true });
+  if (result.reason === 'unbound') toast('先到邮箱设置里勾选会写信的角色');
+  else if (result.reason === 'noapi') toast('请先到设置里配置 AI 接口');
+  else if (result.reason === 'busy') toast('上一封还在写，稍等一下');
+  else if (!result.generated) toast('暂时没有到时间的新邮件');
+  else toast('收到 ' + result.generated + ' 封新邮件');
+}
+
+async function deleteMailFlow() {
+  if (!mailDetailId) return;
+  if (!confirm('删除这封邮件？')) return;
+  await deleteEmailMail(mailDetailId);
+  mailDetailId = null;
+  closeMailDetail();
+  toast('邮件已删除');
+}
+
+async function replyCurrentMail() {
+  const email = await getEmail();
+  const mail = email.mails.find((m) => m.id === mailDetailId);
+  if (!mail) return;
+  const subject = /^re:/i.test(mail.subject) ? mail.subject : 'Re: ' + mail.subject;
+  await openMailCompose({ characterId: mail.characterId, subject, title: '回复邮件' });
+}
+
+// 定时调度：处理聊天工具里的定时任务，并按间隔为每个绑定角色生成来信
+async function runEmailSchedule(options) {
+  const opt = options || {};
+  if (mailGenerating) return { generated: 0, reason: 'busy' };
+  const email = await getEmail();
+  const now = Date.now();
+  if (!email.settings.characterIds.length && !email.pending.length) {
+    return { generated: 0, reason: 'unbound' };
+  }
+  const api = emailApiConfig();
+  if (!api.baseUrl || !api.apiKey || !api.model) return { generated: 0, reason: 'noapi' };
+  if (!opt.force && now - email.settings.lastCheckedAt < 60 * 1000) {
+    return { generated: 0, reason: 'throttled' };
+  }
+
+  mailGenerating = true;
+  let generated = 0;
+  let firstError = '';
+  try {
+    await updateEmailSettings({ lastCheckedAt: now });
+    const { list } = await getCharacters();
+    const byId = new Map(list.map((c) => [c.id, c]));
+
+    for (const job of email.pending) {
+      if (job.dueAt > now) continue;
+      if (!byId.has(job.characterId)) { await removeEmailPendingJob(job.id); continue; }
+      try {
+        await generateCharacterEmail(job.characterId);
+        generated += 1;
+        await removeEmailPendingJob(job.id);
+      } catch (err) {
+        firstError = firstError || (err && err.message ? err.message : String(err));
+      }
+    }
+
+    const intervalMs = email.settings.intervalHours * 3600 * 1000;
+    let count = 0;
+    for (const id of email.settings.characterIds) {
+      if (count >= 2) break;
+      if (!byId.has(id)) continue;
+      const latest = email.mails
+        .filter((m) => m.characterId === id && m.direction === 'in')
+        .sort((a, b) => b.createdAt - a.createdAt)[0];
+      if (latest && now - latest.createdAt < intervalMs) continue;
+      try {
+        await generateCharacterEmail(id);
+        generated += 1;
+        count += 1;
+      } catch (err) {
+        firstError = firstError || (err && err.message ? err.message : String(err));
+      }
+    }
+
+    if (generated && viewEmail.classList.contains('active')) await refreshMailUI();
+    return { generated, reason: firstError && !generated ? 'error' : 'ok', error: firstError };
+  } finally {
+    mailGenerating = false;
+  }
+}
+
+function startMailScheduler() {
+  if (mailSchedulerTimer) return;
+  runEmailSchedule().catch(() => {});
+  mailSchedulerTimer = setInterval(() => { runEmailSchedule().catch(() => {}); }, 2 * 60 * 1000);
+}
+
+async function sendMailNowFromTool() {
+  const characterId = $('tool-mail-character').value;
+  if (!characterId) { toast('请选择发信角色'); return; }
+  if (mailGenerating) { toast('上一封还在写，稍等一下'); return; }
+  closeChatSheet();
+  mailGenerating = true;
+  toast('角色正在写信…');
+  try {
+    const mail = await generateCharacterEmail(characterId);
+    if (viewEmail.classList.contains('active')) await refreshMailUI();
+    toast('收到一封新邮件《' + mail.subject + '》');
+  } catch (err) {
+    toast('邮件生成失败：' + (err && err.message ? err.message : err));
+  } finally {
+    mailGenerating = false;
+  }
+}
+
+async function scheduleMailFromTool() {
+  const characterId = $('tool-mail-character').value;
+  if (!characterId) { toast('请选择发信角色'); return; }
+  let hours = parseInt($('tool-mail-delay-hours').value, 10);
+  if (!Number.isFinite(hours)) hours = 24;
+  hours = Math.max(1, Math.min(720, hours));
+  await addEmailPendingJob({ characterId, dueAt: Date.now() + hours * 3600 * 1000 });
+  closeChatSheet();
+  toast('已安排 ' + hours + ' 小时后送达邮箱');
+}
+
 
 $('tab-select').addEventListener('click', () => setModelMode('select'));
 $('tab-manual').addEventListener('click', () => setModelMode('manual'));
@@ -2316,12 +2641,39 @@ $('forum-share-list').addEventListener('click', (e) => {
   if (row) shareForumPostToCharacter(row.dataset.characterId);
 });
 
+// 邮箱事件
+$('btn-mail-back').addEventListener('click', () => showView(viewHome));
+$('btn-mail-settings').addEventListener('click', openMailSettings);
+$('btn-mail-settings-close').addEventListener('click', () => { $('mail-settings').hidden = true; });
+$('btn-mail-settings-save').addEventListener('click', saveMailSettings);
+$('btn-mail-check').addEventListener('click', checkMailNow);
+$('btn-mail-compose').addEventListener('click', () => openMailCompose());
+$('btn-mail-compose-close').addEventListener('click', () => { $('mail-compose').hidden = true; });
+$('btn-mail-send').addEventListener('click', submitMailCompose);
+$('btn-mail-detail-back').addEventListener('click', closeMailDetail);
+$('btn-mail-delete').addEventListener('click', deleteMailFlow);
+document.querySelectorAll('.mail-filter').forEach((btn) => {
+  btn.addEventListener('click', async () => {
+    mailFolder = btn.dataset.mailFolder;
+    await refreshMailUI();
+  });
+});
+$('mail-list').addEventListener('click', (e) => {
+  const row = e.target.closest('[data-mail-id]');
+  if (row) openMailDetail(row.dataset.mailId);
+});
+$('mail-detail-body').addEventListener('click', (e) => {
+  if (e.target.closest('#btn-mail-reply')) replyCurrentMail();
+});
+
 // 主屏幕应用图标（含底部 Dock）
 document.querySelectorAll('.app-icon, .dock-icon').forEach((btn) => {
   btn.addEventListener('click', () => {
     const app = btn.dataset.app;
     if (app === 'forum') {
       openForum();
+    } else if (app === 'mail') {
+      openMail();
     } else if (app === 'settings') {
       loadSaved();
       loadTriggerSettings();
@@ -2669,6 +3021,8 @@ $('chat-sheet-body').addEventListener('click', async (e) => {
   else if (btn.id === 'btn-sticker-import-file') $('file-sticker-import').click();
   else if (btn.id === 'btn-tool-transfer-send') await sendToolTransfer();
   else if (btn.id === 'btn-tool-directive-apply') await applyDirectiveFromTool();
+  else if (btn.id === 'btn-tool-mail-now') await sendMailNowFromTool();
+  else if (btn.id === 'btn-tool-mail-schedule') await scheduleMailFromTool();
 });
 
 $('file-chat-image').addEventListener('change', async (e) => {
@@ -2782,4 +3136,10 @@ $('chk-keepalive').addEventListener('change', async () => {
     const ncfg = await getNotificationConfig();
     if (ncfg.keepAlive) scheduleKeepAliveRetry(); // 等首次点击后启动静音音频
   } catch (_) {}
+  startMailScheduler();
 })();
+
+// 回到前台时补检查一次邮箱定时任务
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) runEmailSchedule().catch(() => {});
+});
