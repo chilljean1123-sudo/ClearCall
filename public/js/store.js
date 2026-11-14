@@ -1173,6 +1173,37 @@ function normalizeCharacterImage(raw) {
   };
 }
 
+// 角色说话方式：勾选后把对应提示词注入聊天 system
+const CHAT_STYLE_OPTIONS = [
+  { id: 'short', title: '短回复与留气口', desc: '留气口，别一轮说满', prompt: '回复短一些，通常一到两句，别一轮把话说完，给对方留出接话的气口。' },
+  { id: 'older', group: 'age', title: '年上 / 关系位置', desc: '更年长或自认更懂', prompt: '你在关系里偏年长，更成熟、更懂一些，可以照顾和提点对方，但不要说教，也别居高临下。' },
+  { id: 'younger', group: 'age', title: '年下 / 关系位置', desc: '更年轻或更后一步', prompt: '你在关系里偏年轻，更直接、更有活力，偶尔依赖或撒娇，但不幼稚、不装可爱。' },
+  { id: 'internetGood', group: 'internet', title: '网感好', desc: '懂梗但不刷屏', prompt: '你网感好，懂梗也会接梗，但别刷屏，不要堆网络流行语，自然带过就好。' },
+  { id: 'internetPoor', group: 'internet', title: '网感较差', desc: '慢半拍地理解', prompt: '你网感稍慢，反应半拍，偶尔把梗理解偏，但语气认真自然，不要刻意装傻。' },
+  { id: 'pingpong', title: '你来我往', desc: '回应，再递回去', prompt: '聊天要你来我往：先回应对方说的内容，再把话题轻轻递回去，别自说自话。' },
+  { id: 'proactive', title: '主动型', desc: '主动表达，尊重反馈', prompt: '你可以主动表达自己的想法和情绪，也尊重对方的反馈，不替对方做决定。' },
+  { id: 'guiding', title: '引导型', desc: '给路标，不替人做主', prompt: '你可以给方向、给路标，但不替对方做主，多用邀请式的提问让对方自己选。' },
+  { id: 'terse', title: '话少 / 精准', desc: '短，但不空', prompt: '你话少但精准，句子短，不空洞、不敷衍，每一句都要有信息。' },
+  { id: 'gentle', title: '温柔 / 柔和', desc: '照顾情绪但不客服', prompt: '你温柔柔和，先照顾对方的情绪，但不做客服式讨好，不机械道歉。' },
+  { id: 'teasing', title: '损友 / 轻微互怼', desc: '顺手开玩笑', prompt: '你可以像损友一样轻微互怼、顺手开玩笑，但不攻击痛点，对方认真时就收住。' },
+];
+
+function normalizeCharacterChatStyle(raw) {
+  const d = raw || {};
+  const valid = new Set(CHAT_STYLE_OPTIONS.map((o) => o.id));
+  const options = Array.isArray(d.options)
+    ? Array.from(new Set(d.options.map((x) => String(x)))).filter((x) => valid.has(x))
+    : [];
+  return { options };
+}
+
+function buildChatStylePrompt(style) {
+  const options = (style && Array.isArray(style.options)) ? style.options : [];
+  const picked = CHAT_STYLE_OPTIONS.filter((o) => options.includes(o.id));
+  if (!picked.length) return '';
+  return '【说话方式（本轮必须遵守）】\n' + picked.map((o) => '- ' + o.prompt).join('\n');
+}
+
 function normalizeCharacter(raw, fallbackId) {
   if (!raw) return null;
   return {
@@ -1182,6 +1213,7 @@ function normalizeCharacter(raw, fallbackId) {
     avatarId: raw.avatarId || null,
     voice: normalizeCharacterVoice(raw.voice),
     image: normalizeCharacterImage(raw.image),
+    chatStyle: normalizeCharacterChatStyle(raw.chatStyle),
     createdAt: raw.createdAt || Date.now(),
     updatedAt: raw.updatedAt || Date.now(),
   };
@@ -1240,6 +1272,7 @@ async function updateCharacterRecord(id, patch) {
     if (patch.avatarId !== undefined) c.avatarId = patch.avatarId || null;
     if (patch.voice !== undefined) c.voice = normalizeCharacterVoice(Object.assign({}, c.voice, patch.voice));
     if (patch.image !== undefined) c.image = normalizeCharacterImage(Object.assign({}, c.image, patch.image));
+    if (patch.chatStyle !== undefined) c.chatStyle = normalizeCharacterChatStyle(patch.chatStyle);
     c.updatedAt = Date.now();
   });
 }

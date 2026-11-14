@@ -29,6 +29,7 @@ let iconUploadTarget = '';
 let pendingChatImage = null;   // 聊天里待发送的相册图片
 let pendingChatImageUrl = '';
 let toolLocationCoords = null; // 手机定位得到的真实坐标
+let chatStyleCharacterId = null; // 正在编辑聊天方式的角色
 
 // 通知与后台保活
 let notifyAudio = null;        // 自定义提示音播放器
@@ -790,6 +791,8 @@ async function currentChatPayload(message, priorHistory, characterId) {
   const world = buildWorldInfo(worldbook, worldbookScanText(priorHistory, message), id);
 
   let persona = (c && c.persona) || '';
+  const stylePrompt = buildChatStylePrompt(c && c.chatStyle);
+  if (stylePrompt) persona += '\n\n' + stylePrompt;
   const stickers = id ? await getStickers(id) : [];
   if (stickers.length) persona += '\n\n' + buildStickerPersonaInstruction(stickers);
 
@@ -822,6 +825,35 @@ function buildStickerPersonaInstruction(stickers) {
   const names = stickers.slice(0, 50).map((s) => s.name).join('、');
   return '【表情包】你可以在回复中发送表情包。需要发送时，单独输出一行 [[sticker:名称]]，' +
     '名称必须是以下之一：' + names + '。不要解释这个标记，也不要编造列表之外的名称。';
+}
+
+// ---- 聊天方式：按角色配置口吻并注入提示词 ----
+async function openChatStylePage() {
+  const id = await getActiveCharacterId();
+  if (!id) {
+    toast('先在「角色」应用里创建并选择一个角色');
+    return;
+  }
+  const c = await getCharacter(id);
+  if (!c) {
+    toast('角色不存在，请重新选择');
+    return;
+  }
+  chatStyleCharacterId = id;
+  renderChatStylePage(c);
+  showView(viewChatStyle);
+}
+
+async function saveChatStyle() {
+  if (!chatStyleCharacterId) {
+    showView(viewChat);
+    return;
+  }
+  await updateCharacterRecord(chatStyleCharacterId, {
+    chatStyle: { options: collectChatStyleOptions() },
+  });
+  toast('聊天方式已保存，下一条回复生效');
+  showView(viewChat);
 }
 
 function setChatSending(sending) {
@@ -2835,6 +2867,7 @@ async function buildReadingSystem(book, chapterIndex, paragraph, character) {
   return [
     '你正在这场共读里扮演「' + character.name + '」。',
     character.persona ? '角色人设：' + character.persona : '',
+    buildChatStylePrompt(character.chatStyle),
     memoryText,
     '',
     '<reading_context>',
@@ -3279,6 +3312,24 @@ $('btn-test').addEventListener('click', async () => {
 // 角色聊天导航
 $('btn-chat-back').addEventListener('click', () => { closeChatSheet(); showView(viewHome); });
 $('btn-chat-config').addEventListener('click', () => openCharacters('chat'));
+$('btn-chat-style').addEventListener('click', openChatStylePage);
+$('btn-chat-style-back').addEventListener('click', () => showView(viewChat));
+$('btn-chat-style-save').addEventListener('click', saveChatStyle);
+$('chat-style-grid').addEventListener('change', (e) => {
+  const input = e.target.closest('input[type="checkbox"]');
+  if (!input) return;
+  if (input.checked && input.dataset.group) {
+    document.querySelectorAll('#chat-style-grid input[data-group="' + input.dataset.group + '"]')
+      .forEach((other) => {
+        if (other !== input) {
+          other.checked = false;
+          other.closest('.chat-style-card').classList.remove('selected');
+        }
+      });
+  }
+  input.closest('.chat-style-card').classList.toggle('selected', input.checked);
+  updateChatStylePreview();
+});
 
 // 角色应用
 $('btn-characters-back').addEventListener('click', () => showView(viewHome));

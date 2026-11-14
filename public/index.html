@@ -660,7 +660,12 @@
         <header class="app-header">
           <button class="back-btn" id="btn-chat-back" type="button">返回</button>
           <span class="app-title" id="chat-title">角色聊天</span>
-          <button class="chat-config-btn" id="btn-chat-config" type="button">切换</button>
+          <div class="chat-head-actions">
+            <button class="chat-style-entry" id="btn-chat-style" type="button" aria-label="聊天方式" title="聊天方式">
+              <span class="chat-style-entry-icon"></span>
+            </button>
+            <button class="chat-config-btn" id="btn-chat-config" type="button">切换</button>
+          </div>
         </header>
 
         <div class="chat-messages" id="chat-messages"></div>
@@ -693,6 +698,32 @@
 
         <input type="file" id="file-chat-image" accept="image/*" hidden />
         <input type="file" id="file-sticker-import" accept=".txt,.docx,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden />
+      </div>
+
+      <!-- 聊天方式 -->
+      <div class="app-view" id="view-chat-style">
+        <header class="app-header">
+          <button class="back-btn" id="btn-chat-style-back" type="button">返回</button>
+          <span class="app-title" id="chat-style-title">聊天方式</span>
+          <span class="app-header-spacer"></span>
+        </header>
+
+        <div class="chat-style-body">
+          <div class="chat-style-hero">
+            <div class="chat-style-hero-title">口吻与语料</div>
+            <div class="chat-style-hero-desc">规则写短，例子写具体</div>
+            <div class="chat-style-hero-note" id="chat-style-hero-note">勾选后只影响该角色，下一轮回复开始生效。</div>
+          </div>
+          <div class="chat-style-grid" id="chat-style-grid"></div>
+          <div class="chat-style-preview">
+            <div class="chat-style-preview-head">将注入的提示词</div>
+            <div class="chat-style-preview-body" id="chat-style-preview"></div>
+          </div>
+        </div>
+
+        <div class="chat-style-footer">
+          <button class="fetch-btn" id="btn-chat-style-save" type="button">保存聊天方式</button>
+        </div>
       </div>
 
       <!-- 电话：选择角色 -->

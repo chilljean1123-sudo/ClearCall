@@ -519,6 +519,141 @@ body.statusbar-off .statusbar { visibility: hidden; }
   font-size: 12px;
   cursor: pointer;
 }
+.chat-head-actions { display: flex; align-items: center; gap: 8px; }
+.chat-style-entry {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  background: var(--card);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.chat-style-entry-icon {
+  position: relative;
+  width: 16px;
+  height: 12px;
+  color: var(--accent);
+}
+.chat-style-entry-icon::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 1px;
+  height: 2px;
+  background: currentColor;
+  box-shadow: 0 5px 0 currentColor, 0 10px 0 currentColor;
+}
+.chat-style-entry-icon::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  top: -1px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: -4px 5px 0 currentColor, 3px 10px 0 currentColor;
+}
+
+/* ===== 聊天方式 ===== */
+#view-chat-style { background: var(--screen-bg); }
+.chat-style-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 16px 14px 22px;
+}
+.chat-style-hero-title {
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+.chat-style-hero-desc {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.chat-style-hero-note {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.chat-style-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 16px;
+}
+.chat-style-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 12px 11px;
+  border: 1px dashed rgba(255, 255, 255, 0.18);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.025);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.chat-style-card.selected {
+  border-color: rgba(79, 140, 255, 0.75);
+  background: rgba(79, 140, 255, 0.10);
+}
+.chat-style-card input {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  padding: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.chat-style-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.chat-style-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.35;
+}
+.chat-style-card-desc {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.chat-style-card.selected .chat-style-card-title { color: var(--accent); }
+.chat-style-preview {
+  margin-top: 20px;
+  padding: 12px;
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  background: var(--card);
+}
+.chat-style-preview-head {
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.chat-style-preview-body {
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+.chat-style-footer {
+  flex: 0 0 auto;
+  padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--card-border);
+  background: var(--screen-bg);
+}
+.chat-style-footer .fetch-btn { width: 100%; }
 
 .field textarea {
   width: 100%;
@@ -784,8 +919,114 @@ body.statusbar-off .statusbar { visibility: hidden; }
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 0;
+  position: relative;
+}
+.tool-icon-location::before {
+  content: '';
+  position: absolute;
+  left: 10px;
+  top: 8px;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+}
+.tool-icon-location::after {
+  content: '';
+  position: absolute;
+  left: 15px;
+  top: 13px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.tool-icon-image::before {
+  content: '';
+  position: absolute;
+  inset: 6px 5px;
+  border: 2px solid currentColor;
+  border-radius: 5px;
+  background: radial-gradient(circle, currentColor 1.5px, transparent 1.8px) 6px 5px / 4px 4px no-repeat;
+}
+.tool-icon-image::after {
+  content: '';
+  position: absolute;
+  left: 9px;
+  bottom: 9px;
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 7px solid currentColor;
+}
+.tool-icon-sticker::before {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, currentColor 1.5px, transparent 1.8px) 7px 8px / 4px 4px no-repeat,
+    radial-gradient(circle, currentColor 1.5px, transparent 1.8px) 15px 8px / 4px 4px no-repeat;
+}
+.tool-icon-sticker::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  top: 18px;
+  width: 10px;
+  height: 5px;
+  border-bottom: 2px solid currentColor;
+  border-radius: 0 0 10px 10px;
+}
+.tool-icon-transfer::before,
+.tool-icon-transfer::after {
+  content: '';
+  position: absolute;
+  left: 7px;
+  width: 20px;
+  height: 6px;
+  background: currentColor;
+  clip-path: polygon(0 35%, 68% 35%, 68% 0, 100% 50%, 68% 100%, 68% 65%, 0 65%);
+}
+.tool-icon-transfer::before { top: 8px; }
+.tool-icon-transfer::after { top: 20px; transform: rotate(180deg); }
+.tool-icon-directive::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  right: 7px;
+  top: 10px;
+  height: 2px;
+  background: currentColor;
+  box-shadow: 0 6px 0 currentColor, 0 12px 0 currentColor;
+}
+.tool-icon-directive::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  top: 8px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 8px 6px 0 currentColor, 2px 12px 0 currentColor;
+}
+.tool-icon-mail::before {
+  content: '';
+  position: absolute;
+  left: 5px;
+  right: 5px;
+  top: 8px;
+  bottom: 8px;
+  border: 2px solid currentColor;
+  border-radius: 4px;
+  background:
+    linear-gradient(to bottom right, transparent calc(50% - 1px), currentColor calc(50% - 1px), currentColor calc(50% + 1px), transparent calc(50% + 1px)) left top / 50% 100% no-repeat,
+    linear-gradient(to bottom left, transparent calc(50% - 1px), currentColor calc(50% - 1px), currentColor calc(50% + 1px), transparent calc(50% + 1px)) right top / 50% 100% no-repeat;
 }
 .tool-section-title { font-size: 12px; color: var(--muted); margin: 12px 0 6px; }
 .tool-actions { display: flex; gap: 8px; margin-top: 10px; }

@@ -13,6 +13,7 @@ const viewCharacters = $('view-characters');
 const viewCallPicker = $('view-call-picker');
 const viewCall = $('view-call');
 const viewForum = $('view-forum');
+const viewChatStyle = $('view-chat-style');
 const viewEmail = $('view-email');
 const viewBooks = $('view-books');
 
@@ -566,17 +567,17 @@ function toolActionButton(id, text, primary) {
 function renderChatToolMenu(body) {
   const grid = uiEl('div', 'tool-grid');
   [
-    ['location', '位置', '地'],
-    ['image', '图片', '图'],
-    ['sticker', '表情包', '表'],
-    ['transfer', '转账', '¥'],
-    ['directive', '系统指令', '令'],
-    ['mail', '邮件', '邮'],
-  ].forEach(([tool, label, glyph]) => {
+    ['location', '位置'],
+    ['image', '图片'],
+    ['sticker', '表情包'],
+    ['transfer', '转账'],
+    ['directive', '系统指令'],
+    ['mail', '邮件'],
+  ].forEach(([tool, label]) => {
     const tile = uiEl('button', 'tool-tile');
     tile.type = 'button';
     tile.dataset.tool = tool;
-    tile.appendChild(uiEl('span', 'tool-tile-glyph', glyph));
+    tile.appendChild(uiEl('span', 'tool-tile-glyph tool-icon-' + tool));
     tile.appendChild(uiEl('span', '', label));
     grid.appendChild(tile);
   });
@@ -781,6 +782,43 @@ async function renderChatSheet(view) {
   else if (key === 'directive') await renderDirectiveTool(body);
   else if (key === 'mail') await renderMailTool(body);
   else renderChatToolMenu(body);
+}
+
+// ===== 聊天方式（按角色） =====
+function renderChatStylePage(character) {
+  const name = (character && character.name) || '角色';
+  $('chat-style-title').textContent = name + '的聊天方式';
+  $('chat-style-hero-note').textContent = '只影响「' + name + '」的聊天，下一轮回复开始生效。';
+  const grid = $('chat-style-grid');
+  grid.innerHTML = '';
+  const selected = new Set((character && character.chatStyle && character.chatStyle.options) || []);
+  CHAT_STYLE_OPTIONS.forEach((opt) => {
+    const card = document.createElement('label');
+    card.className = 'chat-style-card';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.value = opt.id;
+    input.checked = selected.has(opt.id);
+    input.dataset.group = opt.group || '';
+    if (input.checked) card.classList.add('selected');
+    const text = uiEl('span', 'chat-style-card-text');
+    text.appendChild(uiEl('span', 'chat-style-card-title', opt.title));
+    text.appendChild(uiEl('span', 'chat-style-card-desc', opt.desc));
+    card.appendChild(input);
+    card.appendChild(text);
+    grid.appendChild(card);
+  });
+  updateChatStylePreview();
+}
+
+function collectChatStyleOptions() {
+  return Array.from(document.querySelectorAll('#chat-style-grid input[type="checkbox"]:checked'))
+    .map((input) => input.value);
+}
+
+function updateChatStylePreview() {
+  const prompt = buildChatStylePrompt({ options: collectChatStyleOptions() });
+  $('chat-style-preview').textContent = prompt || '未选择时不会额外注入，角色按原人设说话。';
 }
 
 function updateToolLocationPreview(name) {

@@ -44,6 +44,7 @@
 - 邮箱定时调度在页面启动、打开邮箱、回到前台时检查：每个绑定角色按 `intervalHours` 最多一封，每次最多生成 2 封，60 秒内不重复检查；`pending` 任务到期后立即生成，成功才移除。删除角色时从邮箱绑定和 `pending` 中清理，历史邮件保留 `characterName` 快照。
 - 聊天工具「邮件」复用同一套邮箱数据：可以立即生成一封，也可以按小时数写入 `pending` 预约送达。
 - 小说数据：`books` 文档存书架 `{ list, activeId }`，每本书正文存 `book:<id>`（章节 `{ title, paragraphs }` + 批注），阅读讨论按角色存 `bookChat:<id>`。批注必须带 `chapterIndex` 和 `paragraph`（0 基），删除/修改只允许操作该角色自己的批注；批注与讨论都要写入角色记忆。导入文件解析放在 `public/js/books.js`（TXT 支持 UTF-8/GBK、EPUB 用内置 ZIP + DecompressionStream、PDF 懒加载 pdf.js），解析层只负责转成章节段落，不碰 DOM 数据和存储。阅读时为角色注入人设、记忆、当前章节附近 ±6 段正文和范围内批注，要求 500 字以内自然讨论，并用 `【新增批注 段落=N】` / `【删除批注 ID=】` / `【修改批注 ID=】` 尾注操作批注；正文动作尾注要剥离后再显示。
+- 角色的聊天方式（口吻）存在角色记录 `chatStyle.options`，选项定义在 `store.js` 的 `CHAT_STYLE_OPTIONS`；`年上/年下`、`网感好/差` 各自互斥。`buildChatStylePrompt()` 生成短规则后拼到 system 人设末尾，普通聊天、通话、共读讨论共用；聊天顶栏滑杆按钮进入独立「聊天方式」页，保存后下一轮生效。
 - 论坛数据集中存在 `forum` 文档：`settings`（独立 API、`refreshCount`、`worldbookIds`、`characterIds`）、`boards`（多个板块，每个含 `id`/标题/简介/路人提示词）、`activeBoardId`、`profile`（昵称/签名/头像/背景图 id）、`posts`。帖子 `authorType: npc | character | user`，并带 `boardId` 归属板块；角色帖带 `authorId`，评论挂在帖子 `comments` 上。旧数据里的单份 `theme` 会在读写时自动迁移成 `boards`。首页只显示当前板块的帖子，关注/我的跨板块；刷新入口是板块下方的下拉栏（可改生成条数），不设悬浮刷新钮；「我的」页全屏显示并隐藏论坛顶栏、板块与刷新栏。删除板块会同时删除板块内帖子，且至少保留一个板块。用户主页图片 Blob 存 `files`，文档只存 `avatarId` / `coverId`；换图或清除时删除旧文件。删除角色时从 `settings.characterIds` 解绑，但保留历史帖子的作者名快照。
 - 论坛生成走后端 `/api/forum`（Vercel 为 `api/forum.js`，共享 `lib/ai.js` 的 `forumChat()`），未部署后端时直连 OpenAI 兼容接口；论坛 API 留空则复用主 AI 配置。刷新生成的帖子要写入绑定角色的记忆；分享帖子到聊天室时写入 `kind: 'forum'` 卡片消息，并写一条记忆。
 
@@ -52,6 +53,7 @@
 - 界面是「虚拟手机」全屏布局，铺满视口，不做居中手机模型、模拟边框或灵动岛；桌面端也按整屏处理。
 - 严格区分「设置页」「聊天页」「角色页」「记忆页」「世界书页」等独立页面，用状态切换显示/隐藏，不要混排挤压。
 - 设置项和角色里的扩展绑定统一用抽屉（`<details class="drawer">`），点标题才展开；不要把所有字段平铺挤在一起。
+- 图标一律用 CSS/SVG 绘制，禁止用「地/图/表/¥/令/邮」等汉字充当功能图标；聊天工具菜单、顶栏入口都遵循这一条。
 - 状态切换必须正确隐藏组件（该消失的消失、该出现的出现）。
 - 适配移动端视口（以手机屏幕宽度为准）。
 
