@@ -225,6 +225,15 @@ async function fetchModels({ baseUrl, apiKey }) {
   }
 }
 
+const CHAT_FORMAT_INSTRUCTION = [
+  '【回复格式要求】',
+  '像日常聊天一样自然地回复，语气简短、口语化。',
+  '当你需要一次发送多条独立消息时，用 <split> 分隔它们；每条会被显示成一个单独的气泡。',
+  '单条消息内部可以使用换行，这些换行会保留在同一个气泡里。',
+  '不要把一句连贯的话硬拆成多条，也不要按句号、问号等标点暴力切句。',
+  '只输出你要说的话本身，不要输出解释、序号或额外说明。',
+].join('\n');
+
 async function chatReply({ baseUrl, apiKey, model, persona, history, message }) {
   const endpoint = chatEndpoint(baseUrl);
   if (!endpoint) {
@@ -241,9 +250,10 @@ async function chatReply({ baseUrl, apiKey, model, persona, history, message }) 
   }
 
   const messages = [];
-  if (persona && String(persona).trim()) {
-    messages.push({ role: 'system', content: String(persona).trim() });
-  }
+  const systemParts = [];
+  if (persona && String(persona).trim()) systemParts.push(String(persona).trim());
+  systemParts.push(CHAT_FORMAT_INSTRUCTION);
+  messages.push({ role: 'system', content: systemParts.join('\n\n') });
   if (Array.isArray(history)) {
     history.forEach((m) => {
       if (!m) return;

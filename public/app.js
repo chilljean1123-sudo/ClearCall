@@ -382,6 +382,14 @@ function scrollChatToBottom() {
   box.scrollTop = box.scrollHeight;
 }
 
+function splitReplyIntoBubbles(content) {
+  const s = String(content || '');
+  if (s.includes('<split>')) {
+    return s.split('<split>').map((p) => p.trim()).filter(Boolean);
+  }
+  return s.split('\n').map((p) => p.trim()).filter(Boolean);
+}
+
 function renderMessage(m, index) {
   if (m.role === 'user') {
     const row = document.createElement('div');
@@ -416,11 +424,11 @@ function renderMessage(m, index) {
     retry.addEventListener('click', () => retryReply(index));
     stack.appendChild(retry);
   } else {
-    const lines = String(m.content || '').split('\n').map((s) => s.trim()).filter(Boolean);
-    lines.forEach((line) => {
+    const parts = splitReplyIntoBubbles(m.content);
+    parts.forEach((part) => {
       const bubble = document.createElement('div');
       bubble.className = 'msg-bubble assistant-bubble';
-      bubble.textContent = line;
+      bubble.textContent = part;
       stack.appendChild(bubble);
     });
   }
