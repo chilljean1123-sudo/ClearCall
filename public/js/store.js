@@ -198,6 +198,7 @@ const DOC_CHAT = 'chatHistory';        // 旧版聊天文档（迁移用；新�
 const DOC_MEMORY = 'memory';           // 旧版记忆文档（迁移用；新数据按角色分仓）
 const DOC_WORLDBOOK = 'worldbook';
 const DOC_STICKERS = 'stickers';       // 表情包按角色分仓：stickers:<角色id>
+const DOC_APPEARANCE = 'appearance';   // 美化：壁纸 / 图标壁纸 / 状态栏开关
 const LEGACY_CHARACTER_ID = 'character';
 
 let _dbPromise = null;
@@ -326,6 +327,56 @@ async function clearFiles() {
 function genId() {
   if (window.crypto && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
   return 'id-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+}
+
+// ---------- 美化（IndexedDB） ----------
+// 壁纸与图标壁纸的图片存 files，appearance 只存引用 id；状态栏开关是轻量设置。
+function normalizeAppearance(doc) {
+  const d = doc || {};
+  return {
+    wallpaperId: d.wallpaperId || null,
+    iconWallpaperId: d.iconWallpaperId || null,
+    statusBar: d.statusBar !== false,
+  };
+}
+
+async function getAppearance() {
+  return normalizeAppearance(await getDoc(DOC_APPEARANCE));
+}
+
+function setAppearance(patch) {
+  return mutateDoc(DOC_APPEARANCE, (doc) => {
+    const next = Object.assign(normalizeAppearance(doc), patch || {});
+    doc.wallpaperId = next.wallpaperId;
+    doc.iconWallpaperId = next.iconWallpaperId;
+    doc.statusBar = next.statusBar !== false;
+  });
+}
+
+// kind: 'wallpaper' | 'icon'
+async function setAppearanceImageBlob(kind, blob, type, name) {
+  const key = kind === 'icon' ? 'iconWallpaperId' : 'wallpaperId';
+  const cfg = await getAppearance();
+  const oldId = cfg[key];
+  const id = genId();
+  await putFile({ id, name: name || kind, type: type || (blob && blob.type) || 'image/jpeg', blob });
+  await setAppearance({ [key]: id });
+  if (oldId) {
+    try { await deleteFile(oldId); } catch (_) {}
+    revokeFileUrl(oldId);
+  }
+  return id;
+}
+
+async function clearAppearanceImage(kind) {
+  const key = kind === 'icon' ? 'iconWallpaperId' : 'wallpaperId';
+  const cfg = await getAppearance();
+  const oldId = cfg[key];
+  await setAppearance({ [key]: null });
+  if (oldId) {
+    try { await deleteFile(oldId); } catch (_) {}
+    revokeFileUrl(oldId);
+  }
 }
 
 // 在一个事务里完成「读-改-写」，避免并发写丢字段
@@ -884,6 +935,13 @@ async function buildBackup() {
   }
 
   const wbDoc = (await getDoc(DOC_WORLDBOOK)) || {};
+  const appearance = await getAppearance();
+  for (const fileId of [appearance.wallpaperId, appearance.iconWallpaperId].filter(Boolean)) {
+    const f = await getFile(fileId);
+    if (f && f.blob) {
+      files[fileId] = { name: f.name || 'image', type: f.type || 'image/jpeg', data: await blobToDataUrl(f.blob) };
+    }
+  }
   return {
     app: 'clearcall',
     version: 2,
@@ -893,6 +951,7 @@ async function buildBackup() {
     memorySettings,
     voiceSettings,
     imageSettings,
+    appearance,
     characters,
     activeId,
     chats,
@@ -956,6 +1015,13 @@ async function applyBackup(data) {
   }
 
   await putDoc({ id: DOC_CHARACTERS, list: characters, activeId });
+  const appearance = normalizeAppearance(data.appearance);
+  await putDoc({
+    id: DOC_APPEARANCE,
+    wallpaperId: appearance.wallpaperId,
+    iconWallpaperId: appearance.iconWallpaperId,
+    statusBar: appearance.statusBar,
+  });
   for (const c of characters) {
     const chat = chats[c.id];
     await putDoc({

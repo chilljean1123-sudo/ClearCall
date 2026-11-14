@@ -13,9 +13,11 @@ let editingWorldbookId = null;
 let callActive = false;
 let callCharacterId = null;
 let callStartedAt = 0;
+let callStartHistoryCount = 0;
 let callTimer = null;
 let callAudio = null;
 let callAudioUrl = '';
+let pendingCallMemory = null;
 let callSpeechSeq = 0;
 let editingCharacterId = null;
 let charactersReturnTo = 'home';
@@ -82,6 +84,16 @@ function save() {
     model: $('input-image-model').value.trim(),
     size: $('input-image-size').value.trim(),
   });
+}
+
+// ---- 美化：应用壁纸、图标壁纸与状态栏开关 ----
+async function refreshAppearance() {
+  const cfg = await getAppearance();
+  const [wallpaperUrl, iconUrl] = await Promise.all([
+    getFileUrl(cfg.wallpaperId),
+    getFileUrl(cfg.iconWallpaperId),
+  ]);
+  applyAppearance(cfg, wallpaperUrl, iconUrl);
 }
 
 // ---- 角色应用：新建 / 编辑 / 删除 / 切换 ----
@@ -284,6 +296,7 @@ async function startCall(characterId) {
   const c = await getCharacter(characterId);
   if (!c) { toast('角色不存在'); return; }
 
+  callStartHistoryCount = (await getHistory(characterId)).length;
   await setActiveCharacter(characterId);
   clearCountdown();
   stopCallAudio();
@@ -303,6 +316,8 @@ async function startCall(characterId) {
 }
 
 function endCall() {
+  const characterId = callCharacterId;
+  const startCount = callStartHistoryCount;
   callActive = false;
   callCharacterId = null;
   if (callTimer) { clearInterval(callTimer); callTimer = null; }
@@ -310,6 +325,12 @@ function endCall() {
   setCallStatus('正在通话');
   stopCallAudio();
   showView(viewHome);
+
+  // 通话内容在挂断后写入记忆；若还有回复在路上，等回复落库后再整理
+  if (characterId) {
+    if (chatSending) pendingCallMemory = { characterId, startCount };
+    else rememberCallToMemory(characterId, startCount).catch(() => {});
+  }
 }
 
 async function sendCallMessage() {
@@ -667,6 +688,11 @@ async function flushQueue() {
     }
   }
   setChatSending(false);
+  if (pendingCallMemory && pendingCallMemory.characterId === characterId) {
+    const mem = pendingCallMemory;
+    pendingCallMemory = null;
+    try { await rememberCallToMemory(mem.characterId, mem.startCount); } catch (_) {}
+  }
   await afterFlush();
 }
 
@@ -1037,6 +1063,44 @@ function historyToText(messages) {
   return (messages || []).map((m) => (m.role === 'assistant' ? '角色' : '用户') + '：' + (m.content || '')).join('\n');
 }
 
+// 通话结束后把新增对话写入记忆：优先走记忆摘要服务，失败时退回本地摘要，避免内容丢失
+async function rememberCallToMemory(characterId, startCount) {
+  const history = await getHistory(characterId);
+  if (history.length <= startCount) return;
+  const { entries, lastSummarizedCount } = await getMemory(characterId);
+  const from = Math.max(0, Math.min(lastSummarizedCount, history.length));
+  const pending = history.slice(from);
+  if (!pending.length) return;
+
+  const content = historyToText(pending);
+  const ms = getEffectiveMemorySettings();
+  let summaryEntries = null;
+  if (ms.baseUrl && ms.apiKey && ms.model) {
+    try {
+      const data = await requestMemorySummary({
+        baseUrl: ms.baseUrl, apiKey: ms.apiKey, model: ms.model,
+        content, existing: formatMemory(entries),
+      });
+      if (data.ok && Array.isArray(data.entries) && data.entries.length) {
+        summaryEntries = data.entries;
+      }
+    } catch (_) { /* 摘要失败时走本地兜底 */ }
+  }
+
+  // 摘要期间角色可能已被删除，避免把记忆写回已删除的角色
+  if (!(await getCharacter(characterId))) return;
+
+  if (summaryEntries) {
+    await mergeMemoryEntries(summaryEntries, characterId);
+  } else {
+    const brief = content.length > 400 ? content.slice(0, 400) + '…' : content;
+    await addMemoryEntry({ category: 'event', text: '通话内容：' + brief }, characterId);
+  }
+
+  await setLastSummarizedCount(history.length, characterId);
+  if ((await getActiveCharacterId()) === characterId) toast('通话内容已写入记忆');
+}
+
 // 手动「整理」：把尚未总结的聊天内容提炼成记忆
 async function summarizeChatToMemory() {
   const ms = getEffectiveMemorySettings();
@@ -1316,6 +1380,7 @@ document.querySelectorAll('.app-icon').forEach((btn) => {
     if (app === 'settings') {
       loadSaved();
       loadTriggerSettings();
+      refreshAppearance();
       $('result').hidden = true;
       showView(viewSettings);
     } else if (app === 'chat') {
@@ -1490,6 +1555,64 @@ $('btn-wb-import').addEventListener('click', () => $('file-wb-import').click());
 $('file-wb-import').addEventListener('change', importWorldbookFile);
 $('wb-scope-select').addEventListener('change', (e) => switchWorldbookScope(e.target.value));
 
+// 美化：壁纸 / 图标壁纸 / 状态栏
+$('btn-wallpaper-pick').addEventListener('click', () => $('file-wallpaper').click());
+$('btn-wallpaper-clear').addEventListener('click', async () => {
+  try {
+    await clearAppearanceImage('wallpaper');
+    await refreshAppearance();
+    toast('已恢复默认壁纸');
+  } catch (err) {
+    toast('恢复失败：' + (err && err.message ? err.message : err));
+  }
+});
+$('file-wallpaper').addEventListener('change', async (e) => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  try {
+    const blob = await fileToWallpaper(f);
+    await setAppearanceImageBlob('wallpaper', blob, blob.type, f.name);
+    await refreshAppearance();
+    toast('壁纸已更新');
+  } catch (err) {
+    toast('壁纸设置失败：' + (err && err.message ? err.message : err));
+  }
+});
+
+$('btn-icon-wallpaper-pick').addEventListener('click', () => $('file-icon-wallpaper').click());
+$('btn-icon-wallpaper-clear').addEventListener('click', async () => {
+  try {
+    await clearAppearanceImage('icon');
+    await refreshAppearance();
+    toast('图标已恢复默认');
+  } catch (err) {
+    toast('恢复失败：' + (err && err.message ? err.message : err));
+  }
+});
+$('file-icon-wallpaper').addEventListener('change', async (e) => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  try {
+    const blob = await fileToIconWallpaper(f);
+    await setAppearanceImageBlob('icon', blob, blob.type, f.name);
+    await refreshAppearance();
+    toast('图标壁纸已更新');
+  } catch (err) {
+    toast('图标壁纸设置失败：' + (err && err.message ? err.message : err));
+  }
+});
+
+$('chk-statusbar').addEventListener('change', async () => {
+  try {
+    await setAppearance({ statusBar: $('chk-statusbar').checked });
+    await refreshAppearance();
+  } catch (err) {
+    toast('状态栏设置失败：' + (err && err.message ? err.message : err));
+  }
+});
+
 // 备份：导出 / 导入
 $('btn-export').addEventListener('click', async () => {
   try {
@@ -1521,6 +1644,7 @@ $('file-import').addEventListener('change', async (e) => {
     await applyBackup(data);
     loadSaved();
     loadTriggerSettings();
+    await refreshAppearance();
     wbScope = 'global';
     await updateChatTitle();
     toast('备份已导入');
@@ -1628,5 +1752,6 @@ $('input-countdown-sec').addEventListener('input', saveTriggerSettings);
   }
   loadSaved();
   loadTriggerSettings();
+  try { await refreshAppearance(); } catch (_) {}
   try { await updateChatTitle(); } catch (_) {}
 })();

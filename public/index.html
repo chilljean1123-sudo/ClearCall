@@ -7,11 +7,7 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <h1 class="page-title">我的虚拟手机</h1>
-  <p class="page-subtitle">在浏览器里运行 · 先在「设置」里配置 AI 接口即可使用</p>
-
   <div class="phone">
-    <div class="phone-notch"></div>
     <div class="screen">
       <div class="statusbar">
         <span class="status-time">9:41</span>
@@ -201,6 +197,52 @@
                 <input id="input-image-size" type="text" placeholder="例如 1024x1024" autocomplete="off" />
                 <span class="field-hint">角色里可以填写外观提示词并上传参考图，与这里的生图服务配合使用。</span>
               </div>
+            </div>
+          </details>
+
+          <details class="drawer">
+            <summary class="drawer-head">
+              <span class="drawer-title">美化</span>
+              <span class="drawer-arrow"></span>
+            </summary>
+            <div class="drawer-body">
+              <div class="field">
+                <span class="field-label">主屏幕壁纸</span>
+                <div class="appearance-preview wallpaper-preview" id="wallpaper-preview">
+                  <span class="preview-empty">默认渐变</span>
+                </div>
+                <div class="backup-row">
+                  <button type="button" class="fetch-btn" id="btn-wallpaper-pick">上传壁纸</button>
+                  <button type="button" class="fetch-btn" id="btn-wallpaper-clear">恢复默认</button>
+                </div>
+                <span class="field-hint">铺满主屏幕，建议使用竖图；图片只保存在本机。</span>
+              </div>
+
+              <div class="field">
+                <span class="field-label">图标壁纸</span>
+                <div class="appearance-preview icon-wallpaper-preview" id="icon-wallpaper-preview">
+                  <span class="preview-icon"></span>
+                  <span class="preview-icon"></span>
+                  <span class="preview-icon"></span>
+                  <span class="preview-icon"></span>
+                </div>
+                <div class="backup-row">
+                  <button type="button" class="fetch-btn" id="btn-icon-wallpaper-pick">上传图标壁纸</button>
+                  <button type="button" class="fetch-btn" id="btn-icon-wallpaper-clear">恢复默认</button>
+                </div>
+                <span class="field-hint">作为每个应用图标的底图，建议使用纹理或纯色图。</span>
+              </div>
+
+              <div class="field">
+                <label class="check-row">
+                  <input type="checkbox" id="chk-statusbar" checked />
+                  <span>显示顶部状态栏（时间、信号、电量）</span>
+                </label>
+                <span class="field-hint">关闭后隐藏状态栏内容，但仍保留顶部安全区，聊天和页面内容不会贴到屏幕最上方。</span>
+              </div>
+
+              <input type="file" id="file-wallpaper" accept="image/*" hidden />
+              <input type="file" id="file-icon-wallpaper" accept="image/*" hidden />
             </div>
           </details>
 

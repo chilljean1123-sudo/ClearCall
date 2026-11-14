@@ -1023,6 +1023,54 @@ function fileToReferenceImage(file) {
   return fileToImage(file, 512);
 }
 
+function fileToWallpaper(file) {
+  return fileToImage(file, 1600);
+}
+
+function fileToIconWallpaper(file) {
+  return fileToImage(file, 512);
+}
+
+// ===== 美化：壁纸 / 图标壁纸 / 状态栏 =====
+function applyAppearance(cfg, wallpaperUrl, iconUrl) {
+  const home = $('view-home');
+  if (wallpaperUrl) {
+    home.style.backgroundImage = 'url("' + wallpaperUrl + '")';
+    home.classList.add('has-wallpaper');
+  } else {
+    home.style.backgroundImage = '';
+    home.classList.remove('has-wallpaper');
+  }
+
+  const phone = document.querySelector('.phone');
+  if (iconUrl) {
+    phone.classList.add('has-icon-wallpaper');
+    phone.style.setProperty('--icon-wallpaper', 'url("' + iconUrl + '")');
+  } else {
+    phone.classList.remove('has-icon-wallpaper');
+    phone.style.removeProperty('--icon-wallpaper');
+  }
+
+  document.body.classList.toggle('statusbar-off', !!(cfg && cfg.statusBar === false));
+  const chk = $('chk-statusbar');
+  if (chk) chk.checked = !(cfg && cfg.statusBar === false);
+
+  renderAppearancePreview(wallpaperUrl, iconUrl);
+}
+
+function renderAppearancePreview(wallpaperUrl, iconUrl) {
+  const wp = $('wallpaper-preview');
+  if (wp) {
+    wp.style.backgroundImage = wallpaperUrl ? 'url("' + wallpaperUrl + '")' : '';
+    wp.classList.toggle('has-image', !!wallpaperUrl);
+  }
+  const ip = $('icon-wallpaper-preview');
+  if (ip) {
+    ip.style.setProperty('--preview-icon-wallpaper', iconUrl ? 'url("' + iconUrl + '")' : 'none');
+    ip.classList.toggle('has-image', !!iconUrl);
+  }
+}
+
 // ===== 记忆应用渲染 =====
 async function renderMemory() {
   const list = $('memory-list');

@@ -13,12 +13,17 @@
   --green: #34c98e;
   --red: #ff5f6d;
   --amber: #f5b544;
+  /* 状态栏始终占位：关闭显示时也保留这块安全区 */
+  --statusbar-space: calc(30px + env(safe-area-inset-top, 0px));
 }
 
 html, body {
   margin: 0;
   padding: 0;
-  background: var(--bg);
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--screen-bg);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -26,55 +31,30 @@ html, body {
 
 body {
   min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 32px 16px 48px;
+  display: block;
+  padding: 0;
 }
 
-.page-title {
-  font-size: 22px;
-  margin: 0 0 6px;
-  font-weight: 700;
-}
-
-.page-subtitle {
-  font-size: 13px;
-  color: var(--muted);
-  margin: 0 0 24px;
-  text-align: center;
-}
-
-/* ===== 手机外观 ===== */
+/* ===== 全屏手机 ===== */
 .phone {
   position: relative;
-  width: 340px;
-  max-width: 94vw;
-  height: 690px;
-  max-height: 80vh;
-  background: var(--phone-bezel);
-  border-radius: 52px;
-  padding: 12px;
-  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.55), inset 0 0 0 2px #000;
-}
-
-.phone-notch {
-  position: absolute;
-  top: 22px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 120px;
-  height: 24px;
-  background: #000;
-  border-radius: 14px;
-  z-index: 5;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  background: var(--screen-bg);
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
+  overflow: hidden;
 }
 
 .screen {
   width: 100%;
   height: 100%;
   background: var(--screen-bg);
-  border-radius: 40px;
+  border-radius: 0;
   overflow: hidden;
   position: relative;
   display: flex;
@@ -83,16 +63,26 @@ body {
 
 /* ===== 状态栏 ===== */
 .statusbar {
-  flex: 0 0 auto;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--statusbar-space);
+  box-sizing: border-box;
+  z-index: 40;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 20px 6px;
+  padding: calc(env(safe-area-inset-top, 0px) + 8px) 20px 0;
   font-size: 13px;
   font-weight: 600;
   color: var(--text);
   user-select: none;
+  pointer-events: none;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
 }
+
+body.statusbar-off .statusbar { visibility: hidden; }
 
 .status-right {
   display: flex;
@@ -125,17 +115,40 @@ body {
 .app-view {
   position: absolute;
   inset: 0;
+  padding-top: var(--statusbar-space);
+  box-sizing: border-box;
   display: none;
   flex-direction: column;
 }
 .app-view.active { display: flex; }
 
 /* ===== 主屏幕 ===== */
+#view-home {
+  background-color: var(--screen-bg);
+  background-image: linear-gradient(160deg, #1b2a4a 0%, #123a3f 55%, #0f2018 100%);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+#view-home::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.22) 0%, rgba(0, 0, 0, 0.04) 42%, rgba(0, 0, 0, 0.3) 100%);
+}
+#view-home.has-wallpaper::before {
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.38) 0%, rgba(0, 0, 0, 0.12) 45%, rgba(0, 0, 0, 0.42) 100%);
+}
 .wallpaper {
+  position: relative;
+  z-index: 1;
   flex: 0 0 auto;
-  padding: 28px 20px 22px;
-  background: linear-gradient(160deg, #1b2a4a 0%, #123a3f 55%, #0f2018 100%);
+  padding: 26px 20px 20px;
+  background: transparent;
   text-align: center;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.55);
 }
 .wallpaper-brand {
   font-size: 26px;
@@ -144,11 +157,16 @@ body {
 }
 .wallpaper-slogan {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.65);
+  color: rgba(255, 255, 255, 0.7);
   margin-top: 4px;
 }
 
 .app-grid {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 680px;
+  margin: 0 auto;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 18px 10px;
@@ -177,8 +195,25 @@ body {
   border: 1px solid var(--card-border);
   color: #cfd6e4;
   transition: transform 0.12s ease;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 .app-glyph svg { width: 28px; height: 28px; }
+
+.phone.has-icon-wallpaper .app-glyph {
+  background-image: var(--icon-wallpaper);
+  background-color: var(--card);
+  border-color: rgba(255, 255, 255, 0.24);
+}
+.phone.has-icon-wallpaper .app-glyph svg {
+  color: #fff;
+  filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.65));
+}
+.phone.has-icon-wallpaper .app-name {
+  color: rgba(255, 255, 255, 0.82);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}
 .app-glyph.accent { background: linear-gradient(160deg, #4f8cff, #3b76e8); color: #fff; border: none; }
 
 .app-icon:active .app-glyph { transform: scale(0.9); }
@@ -212,6 +247,49 @@ body {
 }
 
 .settings-note { font-size: 12px; color: var(--muted); margin: 0 0 18px; line-height: 1.6; }
+
+/* ===== 美化预览 ===== */
+.appearance-preview {
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 10px;
+  background: var(--screen-bg);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+.wallpaper-preview {
+  height: 124px;
+  display: grid;
+  place-items: center;
+  background-image: linear-gradient(160deg, #1b2a4a 0%, #123a3f 55%, #0f2018 100%);
+}
+.preview-empty { font-size: 12px; color: rgba(255, 255, 255, 0.7); }
+.wallpaper-preview.has-image .preview-empty { display: none; }
+
+.icon-wallpaper-preview {
+  height: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+.preview-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background-color: var(--card);
+  border: 1px solid var(--card-border);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+.icon-wallpaper-preview.has-image .preview-icon {
+  background-image: var(--preview-icon-wallpaper);
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
 
 /* ===== 抽屉（设置项 / 角色绑定项） ===== */
 .drawer {
