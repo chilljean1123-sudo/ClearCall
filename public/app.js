@@ -314,6 +314,16 @@ const CHAT_KEYS = {
 };
 
 let chatSending = false;
+let pendingQueue = [];
+let countdownTick = null;
+let countdownSecRemain = 0;
+
+const TRIGGER_KEYS = {
+  instant: 'clearcall.trigger.instant',
+  batch: 'clearcall.trigger.batch',
+  countdown: 'clearcall.trigger.countdown',
+  countdownSec: 'clearcall.trigger.countdownSec',
+};
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -374,6 +384,7 @@ function openChat() {
 
 function openCharSettings() {
   loadCharConfig();
+  loadTriggerSettings();
   showView(viewCharSettings);
 }
 
@@ -446,9 +457,8 @@ function renderChat() {
 
 function setChatSending(sending) {
   chatSending = sending;
-  $('btn-chat-send').disabled = sending;
-  $('btn-chat-send').textContent = sending ? '发送中' : '发送';
-  $('input-chat').disabled = sending;
+  // 请求锁：只锁「批量发送」；输入框和「发送」仍可用，便于继续排队
+  $('btn-batch-send').disabled = sending;
 }
 
 function appendTyping() {
@@ -512,18 +522,123 @@ function ensureConfigured() {
   return true;
 }
 
-async function sendChatMessage(text) {
+// ===== 回复触发模式 =====
+function getTriggerModes() {
+  return {
+    instant: localStorage.getItem(TRIGGER_KEYS.instant) === '1',
+    batch: localStorage.getItem(TRIGGER_KEYS.batch) === '1',
+    countdown: localStorage.getItem(TRIGGER_KEYS.countdown) === '1',
+    countdownSec: Math.max(1, parseInt(localStorage.getItem(TRIGGER_KEYS.countdownSec) || '3', 10) || 3),
+  };
+}
+
+// 全关时等同「即时」，避免点了没反应
+function isInstantMode() {
+  const m = getTriggerModes();
+  return m.instant || (!m.batch && !m.countdown);
+}
+
+function loadTriggerSettings() {
+  const m = getTriggerModes();
+  $('chk-instant').checked = m.instant;
+  $('chk-batch').checked = m.batch;
+  $('chk-countdown').checked = m.countdown;
+  $('input-countdown-sec').value = m.countdownSec;
+}
+
+function saveTriggerSettings() {
+  localStorage.setItem(TRIGGER_KEYS.instant, $('chk-instant').checked ? '1' : '0');
+  localStorage.setItem(TRIGGER_KEYS.batch, $('chk-batch').checked ? '1' : '0');
+  localStorage.setItem(TRIGGER_KEYS.countdown, $('chk-countdown').checked ? '1' : '0');
+  const sec = parseInt($('input-countdown-sec').value, 10);
+  localStorage.setItem(TRIGGER_KEYS.countdownSec, String(Math.max(1, sec || 3)));
+}
+
+function updateQueueBar() {
+  const bar = $('queue-bar');
+  const n = pendingQueue.length;
+  if (n === 0) {
+    bar.hidden = true;
+    return;
+  }
+  bar.hidden = false;
+  let txt = '待发送 ' + n + ' 条';
+  if (countdownTick) txt += ' · ' + countdownSecRemain + ' 秒后自动发送';
+  $('queue-count').textContent = txt;
+}
+
+function clearCountdown() {
+  if (countdownTick) { clearInterval(countdownTick); countdownTick = null; }
+  countdownSecRemain = 0;
+}
+
+function startCountdown() {
+  const m = getTriggerModes();
+  clearCountdown();
+  countdownSecRemain = m.countdownSec;
+  updateQueueBar();
+  countdownTick = setInterval(() => {
+    countdownSecRemain -= 1;
+    if (countdownSecRemain <= 0) {
+      clearCountdown();
+      flushQueue();
+    } else {
+      updateQueueBar();
+    }
+  }, 1000);
+}
+
+// 倒计时只在「队列非空 + 无草稿 + 退出输入状态」时启动
+function maybeStartCountdown() {
+  const m = getTriggerModes();
+  if (chatSending) return;                 // 请求锁
+  if (m.instant) return;                   // 即时优先
+  if (!m.countdown) return;
+  if (pendingQueue.length === 0) return;
+  if ($('input-chat').value.trim() !== '') return; // 还有草稿
+  if (document.activeElement === $('input-chat')) return; // 仍在输入状态
+  startCountdown();
+}
+
+function afterFlush() {
+  if (pendingQueue.length === 0) { updateQueueBar(); return; }
+  if (isInstantMode()) flushQueue();
+  else if (getTriggerModes().countdown) maybeStartCountdown();
+  else updateQueueBar(); // 等手动「批量发送」
+}
+
+// 提交：把输入框内容放进待发送队列（不清空聊天记录，只入队）
+function submitMessage(text) {
   const msg = (text || '').trim();
   if (!msg) return;
-  if (chatSending) return;
-  if (!ensureConfigured()) return;
+  pendingQueue.push(msg);
+  $('input-chat').value = '';
+  updateQueueBar();
+  if (isInstantMode()) {
+    flushQueue();
+  } else if (getTriggerModes().countdown) {
+    maybeStartCountdown();
+  }
+  // 只开「批量」：等待手动点「批量发送」
+}
+
+// 触发：把队列消息合并成一条用户消息请求 AI（请求锁防重复调用）
+async function flushQueue() {
+  if (chatSending) return;         // 请求锁：已有请求在飞
+  if (pendingQueue.length === 0) return;
+  if (!ensureConfigured()) return; // 配置缺失，消息留在队列
+
+  clearCountdown();
+
+  const combined = pendingQueue.join('\n');
+  pendingQueue = [];
+  updateQueueBar();
 
   const history = getHistory();
-  const payload = currentChatPayload(msg, history.slice());
+  const payload = currentChatPayload(combined, history.slice());
 
-  history.push({ role: 'user', content: msg });
+  history.push({ role: 'user', content: combined });
   setHistory(history);
-  $('input-chat').value = '';
   renderChat();
   setChatSending(true);
   appendTyping();
@@ -545,6 +660,7 @@ async function sendChatMessage(text) {
   setHistory(current);
   renderChat();
   setChatSending(false);
+  afterFlush();
 }
 
 async function retryReply(index) {
@@ -626,10 +742,21 @@ $('btn-clear-avatar').addEventListener('click', () => {
   localStorage.removeItem(CHAT_KEYS.avatar);
   updateAvatarPreview();
 });
-$('btn-chat-send').addEventListener('click', () => sendChatMessage($('input-chat').value));
+$('btn-chat-send').addEventListener('click', () => submitMessage($('input-chat').value));
 $('input-chat').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
-    sendChatMessage($('input-chat').value);
+    submitMessage($('input-chat').value);
   }
 });
+$('btn-batch-send').addEventListener('click', () => flushQueue());
+$('input-chat').addEventListener('input', () => {
+  if (countdownTick) { clearCountdown(); updateQueueBar(); } // 新输入重置倒计时
+});
+$('input-chat').addEventListener('blur', () => maybeStartCountdown());
+
+// 触发模式开关
+$('chk-instant').addEventListener('change', saveTriggerSettings);
+$('chk-batch').addEventListener('change', saveTriggerSettings);
+$('chk-countdown').addEventListener('change', saveTriggerSettings);
+$('input-countdown-sec').addEventListener('input', saveTriggerSettings);

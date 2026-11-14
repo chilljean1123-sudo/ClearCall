@@ -113,6 +113,11 @@
 
         <div class="chat-messages" id="chat-messages"></div>
 
+        <div class="queue-bar" id="queue-bar" hidden>
+          <span class="queue-info" id="queue-count">待发送 0 条</span>
+          <button type="button" class="batch-send-btn" id="btn-batch-send">批量发送</button>
+        </div>
+
         <div class="chat-inputbar">
           <input id="input-chat" type="text" placeholder="输入消息…" autocomplete="off" />
           <button type="button" class="chat-send-btn" id="btn-chat-send">发送</button>
@@ -144,6 +149,29 @@
           <div class="field">
             <span class="field-label">人设</span>
             <textarea id="input-char-persona" rows="5" placeholder="例如：你是一个温柔耐心的助手，用中文回复…"></textarea>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="field">
+            <span class="field-label">回复触发模式</span>
+            <label class="check-row">
+              <input type="checkbox" id="chk-instant" />
+              <span>即时发送（点「发送」立刻请求 AI）</span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" id="chk-batch" />
+              <span>批量发送（消息先缓存，手动点「批量发送」一起发）</span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" id="chk-countdown" />
+              <span>倒计时自动发送（提交后无草稿且失焦时倒计时自动发）</span>
+            </label>
+            <div class="countdown-row">
+              <span class="countdown-label">倒计时秒数</span>
+              <input type="number" id="input-countdown-sec" min="1" max="60" value="3" />
+            </div>
+            <span class="field-hint">可多选；同时开启时优先级：即时 &gt; 倒计时 &gt; 批量。全关则等同「即时」。</span>
           </div>
         </div>
       </div>
