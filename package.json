@@ -5,5 +5,8 @@
   "description": "浏览器里运行的虚拟小手机（含 AI 接口设置与连接测试）",
   "scripts": {
     "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }
