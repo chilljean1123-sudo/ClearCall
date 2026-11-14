@@ -59,6 +59,12 @@ let mailDetailId = null;
 let mailGenerating = false;
 let mailSchedulerTimer = null;
 
+// 日记
+let diaryCharacterId = null;
+let diaryWriting = false;
+let diarySchedulerTimer = null;
+let diaryLastCheckAt = 0;
+
 // 最近聊天直接带上；更早的内容交给记忆总结
 const RECENT_HISTORY_LIMIT = 20;
 const AUTO_SUMMARIZE_MIN_NEW = 20;
@@ -2576,6 +2582,233 @@ async function scheduleMailFromTool() {
   toast('已安排 ' + hours + ' 小时后送达邮箱');
 }
 
+// ---------------- 日记 ----------------
+function parseDiaryJson(text) {
+  let s = String(text || '').trim();
+  s = s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  const start = s.indexOf('{');
+  const end = s.lastIndexOf('}');
+  if (start >= 0 && end > start) s = s.slice(start, end + 1);
+  try {
+    const data = JSON.parse(s);
+    const body = String((data && (data.body || data.content)) || '').trim();
+    const title = String((data && data.title) || '').trim();
+    const mood = String((data && data.mood) || '').trim();
+    const todos = (Array.isArray(data && data.todos) ? data.todos : [])
+      .map((t) => (t && typeof t === 'object') ? (t.text || t.todo || t.title) : t)
+      .map((t) => String(t || '').trim())
+      .filter(Boolean)
+      .slice(0, 6);
+    if (body.length >= 100) return { title: title || '今天的日记', mood, body, todos };
+  } catch (_) {}
+  if (s.length >= 200 && s.indexOf('{') === -1) {
+    return { title: '今天的日记', mood: '', body: s, todos: [] };
+  }
+  return null;
+}
+
+async function buildDiarySystemPrompt(character, characterId) {
+  const { entries } = await getMemory(characterId);
+  const history = await getHistory(characterId);
+  const now = new Date();
+  const week = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+  const dateText = now.getFullYear() + '年' + (now.getMonth() + 1) + '月' + now.getDate() + '日 ' + week[now.getDay()];
+  const parts = [
+    '你正在扮演「' + (character.name || '角色') + '」，现在要写一篇只给自己看的日记。',
+    '【角色人设】',
+    (character.persona || '（暂无详细人设，请按角色名字的气质自然发挥）'),
+    '【你记得的事】',
+    formatMemory(entries) || '（暂时没有长期记忆，请从今天的生活写起）',
+    '【最近的聊天片段】',
+    historyToText(history.slice(-12)) || '（最近没有聊天记录）',
+    '【今天的日期】',
+    dateText,
+    '【写作要求】',
+    '1. 用第一人称，完全符合角色的口吻、用词和情绪，不要像 AI 助手或作文。',
+    '2. 正文 500-800 个汉字，写今天发生的事、自己的感受和想法，要有具体生活细节。',
+    '3. 最后列出 2-5 条明日计划，要具体、可执行，不要空话。',
+    '4. 不要解释自己正在扮演角色，不要提到 AI、模型或提示词。',
+    '5. 只输出 JSON，格式：{"title":"不超过 18 字的标题","mood":"两三个字的今日心情","body":"正文","todos":["明日计划1","明日计划2"]}',
+  ];
+  return parts.join('\n');
+}
+
+// 生成一篇日记并写入存储与角色记忆
+async function generateCharacterDiary(characterId) {
+  const character = await getCharacter(characterId);
+  if (!character) throw new Error('角色不存在或已被删除');
+  const api = emailApiConfig();
+  if (!api.baseUrl || !api.apiKey || !api.model) {
+    throw new Error('请先到设置里配置 AI 接口地址、API Key 和模型名');
+  }
+  const system = await buildDiarySystemPrompt(character, characterId);
+  const data = await requestDiaryChat({
+    baseUrl: api.baseUrl,
+    apiKey: api.apiKey,
+    model: api.model,
+    system,
+    user: '请现在写下今天的日记。',
+    maxTokens: 2600,
+  });
+  if (!data || !data.ok) throw new Error((data && (data.reason || data.message)) || '日记生成失败');
+  const parsed = parseDiaryJson(data.reply);
+  if (!parsed) throw new Error('模型没有返回有效的日记内容，请稍后重试或换模型');
+
+  const entry = await addDiaryEntry(characterId, {
+    date: diaryDateKey(),
+    title: parsed.title,
+    mood: parsed.mood,
+    body: parsed.body,
+    todos: parsed.todos.map((text) => ({ text, done: false })),
+    createdAt: Date.now(),
+  });
+  const plans = entry.todos.map((t) => t.text).join('、') || '暂无';
+  await addMemoryEntry({
+    category: 'event',
+    text: '你写下了今天的日记《' + entry.title + '》，心情：' + (entry.mood || '平静') + '。明日计划：' + plans + '。',
+  }, characterId);
+  return { character, entry };
+}
+
+async function refreshDiaryPage(characterId) {
+  const id = characterId || diaryCharacterId || await getActiveCharacterId();
+  if (!id) return;
+  const [character, diary] = await Promise.all([getCharacter(id), getDiary(id)]);
+  if (!character) return;
+  diaryCharacterId = id;
+  renderDiaryPage(character, diary);
+}
+
+async function openDiary(characterId) {
+  const id = characterId || await getActiveCharacterId();
+  if (!id) {
+    toast('先在「角色」应用里创建并选择一个角色');
+    return;
+  }
+  diaryCharacterId = id;
+  await refreshDiaryPage(id);
+  showView(viewDiary);
+  hidePhoneNotice();
+  runDiarySchedule().catch(() => {});
+}
+
+async function notifyDiaryWritten(character, entry) {
+  const name = (character && character.name) || '角色';
+  const title = name + ' 写完了今天的日记';
+  const text = (entry.title ? '《' + entry.title + '》' : '') + (entry.mood ? ' 心情：' + entry.mood : '') + ' 点开看看。';
+  showPhoneNotice({ title, text, characterId: character.id });
+  toast(title);
+  if (!document.hidden) return;
+  let cfg;
+  try { cfg = await getNotificationConfig(); } catch (_) { return; }
+  if (!cfg.enabled) return;
+  let played = false;
+  if (cfg.soundId) played = await playNotificationSound();
+  await sendBrowserNotification(title, {
+    body: text,
+    tag: 'clearcall-diary-' + character.id,
+    silent: played,
+  });
+}
+
+async function writeDiaryNow(characterId, options) {
+  const id = characterId || await getActiveCharacterId();
+  if (!id) { toast('先创建并选择一个角色'); return null; }
+  if (diaryWriting) { toast('上一篇还在写，稍等一下'); return null; }
+  diaryWriting = true;
+  const opt = options || {};
+  if (!opt.silent) toast('正在写日记…');
+  try {
+    const { character, entry } = await generateCharacterDiary(id);
+    if (viewDiary.classList.contains('active') && diaryCharacterId === id) {
+      await refreshDiaryPage(id);
+    }
+    await notifyDiaryWritten(character, entry);
+    return entry;
+  } catch (err) {
+    toast('日记生成失败：' + (err && err.message ? err.message : err));
+    return null;
+  } finally {
+    diaryWriting = false;
+  }
+}
+
+// 定时检查：每个开启定时的角色每天最多一篇，每次最多写 2 篇
+async function runDiarySchedule(options) {
+  const opt = options || {};
+  if (diaryWriting) return { generated: 0, reason: 'busy' };
+  const now = Date.now();
+  if (!opt.force && now - diaryLastCheckAt < 60 * 1000) return { generated: 0, reason: 'throttled' };
+  diaryLastCheckAt = now;
+
+  const { list } = await getCharacters();
+  if (!list.length) return { generated: 0, reason: 'nocharacters' };
+  const api = emailApiConfig();
+  if (!api.baseUrl || !api.apiKey || !api.model) return { generated: 0, reason: 'noapi' };
+
+  const today = diaryDateKey();
+  const nowDate = new Date();
+  const nowMinutes = nowDate.getHours() * 60 + nowDate.getMinutes();
+  const due = [];
+  for (const c of list) {
+    const diary = await getDiary(c.id);
+    if (!diary.enabled || diary.lastWrittenDate === today) continue;
+    const [hh, mm] = diary.time.split(':').map((x) => parseInt(x, 10) || 0);
+    if (nowMinutes < hh * 60 + mm) continue;
+    due.push(c);
+  }
+  if (!due.length) return { generated: 0, reason: 'none' };
+
+  diaryWriting = true;
+  let generated = 0;
+  let firstError = '';
+  try {
+    for (const c of due.slice(0, 2)) {
+      try {
+        const { character, entry } = await generateCharacterDiary(c.id);
+        generated += 1;
+        if (viewDiary.classList.contains('active') && diaryCharacterId === c.id) {
+          await refreshDiaryPage(c.id);
+        }
+        await notifyDiaryWritten(character, entry);
+      } catch (err) {
+        firstError = firstError || (err && err.message ? err.message : String(err));
+      }
+    }
+    return { generated, reason: firstError && !generated ? 'error' : 'ok', error: firstError };
+  } finally {
+    diaryWriting = false;
+  }
+}
+
+function startDiaryScheduler() {
+  if (diarySchedulerTimer) return;
+  runDiarySchedule().catch(() => {});
+  diarySchedulerTimer = setInterval(() => { runDiarySchedule().catch(() => {}); }, 2 * 60 * 1000);
+}
+
+async function saveDiarySettingsFromTool() {
+  const id = await getActiveCharacterId();
+  if (!id) { toast('请先创建角色'); return; }
+  const enabled = $('tool-diary-enabled').checked;
+  const time = $('tool-diary-time').value || '22:00';
+  await updateDiarySettings(id, { enabled, time });
+  toast(enabled ? '已开启：每天 ' + time + ' 写日记' : '已关闭定时日记');
+}
+
+async function writeDiaryNowFromTool() {
+  const id = await getActiveCharacterId();
+  if (!id) { toast('请先创建角色'); return; }
+  closeChatSheet();
+  await writeDiaryNow(id);
+}
+
+async function openDiaryFromTool() {
+  const id = await getActiveCharacterId();
+  closeChatSheet();
+  await openDiary(id);
+}
+
 
 $('tab-select').addEventListener('click', () => setModelMode('select'));
 $('tab-manual').addEventListener('click', () => setModelMode('manual'));
@@ -3312,9 +3545,10 @@ $('btn-test').addEventListener('click', async () => {
 // 角色聊天导航
 $('btn-chat-back').addEventListener('click', () => { closeChatSheet(); showView(viewHome); });
 $('btn-chat-config').addEventListener('click', () => openCharacters('chat'));
-$('btn-chat-style').addEventListener('click', openChatStylePage);
 $('btn-chat-style-back').addEventListener('click', () => showView(viewChat));
 $('btn-chat-style-save').addEventListener('click', saveChatStyle);
+$('btn-diary-back').addEventListener('click', () => showView(viewChat));
+$('btn-diary-write').addEventListener('click', () => writeDiaryNow(diaryCharacterId).catch(() => {}));
 $('chat-style-grid').addEventListener('change', (e) => {
   const input = e.target.closest('input[type="checkbox"]');
   if (!input) return;
@@ -3536,7 +3770,15 @@ $('chat-sheet-body').addEventListener('click', async (e) => {
   }
 
   const tool = e.target.closest('[data-tool]');
-  if (tool) { await openChatSheet(tool.dataset.tool); return; }
+  if (tool) {
+    if (tool.dataset.tool === 'style') {
+      closeChatSheet();
+      await openChatStylePage();
+      return;
+    }
+    await openChatSheet(tool.dataset.tool);
+    return;
+  }
 
   const btn = e.target.closest('button');
   if (!btn) return;
@@ -3551,6 +3793,9 @@ $('chat-sheet-body').addEventListener('click', async (e) => {
   else if (btn.id === 'btn-tool-directive-apply') await applyDirectiveFromTool();
   else if (btn.id === 'btn-tool-mail-now') await sendMailNowFromTool();
   else if (btn.id === 'btn-tool-mail-schedule') await scheduleMailFromTool();
+  else if (btn.id === 'btn-tool-diary-save') await saveDiarySettingsFromTool();
+  else if (btn.id === 'btn-tool-diary-now') await writeDiaryNowFromTool();
+  else if (btn.id === 'btn-tool-diary-open') await openDiaryFromTool();
 });
 
 $('file-chat-image').addEventListener('change', async (e) => {
@@ -3573,6 +3818,30 @@ $('file-sticker-import').addEventListener('change', async (e) => {
   e.target.value = '';
   if (f) await importStickerFile(f);
 });
+
+// 日记：勾选明日计划 / 删除某一篇
+$('diary-body').addEventListener('change', async (e) => {
+  const box = e.target.closest('[data-diary-todo]');
+  if (!box || !diaryCharacterId) return;
+  await toggleDiaryTodo(diaryCharacterId, box.dataset.diaryEntry, box.dataset.diaryTodo);
+  const row = box.closest('.diary-todo');
+  if (row) row.classList.toggle('done', box.checked);
+});
+$('diary-body').addEventListener('click', async (e) => {
+  const del = e.target.closest('[data-diary-del]');
+  if (!del || !diaryCharacterId) return;
+  if (!confirm('删除这篇日记？')) return;
+  await deleteDiaryEntry(diaryCharacterId, del.dataset.diaryDel);
+  await refreshDiaryPage(diaryCharacterId);
+  toast('日记已删除');
+});
+
+$('phone-notice').addEventListener('click', () => {
+  const characterId = $('phone-notice').dataset.characterId;
+  hidePhoneNotice();
+  if (characterId) openDiary(characterId).catch(() => {});
+});
+
 $('input-chat').addEventListener('input', () => {
   if (countdownTick) clearCountdown(); // 新输入重置倒计时
 });
@@ -3665,9 +3934,12 @@ $('chk-keepalive').addEventListener('change', async () => {
     if (ncfg.keepAlive) scheduleKeepAliveRetry(); // 等首次点击后启动静音音频
   } catch (_) {}
   startMailScheduler();
+  startDiaryScheduler();
 })();
 
-// 回到前台时补检查一次邮箱定时任务
+// 回到前台时补检查一次邮箱 / 日记定时任务
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) runEmailSchedule().catch(() => {});
+  if (document.hidden) return;
+  runEmailSchedule().catch(() => {});
+  runDiarySchedule().catch(() => {});
 });

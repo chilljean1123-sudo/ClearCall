@@ -277,6 +277,56 @@ async function requestEmailChat({ baseUrl, apiKey, model, system, user, maxToken
   return directEmailChat(baseUrl, apiKey, model, system, user, maxTokens);
 }
 
+// 日记内容生成（走后端 /api/diary，无后端则直连）
+async function directDiaryChat(baseUrl, apiKey, model, system, user, maxTokens) {
+  const url = directChatUrl(baseUrl);
+  if (!url) return { ok: false, reason: '日记接口地址不能为空', hints: ['先在设置里填写 AI 接口地址'] };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DIRECT_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'system', content: String(system || '') }, { role: 'user', content: String(user || '') }],
+        max_tokens: maxTokens || 2400,
+        temperature: 0.95,
+        stream: false,
+      }),
+      signal: controller.signal,
+    });
+    const text = await res.text();
+    let data = null; try { data = text ? JSON.parse(text) : null; } catch (_) { data = null; }
+    if (res.ok) {
+      const reply = (data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+      return { ok: true, status: res.status, reply };
+    }
+    const errMsg = (data && (data.error && (data.error.message || data.error.code))) || (data && data.message) || text || ('HTTP ' + res.status);
+    return { ok: false, status: res.status, reason: '日记接口返回错误（HTTP ' + res.status + '）', message: String(errMsg).slice(0, 500), hints: ['检查 AI 接口地址、Key、模型名'] };
+  } catch (err) {
+    if (err && err.name === 'AbortError') return { ok: false, reason: '日记请求超时（30 秒未响应）', hints: ['稍后重试或换模型'] };
+    return { ok: false, reason: '日记直连失败（可能被跨域拦截）：' + (err && err.message ? err.message : err), hints: ['建议使用 Vercel 部署，或允许服务商 CORS'] };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function requestDiaryChat({ baseUrl, apiKey, model, system, user, maxTokens }) {
+  try {
+    const res = await fetch('/api/diary', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ baseUrl, apiKey, model, system, user, maxTokens }),
+    });
+    const text = await res.text();
+    if (isBackendResponse(res, text)) {
+      try { return JSON.parse(text); } catch (_) {}
+    }
+  } catch (_) { /* 无后端 */ }
+  return directDiaryChat(baseUrl, apiKey, model, system, user, maxTokens);
+}
+
 async function directReadingChat(baseUrl, apiKey, model, system, user, maxTokens) {
   const url = directChatUrl(baseUrl);
   if (!url) return { ok: false, reason: '阅读接口地址不能为空', hints: ['先在设置里填写 AI 接口地址'] };

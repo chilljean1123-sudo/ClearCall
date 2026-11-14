@@ -16,6 +16,7 @@ const viewForum = $('view-forum');
 const viewChatStyle = $('view-chat-style');
 const viewEmail = $('view-email');
 const viewBooks = $('view-books');
+const viewDiary = $('view-diary');
 
 function showView(view) {
   document.querySelectorAll('.app-view').forEach((el) => el.classList.remove('active'));
@@ -547,6 +548,8 @@ const CHAT_TOOL_TITLES = {
   transfer: '转账',
   directive: '系统指令',
   mail: '发邮件',
+  style: '聊天方式',
+  diary: '日记',
 };
 
 function uiEl(tag, className, text) {
@@ -573,6 +576,8 @@ function renderChatToolMenu(body) {
     ['transfer', '转账'],
     ['directive', '系统指令'],
     ['mail', '邮件'],
+    ['style', '聊天方式'],
+    ['diary', '日记'],
   ].forEach(([tool, label]) => {
     const tile = uiEl('button', 'tool-tile');
     tile.type = 'button';
@@ -582,7 +587,7 @@ function renderChatToolMenu(body) {
     grid.appendChild(tile);
   });
   body.appendChild(grid);
-  body.appendChild(uiEl('div', 'tool-hint', '位置、图片、表情包、转账和邮件会进入对应应用；系统指令不会显示，只影响下一轮回复。'));
+  body.appendChild(uiEl('div', 'tool-hint', '位置、图片、表情包、转账、邮件和日记会进入对应页面；聊天方式按当前角色设置口吻；系统指令不会显示，只影响下一轮回复。'));
 }
 
 function renderLocationTool(body) {
@@ -770,6 +775,50 @@ async function renderMailTool(body) {
   body.appendChild(uiEl('div', 'tool-hint', '邮件会出现在邮箱应用里，内容按角色人设和记忆来写，约 500-1000 字。定时任务在页面打开时检查并送达。'));
 }
 
+async function renderDiaryTool(body) {
+  const characterId = await getActiveCharacterId();
+  if (!characterId) {
+    body.appendChild(uiEl('div', 'tool-hint', '还没有角色。先到角色应用创建一个人设，才能让他写日记。'));
+    return;
+  }
+  const character = await getCharacter(characterId);
+  const diary = await getDiary(characterId);
+  const name = (character && character.name) || '角色';
+
+  const hero = uiEl('div', 'diary-tool-hero');
+  hero.appendChild(uiEl('div', 'diary-tool-hero-title', name + '的日记本'));
+  hero.appendChild(uiEl('div', 'diary-tool-hero-note', '在谁的聊天框打开，就写谁的日记。'));
+  body.appendChild(hero);
+
+  const toggle = uiEl('label', 'diary-tool-toggle');
+  const enabled = document.createElement('input');
+  enabled.type = 'checkbox';
+  enabled.id = 'tool-diary-enabled';
+  enabled.checked = diary.enabled;
+  toggle.appendChild(enabled);
+  toggle.appendChild(uiEl('span', 'diary-tool-toggle-text', '每天定时写一篇'));
+  body.appendChild(toggle);
+
+  const timeField = uiEl('div', 'field');
+  timeField.appendChild(uiEl('span', 'field-label', '每天写日记的时间'));
+  const time = document.createElement('input');
+  time.type = 'time';
+  time.id = 'tool-diary-time';
+  time.value = diary.time;
+  timeField.appendChild(time);
+  body.appendChild(timeField);
+
+  const actions = uiEl('div', 'tool-actions');
+  actions.appendChild(toolActionButton('btn-tool-diary-now', '现在写一篇'));
+  actions.appendChild(toolActionButton('btn-tool-diary-open', '打开日记本', false));
+  body.appendChild(actions);
+
+  const saveRow = uiEl('div', 'tool-actions');
+  saveRow.appendChild(toolActionButton('btn-tool-diary-save', '保存定时', false));
+  body.appendChild(saveRow);
+  body.appendChild(uiEl('div', 'tool-hint', '现在写一篇约 500-800 字，写下今天的感想和明日计划；写完会在小手机上弹出通知，并记入角色记忆。定时任务在页面打开或回到前台时检查。'));
+}
+
 async function renderChatSheet(view) {
   const key = CHAT_TOOL_TITLES[view] ? view : 'menu';
   $('chat-sheet-title').textContent = CHAT_TOOL_TITLES[key];
@@ -781,6 +830,7 @@ async function renderChatSheet(view) {
   else if (key === 'transfer') renderTransferTool(body);
   else if (key === 'directive') await renderDirectiveTool(body);
   else if (key === 'mail') await renderMailTool(body);
+  else if (key === 'diary') await renderDiaryTool(body);
   else renderChatToolMenu(body);
 }
 
@@ -819,6 +869,94 @@ function collectChatStyleOptions() {
 function updateChatStylePreview() {
   const prompt = buildChatStylePrompt({ options: collectChatStyleOptions() });
   $('chat-style-preview').textContent = prompt || '未选择时不会额外注入，角色按原人设说话。';
+}
+
+// ===== 日记（iOS 备忘录风格） =====
+function diaryEntryDateText(entry) {
+  const raw = (entry && entry.date) || '';
+  const d = new Date(raw + 'T00:00:00');
+  if (Number.isNaN(d.getTime())) return raw;
+  const week = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+  return (d.getMonth() + 1) + '月' + d.getDate() + '日 · ' + week[d.getDay()];
+}
+
+function diaryNoteCard(entry) {
+  const card = uiEl('article', 'diary-note');
+  const head = uiEl('div', 'diary-note-head');
+  head.appendChild(uiEl('span', 'diary-note-date', diaryEntryDateText(entry)));
+  if (entry.mood) head.appendChild(uiEl('span', 'diary-note-mood', entry.mood));
+  card.appendChild(head);
+
+  card.appendChild(uiEl('h2', 'diary-note-title', entry.title || '没有标题的一天'));
+  if (entry.body) card.appendChild(uiEl('div', 'diary-note-text', entry.body));
+
+  if (entry.todos && entry.todos.length) {
+    const section = uiEl('div', 'diary-todo-section');
+    const sectionHead = uiEl('div', 'diary-todo-head');
+    sectionHead.appendChild(uiEl('span', 'diary-todo-head-icon'));
+    sectionHead.appendChild(uiEl('span', '', '明日计划'));
+    section.appendChild(sectionHead);
+    entry.todos.forEach((todo) => {
+      const row = uiEl('label', 'diary-todo' + (todo.done ? ' done' : ''));
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = !!todo.done;
+      input.dataset.diaryTodo = todo.id;
+      input.dataset.diaryEntry = entry.id;
+      row.appendChild(input);
+      row.appendChild(uiEl('span', 'diary-todo-text', todo.text));
+      section.appendChild(row);
+    });
+    card.appendChild(section);
+  }
+
+  const foot = uiEl('div', 'diary-note-foot');
+  const del = uiEl('button', 'diary-note-del', '删除');
+  del.type = 'button';
+  del.dataset.diaryDel = entry.id;
+  foot.appendChild(del);
+  card.appendChild(foot);
+  return card;
+}
+
+function renderDiaryPage(character, diary) {
+  const name = (character && character.name) || '角色';
+  $('diary-title').textContent = name + '的日记';
+  const body = $('diary-body');
+  body.innerHTML = '';
+  if (!diary || !diary.entries.length) {
+    const empty = uiEl('div', 'diary-empty');
+    empty.appendChild(uiEl('div', 'diary-empty-title', '还没有日记'));
+    empty.appendChild(uiEl('div', 'diary-empty-text', '让 ' + name + ' 现在写一篇，这里就会多一页备忘录。'));
+    body.appendChild(empty);
+    return;
+  }
+  diary.entries.forEach((entry) => body.appendChild(diaryNoteCard(entry)));
+}
+
+// 小手机内的通知横幅（写日记等应用完成时提示）
+let phoneNoticeTimer = null;
+
+function showPhoneNotice(options) {
+  const box = $('phone-notice');
+  if (!box) return;
+  const opt = options || {};
+  $('phone-notice-title').textContent = opt.title || '通知';
+  $('phone-notice-text').textContent = opt.text || '';
+  box.dataset.characterId = opt.characterId || '';
+  box.hidden = false;
+  box.classList.remove('show');
+  void box.offsetWidth;
+  box.classList.add('show');
+  clearTimeout(phoneNoticeTimer);
+  phoneNoticeTimer = setTimeout(() => { box.hidden = true; }, 5200);
+}
+
+function hidePhoneNotice() {
+  const box = $('phone-notice');
+  if (!box) return;
+  clearTimeout(phoneNoticeTimer);
+  box.hidden = true;
 }
 
 function updateToolLocationPreview(name) {

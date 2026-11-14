@@ -90,6 +90,22 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // 日记内容生成接口（角色日记，输出标题 / 正文 / 明日计划 JSON）
+  if (req.method === 'POST' && url.pathname === '/api/diary') {
+    const payload = await ai.readJsonBody(req, 5e6);
+    const result = await ai.diaryChat({
+      baseUrl: payload.baseUrl,
+      apiKey: payload.apiKey,
+      model: payload.model,
+      system: payload.system,
+      user: payload.user,
+      maxTokens: payload.maxTokens,
+    });
+    console.log('[api/diary]', result.ok ? 'success' : 'failed', result.reason || '');
+    ai.sendJson(res, result);
+    return;
+  }
+
   // 阅读讨论接口（角色陪读 + 批注动作尾注）
   if (req.method === 'POST' && url.pathname === '/api/reading') {
     const payload = await ai.readJsonBody(req, 5e6);

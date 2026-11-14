@@ -205,6 +205,8 @@ const DOC_EMAIL = 'email';             // 邮箱：角色来信 / 已发送 / �
 const DOC_BOOKS = 'books';             // 小说书架：书目列表 / 当前书 / 阅读进度
 const DOC_BOOK_PREFIX = 'book:';       // 单本书内容：章节正文 / 批注
 const DOC_BOOK_CHAT_PREFIX = 'bookChat:'; // 单本书的阅读讨论，按角色分仓
+const DOC_DIARY_PREFIX = 'diary:';     // 角色日记：按角色分仓
+const DEFAULT_DIARY_TIME = '22:00';    // 默认每天写日记的时间
 const LEGACY_CHARACTER_ID = 'character';
 
 let _dbPromise = null;
@@ -1132,6 +1134,115 @@ async function applyBooksBackup(data) {
   await putDoc({ id: DOC_BOOKS, list, activeId });
 }
 
+// ---------- 日记（IndexedDB，按角色分仓） ----------
+// 每个角色一本日记：{ enabled, time, lastWrittenDate, entries: [{ date, title, mood, body, todos }] }
+function diaryDocId(characterId) { return DOC_DIARY_PREFIX + characterId; }
+
+function diaryDateKey(input) {
+  const d = input instanceof Date ? input : new Date(input || Date.now());
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function normalizeDiaryTime(value) {
+  const t = String(value || '').trim();
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(t) ? t : DEFAULT_DIARY_TIME;
+}
+
+function normalizeDiaryTodo(raw) {
+  if (raw && typeof raw === 'object') {
+    const text = String(raw.text || '').trim();
+    if (!text) return null;
+    return { id: raw.id || genId(), text, done: !!raw.done };
+  }
+  const text = String(raw || '').trim();
+  return text ? { id: genId(), text, done: false } : null;
+}
+
+function normalizeDiaryEntry(raw) {
+  if (!raw) return null;
+  const title = String(raw.title || '').trim();
+  const body = String(raw.body || '').trim();
+  if (!title && !body) return null;
+  return {
+    id: raw.id || genId(),
+    date: /^\d{4}-\d{2}-\d{2}$/.test(String(raw.date || '')) ? String(raw.date) : diaryDateKey(),
+    title: title || '没有标题的一天',
+    mood: String(raw.mood || '').trim(),
+    body,
+    todos: (Array.isArray(raw.todos) ? raw.todos : []).map(normalizeDiaryTodo).filter(Boolean),
+    createdAt: Number(raw.createdAt) || Date.now(),
+  };
+}
+
+function normalizeDiaryDoc(doc) {
+  const d = doc || {};
+  return {
+    enabled: !!d.enabled,
+    time: normalizeDiaryTime(d.time),
+    lastWrittenDate: String(d.lastWrittenDate || '').slice(0, 10),
+    entries: (Array.isArray(d.entries) ? d.entries : [])
+      .map(normalizeDiaryEntry)
+      .filter(Boolean)
+      .sort((a, b) => b.createdAt - a.createdAt),
+  };
+}
+
+async function getDiary(characterId) {
+  const id = characterId || await getActiveCharacterId();
+  if (!id) return normalizeDiaryDoc(null);
+  return normalizeDiaryDoc(await getDoc(diaryDocId(id)));
+}
+
+function mutateDiary(characterId, mutator) {
+  if (!characterId) return Promise.reject(new Error('请先创建角色'));
+  return mutateDoc(diaryDocId(characterId), (doc) => {
+    const base = normalizeDiaryDoc(doc);
+    doc.enabled = base.enabled;
+    doc.time = base.time;
+    doc.lastWrittenDate = base.lastWrittenDate;
+    doc.entries = base.entries;
+    mutator(doc);
+    doc.entries = (Array.isArray(doc.entries) ? doc.entries : [])
+      .map(normalizeDiaryEntry)
+      .filter(Boolean)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, 200);
+  });
+}
+
+async function updateDiarySettings(characterId, patch) {
+  await mutateDiary(characterId, (doc) => {
+    if (patch.enabled !== undefined) doc.enabled = !!patch.enabled;
+    if (patch.time !== undefined) doc.time = normalizeDiaryTime(patch.time);
+    if (patch.lastWrittenDate !== undefined) doc.lastWrittenDate = String(patch.lastWrittenDate || '').slice(0, 10);
+  });
+}
+
+async function addDiaryEntry(characterId, entry) {
+  const record = normalizeDiaryEntry(entry);
+  if (!record) throw new Error('日记内容为空');
+  await mutateDiary(characterId, (doc) => {
+    doc.entries.unshift(record);
+    doc.lastWrittenDate = record.date;
+  });
+  return record;
+}
+
+async function deleteDiaryEntry(characterId, entryId) {
+  await mutateDiary(characterId, (doc) => {
+    doc.entries = doc.entries.filter((e) => e.id !== entryId);
+  });
+}
+
+async function toggleDiaryTodo(characterId, entryId, todoId) {
+  await mutateDiary(characterId, (doc) => {
+    const entry = doc.entries.find((e) => e.id === entryId);
+    if (!entry) return;
+    const todo = (entry.todos || []).find((t) => t.id === todoId);
+    if (todo) todo.done = !todo.done;
+  });
+}
+
 // 在一个事务里完成「读-改-写」，避免并发写丢字段
 function mutateDoc(id, mutator) {
   return new Promise((resolve, reject) => {
@@ -1386,6 +1497,7 @@ async function deleteCharacter(id) {
   try { await deleteDoc(chatDocId(id)); } catch (_) {}
   try { await deleteDoc(memoryDocId(id)); } catch (_) {}
   try { await deleteDoc(stickerDocId(id)); } catch (_) {}
+  try { await deleteDoc(diaryDocId(id)); } catch (_) {}
 
   // 论坛里解绑该角色；已发布的帖子保留作者名快照，避免内容凭空消失
   try {
@@ -1704,6 +1816,7 @@ async function buildBackup() {
   const directives = {};
   const stickers = {};
   const memories = {};
+  const diaries = {};
 
   for (const c of list) {
     const chatDoc = (await getDoc(chatDocId(c.id))) || {};
@@ -1723,6 +1836,7 @@ async function buildBackup() {
       avatarId: c.avatarId || null,
       voice: c.voice,
       image: c.image,
+      chatStyle: c.chatStyle,
       createdAt: c.createdAt,
       updatedAt: c.updatedAt,
     });
@@ -1730,6 +1844,7 @@ async function buildBackup() {
     chats[c.id] = messages;
     directives[c.id] = chatDoc.directive || '';
     stickers[c.id] = await getStickers(c.id);
+    diaries[c.id] = await getDiary(c.id);
     const memDoc = (await getDoc(memoryDocId(c.id))) || {};
     memories[c.id] = {
       entries: Array.isArray(memDoc.entries) ? memDoc.entries : [],
@@ -1776,6 +1891,7 @@ async function buildBackup() {
     directives,
     stickers,
     memories,
+    diaries,
     worldbook: {
       entries: Array.isArray(wbDoc.entries) ? wbDoc.entries : [],
     },
@@ -1799,6 +1915,7 @@ async function applyBackup(data) {
   let memories;
   let directives = {};
   let stickers = {};
+  const diaries = data.diaries || {};
   if (Array.isArray(data.characters)) {
     characters = data.characters.map((c) => normalizeCharacter(c)).filter(Boolean);
     activeId = data.activeId || (characters[0] && characters[0].id) || null;
@@ -1882,6 +1999,14 @@ async function applyBackup(data) {
       id: memoryDocId(c.id),
       entries: Array.isArray(mem.entries) ? mem.entries : [],
       lastSummarizedCount: mem.lastSummarizedCount || 0,
+    });
+    const diary = normalizeDiaryDoc(diaries[c.id]);
+    await putDoc({
+      id: diaryDocId(c.id),
+      enabled: diary.enabled,
+      time: diary.time,
+      lastWrittenDate: diary.lastWrittenDate,
+      entries: diary.entries,
     });
   }
 

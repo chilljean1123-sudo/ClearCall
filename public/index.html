@@ -17,6 +17,15 @@
         </span>
       </div>
 
+      <!-- 小手机通知横幅 -->
+      <div class="phone-notice" id="phone-notice" hidden>
+        <span class="phone-notice-icon" aria-hidden="true"></span>
+        <span class="phone-notice-main">
+          <span class="phone-notice-title" id="phone-notice-title">日记</span>
+          <span class="phone-notice-text" id="phone-notice-text"></span>
+        </span>
+      </div>
+
       <!-- 主屏幕 -->
       <div class="app-view active" id="view-home">
         <div class="wallpaper home-clock">
@@ -661,9 +670,6 @@
           <button class="back-btn" id="btn-chat-back" type="button">返回</button>
           <span class="app-title" id="chat-title">角色聊天</span>
           <div class="chat-head-actions">
-            <button class="chat-style-entry" id="btn-chat-style" type="button" aria-label="聊天方式" title="聊天方式">
-              <span class="chat-style-entry-icon"></span>
-            </button>
             <button class="chat-config-btn" id="btn-chat-config" type="button">切换</button>
           </div>
         </header>
@@ -724,6 +730,16 @@
         <div class="chat-style-footer">
           <button class="fetch-btn" id="btn-chat-style-save" type="button">保存聊天方式</button>
         </div>
+      </div>
+
+      <!-- 日记 -->
+      <div class="app-view" id="view-diary">
+        <header class="app-header diary-header">
+          <button class="back-btn" id="btn-diary-back" type="button">返回</button>
+          <span class="app-title" id="diary-title">日记</span>
+          <button class="diary-write-btn" id="btn-diary-write" type="button">写一篇</button>
+        </header>
+        <div class="diary-body" id="diary-body"></div>
       </div>
 
       <!-- 电话：选择角色 -->
