@@ -504,29 +504,21 @@ body {
 }
 .chat-send-btn:disabled { opacity: 0.5; cursor: default; }
 
-/* ===== 待发送队列条 ===== */
-.queue-bar {
+/* ===== 生成回复按钮（悬浮在输入框上方） ===== */
+.generate-btn {
   flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 8px 12px;
-  border-top: 1px solid var(--card-border);
-  background: rgba(79, 140, 255, 0.06);
-}
-.queue-info { font-size: 12px; color: var(--muted); }
-.batch-send-btn {
-  flex: 0 0 auto;
+  align-self: center;
   background: var(--accent);
   color: #fff;
   border: none;
-  border-radius: 14px;
-  padding: 5px 14px;
-  font-size: 12px;
+  border-radius: 16px;
+  padding: 7px 16px;
+  font-size: 13px;
   cursor: pointer;
+  margin: 8px 0 2px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
 }
-.batch-send-btn:disabled { opacity: 0.5; cursor: default; }
+.generate-btn:disabled { opacity: 0.5; cursor: default; }
 
 /* ===== 回复触发模式设置 ===== */
 .divider { height: 1px; background: var(--card-border); margin: 18px 0; }

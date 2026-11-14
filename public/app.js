@@ -456,8 +456,7 @@ function renderChat() {
 
 function setChatSending(sending) {
   chatSending = sending;
-  // 请求锁：只锁「批量发送」；输入框和「发送」仍可用，便于继续排队
-  $('btn-batch-send').disabled = sending;
+  updateGenerateButton();
 }
 
 function appendTyping() {
@@ -561,17 +560,12 @@ function getPending() {
   return h.slice(i + 1);
 }
 
-function updateQueueBar() {
-  const bar = $('queue-bar');
-  const n = getPending().length;
-  if (n === 0) {
-    bar.hidden = true;
-    return;
-  }
-  bar.hidden = false;
-  let txt = n + ' 条消息待回复';
-  if (countdownTick) txt += ' · ' + countdownSecRemain + ' 秒后自动发送';
-  $('queue-count').textContent = txt;
+function updateGenerateButton() {
+  const btn = $('btn-batch-send');
+  const m = getTriggerModes();
+  const show = m.batch && !isInstantMode() && getPending().length > 0 && !chatSending;
+  btn.hidden = !show;
+  btn.disabled = chatSending;
 }
 
 function clearCountdown() {
@@ -583,14 +577,11 @@ function startCountdown() {
   const m = getTriggerModes();
   clearCountdown();
   countdownSecRemain = m.countdownSec;
-  updateQueueBar();
   countdownTick = setInterval(() => {
     countdownSecRemain -= 1;
     if (countdownSecRemain <= 0) {
       clearCountdown();
       flushQueue();
-    } else {
-      updateQueueBar();
     }
   }, 1000);
 }
@@ -608,10 +599,10 @@ function maybeStartCountdown() {
 }
 
 function afterFlush() {
-  if (getPending().length === 0) { updateQueueBar(); return; }
+  if (getPending().length === 0) { updateGenerateButton(); return; }
   if (isInstantMode()) flushQueue();
   else if (getTriggerModes().countdown) maybeStartCountdown();
-  else updateQueueBar(); // 等手动「生成回复」
+  else updateGenerateButton(); // 等手动「生成回复」
 }
 
 // 提交：消息立刻上屏，并按模式决定何时请求 AI
@@ -624,7 +615,7 @@ function submitMessage(text) {
   setHistory(history);
   renderChat();
   $('input-chat').value = '';
-  updateQueueBar();
+  updateGenerateButton();
 
   if (isInstantMode()) {
     flushQueue();
@@ -765,7 +756,7 @@ $('input-chat').addEventListener('keydown', (e) => {
 });
 $('btn-batch-send').addEventListener('click', () => flushQueue());
 $('input-chat').addEventListener('input', () => {
-  if (countdownTick) { clearCountdown(); updateQueueBar(); } // 新输入重置倒计时
+  if (countdownTick) clearCountdown(); // 新输入重置倒计时
 });
 $('input-chat').addEventListener('blur', () => maybeStartCountdown());
 
