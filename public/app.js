@@ -10,6 +10,7 @@ const KEYS = {
 const viewHome = $('view-home');
 const viewSettings = $('view-settings');
 const viewChat = $('view-chat');
+const viewCharSettings = $('view-char-settings');
 
 function showView(view) {
   document.querySelectorAll('.app-view').forEach((el) => el.classList.remove('active'));
@@ -368,8 +369,12 @@ function saveCharConfig() {
 function openChat() {
   loadCharConfig();
   renderChat();
-  $('chat-config').hidden = true;
   showView(viewChat);
+}
+
+function openCharSettings() {
+  loadCharConfig();
+  showView(viewCharSettings);
 }
 
 function scrollChatToBottom() {
@@ -592,10 +597,8 @@ function fileToAvatar(file) {
 }
 
 $('btn-chat-back').addEventListener('click', () => showView(viewHome));
-$('btn-chat-config').addEventListener('click', () => {
-  const el = $('chat-config');
-  el.hidden = !el.hidden;
-});
+$('btn-chat-config').addEventListener('click', openCharSettings);
+$('btn-char-settings-back').addEventListener('click', () => showView(viewChat));
 $('input-char-name').addEventListener('input', saveCharConfig);
 $('input-char-persona').addEventListener('input', saveCharConfig);
 $('btn-upload-avatar').addEventListener('click', () => $('file-avatar').click());

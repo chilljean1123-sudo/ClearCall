@@ -111,7 +111,23 @@
           <button class="chat-config-btn" id="btn-chat-config" type="button">角色</button>
         </header>
 
-        <div class="chat-config" id="chat-config" hidden>
+        <div class="chat-messages" id="chat-messages"></div>
+
+        <div class="chat-inputbar">
+          <input id="input-chat" type="text" placeholder="输入消息…" autocomplete="off" />
+          <button type="button" class="chat-send-btn" id="btn-chat-send">发送</button>
+        </div>
+      </div>
+
+      <!-- 角色设置 -->
+      <div class="app-view" id="view-char-settings">
+        <header class="app-header">
+          <button class="back-btn" id="btn-char-settings-back" type="button">返回</button>
+          <span class="app-title">角色设置</span>
+          <span class="app-header-spacer"></span>
+        </header>
+
+        <div class="settings-body">
           <div class="field">
             <span class="field-label">角色名字</span>
             <input id="input-char-name" type="text" placeholder="例如：小助手" autocomplete="off" />
@@ -127,15 +143,8 @@
           </div>
           <div class="field">
             <span class="field-label">人设</span>
-            <textarea id="input-char-persona" rows="3" placeholder="例如：你是一个温柔耐心的助手，用中文回复…"></textarea>
+            <textarea id="input-char-persona" rows="5" placeholder="例如：你是一个温柔耐心的助手，用中文回复…"></textarea>
           </div>
-        </div>
-
-        <div class="chat-messages" id="chat-messages"></div>
-
-        <div class="chat-inputbar">
-          <input id="input-chat" type="text" placeholder="输入消息…" autocomplete="off" />
-          <button type="button" class="chat-send-btn" id="btn-chat-send">发送</button>
         </div>
       </div>
     </div>

@@ -371,15 +371,6 @@ body {
   cursor: pointer;
 }
 
-.chat-config {
-  flex: 0 0 auto;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--card-border);
-  background: rgba(255, 255, 255, 0.02);
-  overflow-y: auto;
-  max-height: 46%;
-}
-
 .field textarea {
   width: 100%;
   background: var(--card);
