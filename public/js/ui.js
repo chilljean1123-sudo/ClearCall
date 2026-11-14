@@ -295,6 +295,39 @@ function renderUserAttachment(m, ctx) {
   return row;
 }
 
+function appendAssistantBubble(stack, text) {
+  const value = String(text || '').trim();
+  if (!value) return;
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble assistant-bubble';
+  bubble.textContent = value;
+  stack.appendChild(bubble);
+}
+
+function appendAssistantSticker(stack, sticker) {
+  const img = document.createElement('img');
+  img.className = 'sticker-img';
+  img.src = sticker.url;
+  img.alt = sticker.name || '表情包';
+  stack.appendChild(img);
+}
+
+// 表情包标记可能和正文混在同一回复里，不能按整段文本匹配。
+function renderAssistantPart(stack, part, ctx) {
+  const source = String(part || '');
+  const marker = /\[\[sticker:([^\]\r\n]*)\]\]/gi;
+  let cursor = 0;
+  let match;
+  while ((match = marker.exec(source))) {
+    appendAssistantBubble(stack, source.slice(cursor, match.index));
+    const sticker = findSticker(ctx && ctx.stickers, match[1]);
+    if (sticker) appendAssistantSticker(stack, sticker);
+    else appendAssistantBubble(stack, '[表情包]');
+    cursor = marker.lastIndex;
+  }
+  appendAssistantBubble(stack, source.slice(cursor));
+}
+
 function renderMessage(m, index, avatar, name, ctx) {
   if (m.role === 'user') {
     if (m.kind && m.kind !== 'text') return renderUserAttachment(m, ctx || {});
@@ -331,22 +364,7 @@ function renderMessage(m, index, avatar, name, ctx) {
     stack.appendChild(retry);
   } else {
     const parts = splitReplyIntoBubbles(m.content);
-    parts.forEach((part) => {
-      const mm = /^\[\[sticker:(.+?)\]\]$/.exec(part.trim());
-      const sticker = mm ? findSticker(ctx && ctx.stickers, mm[1]) : null;
-      if (sticker) {
-        const img = document.createElement('img');
-        img.className = 'sticker-img';
-        img.src = sticker.url;
-        img.alt = sticker.name;
-        stack.appendChild(img);
-        return;
-      }
-      const bubble = document.createElement('div');
-      bubble.className = 'msg-bubble assistant-bubble';
-      bubble.textContent = mm ? '[表情包]' : part;
-      stack.appendChild(bubble);
-    });
+    parts.forEach((part) => renderAssistantPart(stack, part, ctx));
   }
 
   if (ctx && ctx.call && ctx.voiceEnabled && !m.error) {

@@ -830,7 +830,8 @@ async function currentChatPayload(message, priorHistory, characterId) {
 function buildStickerPersonaInstruction(stickers) {
   const names = stickers.slice(0, 50).map((s) => s.name).join('、');
   return '【表情包】你可以在回复中发送表情包。需要发送时，单独输出一行 [[sticker:名称]]，' +
-    '名称必须是以下之一：' + names + '。不要解释这个标记，也不要编造列表之外的名称。';
+    '名称必须是以下之一：' + names + '。这是客户端内部标记，不是给用户看的文字；' +
+    '不要输出 id、URL、Markdown、HTML 或其他代码，不要解释标记，也不要编造列表之外的名称。';
 }
 
 // ---- 聊天方式：按角色配置口吻并注入提示词 ----
