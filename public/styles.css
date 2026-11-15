@@ -768,21 +768,47 @@ body.statusbar-off .statusbar { visibility: hidden; }
 /* ===== 聊天输入栏左侧「+」 ===== */
 .chat-plus-btn {
   flex: 0 0 auto;
-  width: 38px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
-  border: 1px solid var(--card-border);
-  background: var(--card);
-  color: var(--text);
-  font-size: 22px;
-  line-height: 1;
+  border: none;
+  background:
+    radial-gradient(circle at 32% 28%, rgba(79, 140, 255, 0.38), rgba(79, 140, 255, 0.10) 70%);
+  color: var(--accent);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0;
+  box-shadow:
+    inset 0 0 0 1px rgba(79, 140, 255, 0.35),
+    0 4px 14px rgba(0, 0, 0, 0.28);
+  transition: transform 0.25s cubic-bezier(0.2, 0.9, 0.3, 1), background 0.25s, color 0.25s, box-shadow 0.25s;
 }
-.chat-plus-btn:active { background: rgba(79, 140, 255, 0.18); }
+.chat-plus-btn:active { transform: scale(0.92); }
+.chat-plus-btn[aria-expanded="true"] {
+  transform: rotate(135deg);
+  background: var(--accent);
+  color: #fff;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.3),
+    0 0 18px rgba(79, 140, 255, 0.55);
+}
+.chat-plus-glyph {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+.chat-plus-glyph::before,
+.chat-plus-glyph::after {
+  content: '';
+  position: absolute;
+  background: currentColor;
+  border-radius: 2px;
+}
+.chat-plus-glyph::before { left: 7px; top: 0; width: 2px; height: 16px; }
+.chat-plus-glyph::after { left: 0; top: 7px; width: 16px; height: 2px; }
 
 /* ===== 系统指令提示条 ===== */
 .directive-chip {
@@ -820,30 +846,46 @@ body.statusbar-off .statusbar { visibility: hidden; }
 /* ===== 聊天功能抽屉 ===== */
 .chat-sheet { position: absolute; inset: 0; z-index: 20; display: flex; }
 .chat-sheet[hidden] { display: none; }
-.chat-sheet-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.5); }
+.chat-sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  animation: sheetBackdropIn 0.22s ease both;
+}
 .chat-sheet-panel {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
   max-height: 84%;
-  background: var(--screen-bg);
-  border-top: 1px solid var(--card-border);
-  border-radius: 18px 18px 0 0;
+  background: linear-gradient(180deg, rgba(30, 35, 46, 0.98), var(--screen-bg));
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 24px 24px 0 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 -16px 40px rgba(0, 0, 0, 0.45);
+  animation: sheetPanelUp 0.3s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+.chat-sheet-handle {
+  width: 38px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.2);
+  margin: 8px auto 2px;
+  flex: 0 0 auto;
 }
 .chat-sheet-head {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--card-border);
+  padding: 10px 16px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
-.chat-sheet-title { font-size: 14px; font-weight: 600; }
+.chat-sheet-title { font-size: 15px; font-weight: 600; letter-spacing: 0.2px; }
 .chat-sheet-close {
   background: none;
   border: none;
@@ -852,37 +894,53 @@ body.statusbar-off .statusbar { visibility: hidden; }
   cursor: pointer;
   padding: 2px 0;
 }
-.chat-sheet-body { flex: 1 1 auto; overflow-y: auto; padding: 14px; }
+.chat-sheet-body { flex: 1 1 auto; overflow-y: auto; padding: 16px; }
 .chat-sheet-body .wb-input, .chat-sheet-body .wb-textarea { margin-bottom: 8px; }
 .chat-sheet-body .mini-map { margin-bottom: 10px; }
 
+@keyframes sheetBackdropIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes sheetPanelUp {
+  from { opacity: 0; transform: translateY(40px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /* 工具菜单 */
-.tool-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.tool-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .tool-tile {
-  background: var(--card);
-  border: 1px solid var(--card-border);
-  border-radius: 12px;
-  padding: 13px 6px 11px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.015));
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 16px;
+  padding: 14px 8px 12px;
   color: var(--text);
   cursor: pointer;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   font-size: 12px;
+  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
 }
-.tool-tile:active { border-color: var(--accent); }
+.tool-tile:active {
+  transform: scale(0.95);
+  border-color: rgba(79, 140, 255, 0.55);
+  background: rgba(79, 140, 255, 0.12);
+}
 .tool-tile-glyph {
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  background: rgba(79, 140, 255, 0.16);
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 30% 25%, rgba(79, 140, 255, 0.34), rgba(79, 140, 255, 0.10) 72%);
   color: var(--accent);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 0;
   position: relative;
+  box-shadow: inset 0 0 0 1px rgba(79, 140, 255, 0.22);
 }
 .tool-icon-location::before {
   content: '';
@@ -1281,38 +1339,69 @@ body.statusbar-off .statusbar { visibility: hidden; }
 }
 .countdown-row input:focus { border-color: var(--accent); }
 
-/* ===== 角色应用 ===== */
-.characters-body { flex: 1 1 auto; overflow-y: auto; padding: 14px 14px 24px; }
+/* ===== 通讯录 ===== */
+.contacts-pane { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.contacts-pane[hidden] { display: none; }
+.characters-body { flex: 1 1 auto; overflow-y: auto; padding: 12px 14px 18px; }
 .characters-body > .fetch-btn { width: 100%; padding: 10px 0; text-align: center; }
 .char-list { display: flex; flex-direction: column; gap: 10px; }
+
+/* 分组列表：仿系统通讯录的整块卡片 + 分隔线 */
+#character-list,
+#user-profile-list {
+  gap: 0;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+#character-list .char-item,
+#user-profile-list .char-item {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 11px 13px;
+  align-items: center;
+}
+#character-list .char-item + .char-item,
+#user-profile-list .char-item + .char-item {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+#character-list .char-item.active,
+#user-profile-list .char-item.active { background: rgba(79, 140, 255, 0.1); }
+#character-list .memory-empty,
+#user-profile-list .memory-empty { padding: 24px 14px; }
+
 .char-item {
   display: flex;
-  gap: 10px;
+  gap: 11px;
   background: var(--card);
   border: 1px solid var(--card-border);
   border-radius: 12px;
   padding: 11px 12px;
   cursor: pointer;
 }
-.char-item.active { border-color: var(--accent); background: rgba(79, 140, 255, 0.08); }
 .char-avatar {
-  width: 46px;
-  height: 46px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
-  background: var(--card);
-  border: 1px solid var(--card-border);
+  background:
+    radial-gradient(circle at 32% 26%, rgba(79, 140, 255, 0.32), rgba(79, 140, 255, 0.08));
+  border: 1px solid rgba(79, 140, 255, 0.22);
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
   flex: 0 0 auto;
-  font-size: 18px;
+  font-size: 17px;
+  font-weight: 600;
   color: var(--accent);
 }
+.char-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .char-info { flex: 1 1 auto; min-width: 0; }
 .char-name-row { display: flex; align-items: center; gap: 6px; }
 .char-name {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1325,6 +1414,14 @@ body.statusbar-off .statusbar { visibility: hidden; }
   border-radius: 6px;
   padding: 1px 6px;
   flex: 0 0 auto;
+}
+.char-remark {
+  font-size: 12px;
+  color: var(--accent);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .char-persona {
   font-size: 12px;
@@ -1341,22 +1438,85 @@ body.statusbar-off .statusbar { visibility: hidden; }
 .char-actions { display: flex; gap: 12px; margin-top: 7px; }
 .characters-body .avatar-row .fetch-btn { padding: 8px 10px; }
 
-/* 通讯录：「我」的名片 */
-button.char-item { font: inherit; color: inherit; text-align: left; width: 100%; }
-.my-card { align-items: center; margin-bottom: 10px; }
-.my-card .char-avatar {
-  font-size: 16px;
-  color: var(--accent);
-  background: rgba(79, 140, 255, 0.12);
-  border-color: transparent;
-}
-.my-card .char-name { display: block; }
-.char-chevron {
+/* 底部「角色 / 我的」切换 */
+.contacts-tabs {
   flex: 0 0 auto;
-  align-self: center;
+  display: flex;
+  gap: 6px;
+  padding: 6px 10px calc(6px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--card-border);
+  background: rgba(18, 20, 26, 0.94);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+.contacts-tab {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 5px 0 4px;
+  background: none;
+  border: none;
+  border-radius: 12px;
   color: var(--muted);
-  font-size: 20px;
-  line-height: 1;
+  font-size: 11px;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+.contacts-tab.active { color: var(--accent); }
+.contacts-tab-icon {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  border-radius: 9px;
+  transition: background 0.2s ease;
+}
+.contacts-tab.active .contacts-tab-icon { background: rgba(79, 140, 255, 0.16); }
+.icon-contacts::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 4px;
+  width: 14px;
+  height: 18px;
+  border: 2px solid currentColor;
+  border-radius: 3px;
+  box-sizing: border-box;
+}
+.icon-contacts::after {
+  content: '';
+  position: absolute;
+  left: 9px;
+  top: 8px;
+  width: 6px;
+  height: 2px;
+  background: currentColor;
+  border-radius: 1px;
+  box-shadow: 0 4px 0 currentColor, 0 8px 0 currentColor;
+}
+.icon-me::before {
+  content: '';
+  position: absolute;
+  left: 9px;
+  top: 4px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+.icon-me::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  bottom: 3px;
+  width: 16px;
+  height: 9px;
+  border: 2px solid currentColor;
+  border-bottom: none;
+  border-radius: 9px 9px 0 0;
+  box-sizing: border-box;
 }
 
 /* ===== 世界书 ===== */
@@ -3047,3 +3207,111 @@ button.char-item { font: inherit; color: inherit; text-align: left; width: 100%;
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 #tool-diary-time { color-scheme: dark; }
+
+/* ===== 聊天室切换角色过场 ===== */
+.char-switch-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(79, 140, 255, 0.16), transparent 55%),
+    rgba(8, 10, 15, 0.92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  overflow: hidden;
+}
+.char-switch-overlay[hidden] { display: none; }
+.char-switch-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 0 24px;
+  opacity: 0;
+}
+.char-switch-overlay.play .char-switch-stage { animation: charSwitchStageIn 0.5s cubic-bezier(0.2, 0.9, 0.3, 1) both; }
+
+.char-switch-ring {
+  position: relative;
+  width: 132px;
+  height: 132px;
+  border-radius: 50%;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(79, 140, 255, 0.08);
+  box-shadow:
+    0 0 0 1px rgba(79, 140, 255, 0.28),
+    0 0 26px rgba(79, 140, 255, 0.28);
+}
+.char-switch-ring::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent 0 62%, rgba(79, 140, 255, 0.9) 78%, rgba(147, 197, 255, 0.95) 88%, transparent 100%);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+  opacity: 0;
+}
+.char-switch-overlay.play .char-switch-ring::before {
+  opacity: 1;
+  animation: charSwitchRingSpin 1.1s linear infinite;
+}
+.char-switch-overlay.play .char-switch-ring { animation: charSwitchGlow 1.4s ease-in-out infinite; }
+
+.char-switch-avatar {
+  width: 118px;
+  height: 118px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 32% 26%, rgba(79, 140, 255, 0.34), rgba(20, 24, 33, 0.95));
+  color: #eaf1ff;
+  font-size: 42px;
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+.char-switch-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.char-switch-name {
+  margin-top: 20px;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #f3f6fc;
+  opacity: 0;
+}
+.char-switch-overlay.play .char-switch-name { animation: charSwitchTextIn 0.45s 0.16s ease both; }
+.char-switch-remark {
+  margin-top: 8px;
+  font-size: 12px;
+  color: rgba(234, 241, 255, 0.66);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  padding: 3px 12px;
+  opacity: 0;
+}
+.char-switch-overlay.play .char-switch-remark { animation: charSwitchTextIn 0.45s 0.26s ease both; }
+
+@keyframes charSwitchStageIn {
+  from { opacity: 0; transform: scale(0.9); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes charSwitchRingSpin {
+  to { transform: rotate(360deg); }
+}
+@keyframes charSwitchGlow {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(79, 140, 255, 0.28), 0 0 22px rgba(79, 140, 255, 0.24); }
+  50% { box-shadow: 0 0 0 1px rgba(147, 197, 255, 0.5), 0 0 40px rgba(79, 140, 255, 0.5); }
+}
+@keyframes charSwitchTextIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}

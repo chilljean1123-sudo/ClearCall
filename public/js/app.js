@@ -378,6 +378,7 @@ async function openCharacters(returnTo) {
   charactersReturnTo = returnTo || 'home';
   cancelCharacterForm();
   await renderCharactersUI();
+  setContactsTab('characters');
   showView(viewCharacters);
 }
 
@@ -426,6 +427,7 @@ function cancelCharacterForm() {
 function readCharacterForm() {
   return {
     name: $('char-name-input').value.trim(),
+    remark: $('char-remark-input').value.trim(),
     persona: $('char-persona-input').value,
     voice: {
       enabled: $('char-voice-enabled').checked,
@@ -501,6 +503,9 @@ async function switchActiveCharacter(id) {
     await setActiveCharacter(id);
     await updateChatTitle();
     if (charactersReturnTo === 'chat') {
+      const c = await getCharacter(id);
+      const avatarUrl = c ? await getAvatarUrlById(c.avatarId) : '';
+      await playCharacterSwitchAnimation(c, avatarUrl);
       await openChat();
       toast('已切换角色');
       return;
@@ -529,12 +534,20 @@ async function deleteCharacterConfirm(id) {
   }
 }
 
-// ---- 通讯录：我的主页（用户人设，可保存多套） ----
-async function openUserProfile() {
-  cancelUserProfileForm();
-  const { list, activeId } = await getUserProfiles();
-  renderUserProfileList(list, activeId);
-  showView(viewUserProfile);
+// ---- 通讯录：角色 / 我的 两个窗口切换 ----
+async function setContactsTab(tab) {
+  const isMe = tab === 'me';
+  $('contacts-pane-characters').hidden = isMe;
+  $('contacts-pane-me').hidden = !isMe;
+  document.querySelectorAll('#view-characters .contacts-tab').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.contactsTab === (isMe ? 'me' : 'characters'));
+  });
+  const title = $('contacts-title');
+  if (title) title.textContent = isMe ? '我的' : '通讯录';
+  if (isMe) {
+    cancelUserProfileForm();
+    await refreshUserProfiles();
+  }
 }
 
 function openUserProfileAdd() {
@@ -609,7 +622,6 @@ async function deleteUserProfileConfirm(id) {
 async function refreshUserProfiles() {
   const { list, activeId } = await getUserProfiles();
   renderUserProfileList(list, activeId);
-  await renderMyProfileCard();
 }
 
 function loadTriggerSettings() {
@@ -1162,6 +1174,8 @@ async function openChatSheet(view) {
   if (view === 'location') toolLocationCoords = null;
   await renderChatSheet(view);
   $('chat-sheet').hidden = false;
+  const plus = $('btn-chat-plus');
+  if (plus) plus.setAttribute('aria-expanded', 'true');
   if (view === 'image') setToolImagePreview(pendingChatImageUrl);
 }
 
@@ -1172,6 +1186,8 @@ function resetPendingChatImage() {
 
 function closeChatSheet() {
   $('chat-sheet').hidden = true;
+  const plus = $('btn-chat-plus');
+  if (plus) plus.setAttribute('aria-expanded', 'false');
   resetPendingChatImage();
   toolLocationCoords = null;
 }
@@ -3665,16 +3681,13 @@ $('chat-style-grid').addEventListener('change', (e) => {
   updateChatStylePreview();
 });
 
-// 角色应用
+// 通讯录
 $('btn-characters-back').addEventListener('click', () => showView(viewHome));
 $('btn-character-add').addEventListener('click', openCharacterAdd);
-// 通讯录：我的主页
-$('btn-my-profile').addEventListener('click', openUserProfile);
-$('btn-user-profile-back').addEventListener('click', async () => {
-  await renderCharactersUI();
-  showView(viewCharacters);
-});
 $('btn-user-profile-add').addEventListener('click', openUserProfileAdd);
+document.querySelectorAll('#view-characters .contacts-tab').forEach((btn) => {
+  btn.addEventListener('click', () => { setContactsTab(btn.dataset.contactsTab).catch(() => {}); });
+});
 $('file-char-avatar').addEventListener('change', async (e) => {
   const f = e.target.files && e.target.files[0];
   e.target.value = '';

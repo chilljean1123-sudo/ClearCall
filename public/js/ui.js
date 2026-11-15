@@ -17,7 +17,6 @@ const viewChatStyle = $('view-chat-style');
 const viewEmail = $('view-email');
 const viewBooks = $('view-books');
 const viewDiary = $('view-diary');
-const viewUserProfile = $('view-user-profile');
 
 function showView(view) {
   document.querySelectorAll('.app-view').forEach((el) => el.classList.remove('active'));
@@ -999,7 +998,6 @@ async function renderCharactersUI() {
   const { list, activeId } = await getCharacters();
   const rows = await Promise.all(list.map(async (c) => ({ ...c, avatar: await getAvatarUrlById(c.avatarId) })));
   renderCharacterList(rows, activeId);
-  await renderMyProfileCard();
 }
 
 function renderCharacterList(characters, activeId) {
@@ -1041,6 +1039,14 @@ function characterRow(c, isActive) {
     nameRow.appendChild(chip);
   }
   info.appendChild(nameRow);
+
+  const remark = String(c.remark || '').trim();
+  if (remark) {
+    const remarkEl = document.createElement('div');
+    remarkEl.className = 'char-remark';
+    remarkEl.textContent = '备注：' + remark;
+    info.appendChild(remarkEl);
+  }
 
   const persona = document.createElement('div');
   persona.className = 'char-persona';
@@ -1108,6 +1114,14 @@ function renderCharacterForm(character, avatarUrl, refImageUrl) {
   name.placeholder = '联系人名字，例如：小助手';
   name.value = (character && character.name) || '';
   box.appendChild(name);
+
+  const remark = document.createElement('input');
+  remark.id = 'char-remark-input';
+  remark.className = 'wb-input';
+  remark.type = 'text';
+  remark.placeholder = '备注（可选），例如：老板 / 阿罗';
+  remark.value = (character && character.remark) || '';
+  box.appendChild(remark);
 
   const avatarRow = document.createElement('div');
   avatarRow.className = 'avatar-row';
@@ -1251,23 +1265,6 @@ function renderCharacterForm(character, avatarUrl, refImageUrl) {
 }
 
 // ===== 通讯录：我的主页（用户人设，可多套） =====
-async function renderMyProfileCard() {
-  const { list, activeId } = await getUserProfiles();
-  const active = list.find((p) => p.id === activeId) || null;
-  const nameEl = $('my-profile-name');
-  const avatarEl = $('my-profile-avatar');
-  const descEl = $('my-profile-summary');
-  const displayName = (active && active.name) || '我';
-  if (nameEl) nameEl.textContent = displayName;
-  if (avatarEl) avatarEl.textContent = displayName.trim().charAt(0) || '我';
-  if (descEl) {
-    const persona = active ? String(active.persona || '').trim() : '';
-    descEl.textContent = active
-      ? (persona || '已选择人设，点开编辑')
-      : '设置你在聊天里是谁，可添加多套人设';
-  }
-}
-
 function renderUserProfileList(profiles, activeId) {
   const box = $('user-profile-list');
   box.innerHTML = '';
@@ -1374,6 +1371,40 @@ function renderUserProfileForm(profile) {
   btns.appendChild(saveBtn);
   btns.appendChild(cancelBtn);
   box.appendChild(btns);
+}
+
+// 聊天室切换角色过场：头像 + 名字 + 备注，结束后再切窗口
+let charSwitchTimer = null;
+function playCharacterSwitchAnimation(character, avatarUrl) {
+  const overlay = $('char-switch-overlay');
+  if (!overlay) return Promise.resolve();
+  if (charSwitchTimer) { clearTimeout(charSwitchTimer); charSwitchTimer = null; }
+
+  const avatar = $('char-switch-avatar');
+  const name = $('char-switch-name');
+  const remark = $('char-switch-remark');
+  if (avatar) avatar.innerHTML = charAvatarHTML(avatarUrl || '', character && character.name);
+  if (name) name.textContent = (character && character.name) || '联系人';
+
+  const note = character ? String(character.remark || '').trim() : '';
+  if (remark) {
+    remark.textContent = note;
+    remark.hidden = !note;
+  }
+
+  overlay.hidden = false;
+  overlay.classList.remove('play');
+  void overlay.offsetWidth;
+  overlay.classList.add('play');
+
+  return new Promise((resolve) => {
+    charSwitchTimer = setTimeout(() => {
+      charSwitchTimer = null;
+      overlay.classList.remove('play');
+      overlay.hidden = true;
+      resolve();
+    }, 1500);
+  });
 }
 
 // ===== 头像 / 参考图处理（返回 Blob，交给 store.js 存入 IndexedDB） =====

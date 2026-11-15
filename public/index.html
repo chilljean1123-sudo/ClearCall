@@ -685,7 +685,9 @@
         </div>
 
         <div class="chat-inputbar">
-          <button type="button" class="chat-plus-btn" id="btn-chat-plus" aria-label="更多功能">+</button>
+          <button type="button" class="chat-plus-btn" id="btn-chat-plus" aria-label="更多功能" aria-expanded="false">
+            <span class="chat-plus-glyph" aria-hidden="true"></span>
+          </button>
           <input id="input-chat" type="text" placeholder="输入消息…" autocomplete="off" />
           <button type="button" class="chat-send-btn" id="btn-chat-send">发送</button>
         </div>
@@ -694,6 +696,7 @@
         <div class="chat-sheet" id="chat-sheet" hidden>
           <div class="chat-sheet-backdrop" id="chat-sheet-backdrop"></div>
           <div class="chat-sheet-panel">
+            <span class="chat-sheet-handle" aria-hidden="true"></span>
             <div class="chat-sheet-head">
               <span class="chat-sheet-title" id="chat-sheet-title">更多功能</span>
               <button type="button" class="chat-sheet-close" id="btn-chat-sheet-close">关闭</button>
@@ -789,44 +792,50 @@
       <div class="app-view" id="view-characters">
         <header class="app-header">
           <button class="back-btn" id="btn-characters-back" type="button">返回</button>
-          <span class="app-title">通讯录</span>
+          <span class="app-title" id="contacts-title">通讯录</span>
           <span class="app-header-spacer"></span>
         </header>
 
-        <div class="characters-body">
-          <button type="button" class="char-item my-card" id="btn-my-profile">
-            <span class="char-avatar" id="my-profile-avatar">我</span>
-            <span class="char-info">
-              <span class="char-name-row">
-                <span class="char-name" id="my-profile-name">我</span>
-                <span class="char-active-chip">当前人设</span>
-              </span>
-              <span class="char-persona" id="my-profile-summary">设置你在聊天里是谁，可添加多套人设</span>
-            </span>
-            <span class="char-chevron" aria-hidden="true">›</span>
-          </button>
-          <button type="button" class="fetch-btn" id="btn-character-add">新建联系人</button>
-          <p class="wb-hint">每个联系人都有独立的人设、头像、聊天记录、记忆、世界书绑定，以及可选的语音与生图绑定；点联系人卡片可切换当前聊天对象。</p>
-          <div class="wb-form" id="character-form" hidden></div>
-          <div class="char-list" id="character-list"></div>
-          <input type="file" id="file-char-avatar" accept="image/*" hidden />
-          <input type="file" id="file-char-ref" accept="image/*" hidden />
+        <div class="contacts-pane" id="contacts-pane-characters">
+          <div class="characters-body">
+            <button type="button" class="fetch-btn" id="btn-character-add">新建联系人</button>
+            <p class="wb-hint">每个联系人都有独立的人设、头像、聊天记录、记忆、世界书绑定，以及可选的语音与生图绑定；点联系人卡片可切换当前聊天对象。</p>
+            <div class="wb-form" id="character-form" hidden></div>
+            <div class="char-list" id="character-list"></div>
+            <input type="file" id="file-char-avatar" accept="image/*" hidden />
+            <input type="file" id="file-char-ref" accept="image/*" hidden />
+          </div>
         </div>
+
+        <div class="contacts-pane" id="contacts-pane-me" hidden>
+          <div class="characters-body">
+            <button type="button" class="fetch-btn" id="btn-user-profile-add">新建人设</button>
+            <p class="wb-hint">这里填写你在聊天里的身份。可以保存多套人设，点卡片切换当前使用的一套；当前人设会注入角色聊天的系统提示，让联系人知道「我」是谁。</p>
+            <div class="wb-form" id="user-profile-form" hidden></div>
+            <div class="char-list" id="user-profile-list"></div>
+          </div>
+        </div>
+
+        <nav class="contacts-tabs">
+          <button type="button" class="contacts-tab active" data-contacts-tab="characters">
+            <span class="contacts-tab-icon icon-contacts" aria-hidden="true"></span>
+            <span class="contacts-tab-text">角色</span>
+          </button>
+          <button type="button" class="contacts-tab" data-contacts-tab="me">
+            <span class="contacts-tab-icon icon-me" aria-hidden="true"></span>
+            <span class="contacts-tab-text">我的</span>
+          </button>
+        </nav>
       </div>
 
-      <!-- 通讯录 - 我（用户人设） -->
-      <div class="app-view" id="view-user-profile">
-        <header class="app-header">
-          <button class="back-btn" id="btn-user-profile-back" type="button">返回</button>
-          <span class="app-title">我</span>
-          <span class="app-header-spacer"></span>
-        </header>
-
-        <div class="characters-body">
-          <button type="button" class="fetch-btn" id="btn-user-profile-add">新建人设</button>
-          <p class="wb-hint">这里填写你在聊天里的身份。可以保存多套人设，点卡片切换当前使用的一套；当前人设会注入角色聊天的系统提示，让联系人知道「我」是谁。</p>
-          <div class="wb-form" id="user-profile-form" hidden></div>
-          <div class="char-list" id="user-profile-list"></div>
+      <!-- 聊天室切换角色过场 -->
+      <div class="char-switch-overlay" id="char-switch-overlay" hidden>
+        <div class="char-switch-stage">
+          <div class="char-switch-ring">
+            <div class="char-switch-avatar" id="char-switch-avatar"></div>
+          </div>
+          <div class="char-switch-name" id="char-switch-name"></div>
+          <div class="char-switch-remark" id="char-switch-remark" hidden></div>
         </div>
       </div>
 

@@ -1321,6 +1321,7 @@ function normalizeCharacter(raw, fallbackId) {
   return {
     id: raw.id || fallbackId || genId(),
     name: String(raw.name || '').trim(),
+    remark: String(raw.remark || '').trim(),
     persona: String(raw.persona || ''),
     avatarId: raw.avatarId || null,
     voice: normalizeCharacterVoice(raw.voice),
@@ -1364,8 +1365,8 @@ async function setActiveCharacter(id) {
   });
 }
 
-async function addCharacter({ name, persona, voice, image } = {}) {
-  const record = normalizeCharacter({ name, persona, avatarId: null, voice, image });
+async function addCharacter({ name, remark, persona, voice, image } = {}) {
+  const record = normalizeCharacter({ name, remark, persona, avatarId: null, voice, image });
   await mutateDoc(DOC_CHARACTERS, (doc) => {
     if (!Array.isArray(doc.list)) doc.list = [];
     doc.list.push(record);
@@ -1380,6 +1381,7 @@ async function updateCharacterRecord(id, patch) {
     const c = doc.list.find((x) => x.id === id);
     if (!c) return;
     if (patch.name !== undefined) c.name = String(patch.name || '').trim();
+    if (patch.remark !== undefined) c.remark = String(patch.remark || '').trim();
     if (patch.persona !== undefined) c.persona = String(patch.persona || '');
     if (patch.avatarId !== undefined) c.avatarId = patch.avatarId || null;
     if (patch.voice !== undefined) c.voice = normalizeCharacterVoice(Object.assign({}, c.voice, patch.voice));
@@ -1901,6 +1903,7 @@ async function buildBackup() {
     characters.push({
       id: c.id,
       name: c.name,
+      remark: c.remark,
       persona: c.persona,
       avatarId: c.avatarId || null,
       voice: c.voice,
