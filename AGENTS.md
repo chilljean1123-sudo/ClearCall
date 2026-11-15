@@ -43,7 +43,8 @@
 - 电话挂断后要把本次新增对话写入该角色记忆（`rememberCallToMemory`）：记忆服务可用时走摘要，未配置或失败时写一条本地摘要兜底，之后再把 `lastSummarizedCount` 推进到最新，避免重复整理。
 - 美化数据：主屏壁纸与每个应用图标的图片都存 `files`，`appearance` 用 `wallpaperId` + `icons: { appId: fileId }` 记录引用；禁止用一张图统一覆盖所有图标。单个应用设置自定义图标后，用 `.app-glyph.custom-icon` 隐藏默认底图、边框、线条图标，只显示上传图片。状态栏只做覆盖层，`.app-view` 统一用 `--statusbar-space` 预留安全区，关闭状态栏时只隐藏内容、不取消占位。
 - 通知数据：开关与后台保活存 `notification` 文档（`enabled`、`keepAlive`、`soundId` / `soundName` / `soundType`），自定义提示音 Blob 存 `files`，备份随 `files` 一起导出；换提示音或清除时要删除旧文件。
-- Dock 只放核心应用（论坛、邮箱、小说），不把聊天/角色/设置重复塞进 Dock，后续新应用继续往 Dock 里加；主屏应用网格保持完整入口。
+- Dock 只放核心入口（电话、聊天、通讯录、设置），桌面网格放信息、相机、记忆、世界书、论坛、邮箱、阅读；新增应用继续按「高频放 Dock、内容型放桌面」分配，主屏网格保持完整入口。
+- 主题跟随系统 `prefers-color-scheme`：默认深色，日间模式在 `styles.css` 末尾的 `@media (prefers-color-scheme: light)` 中覆盖变量与少量硬编码表面，采用 iOS 蓝（#007aff）/ 白 / 灰（#f2f2f7）/ 绿（#34c759）；新增界面必须同时检查日夜两套配色，避免日间出现深色块或浅色文字。
 - 邮箱数据存 `email` 文档：`settings`（`characterIds`、`intervalHours` 默认 24、`lastCheckedAt`）、`mails`（`direction: in | out`、`characterId`、`characterName` 快照、主题、正文、已读）、`pending`（聊天工具预约的定时任务 `characterId` / `dueAt`）。邮件生成走 `/api/email`（Vercel 为 `api/email.js`），无后端时直连兼容接口；提示词必须带角色人设、记忆和最近聊天，要求 500-1000 字、符合角色语言风格，并输出 `{subject, body}` JSON。角色来信、用户发信都要写入该角色记忆。
 - 邮箱定时调度在页面启动、打开邮箱、回到前台时检查：每个绑定角色按 `intervalHours` 最多一封，每次最多生成 2 封，60 秒内不重复检查；`pending` 任务到期后立即生成，成功才移除。删除角色时从邮箱绑定和 `pending` 中清理，历史邮件保留 `characterName` 快照。
 - 聊天工具「邮件」复用同一套邮箱数据：可以立即生成一封，也可以按小时数写入 `pending` 预约送达。

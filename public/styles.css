@@ -3351,3 +3351,164 @@ body.statusbar-off .statusbar { visibility: hidden; }
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* ===== 跟随系统日夜：日间模式（iOS 蓝 / 白 / 灰 / 绿） ===== */
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --bg: #f2f2f7;
+    --phone-bezel: #e5e5ea;
+    --screen-bg: #f2f2f7;
+    --card: #ffffff;
+    --card-border: #e3e3e9;
+    --text: #1c1c1e;
+    --muted: #6e6e73;
+    --accent: #007aff;
+    --accent-strong: #0066d6;
+    --green: #34c759;
+    --red: #ff3b30;
+    --amber: #ff9500;
+  }
+
+  html, body { background: #f2f2f7; color: #1c1c1e; }
+
+  /* 主屏 */
+  #view-home { background-image: linear-gradient(160deg, #e8f1ff 0%, #f7f9fc 52%, #e7f7ee 100%); }
+  #view-home::before,
+  #view-home.has-wallpaper::before {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.42) 0%, rgba(255, 255, 255, 0.06) 45%, rgba(0, 0, 0, 0.10) 100%);
+  }
+  .home-clock, .statusbar { text-shadow: none; }
+  .home-clock-date { color: #6e6e73; }
+  .app-glyph {
+    background: #ffffff;
+    border-color: rgba(0, 0, 0, 0.05);
+    color: #007aff;
+    box-shadow: 0 2px 8px rgba(60, 60, 67, 0.14);
+  }
+  .app-glyph.accent {
+    background: linear-gradient(160deg, #0a84ff, #0066d6);
+    color: #ffffff;
+    border: none;
+  }
+  .dock {
+    background: rgba(255, 255, 255, 0.72);
+    border-color: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 10px 28px rgba(60, 60, 67, 0.18);
+  }
+  /* 自定义壁纸时保证主屏文字可读 */
+  #view-home.has-wallpaper .home-clock,
+  #view-home.has-wallpaper .app-name {
+    color: #ffffff;
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
+  }
+
+  /* 聊天与工具抽屉 */
+  .chat-sheet-backdrop { background: rgba(0, 0, 0, 0.22); }
+  .chat-sheet-panel {
+    background: linear-gradient(180deg, #ffffff, #f7f7fa);
+    border-top-color: rgba(0, 0, 0, 0.06);
+    box-shadow: 0 -12px 32px rgba(60, 60, 67, 0.18);
+  }
+  .chat-sheet-handle { background: rgba(0, 0, 0, 0.16); }
+  .tool-tile { background: #f7f7fa; border-color: rgba(0, 0, 0, 0.05); }
+  .tool-tile:active { background: rgba(0, 122, 255, 0.08); border-color: rgba(0, 122, 255, 0.35); }
+  .tool-tile-glyph { background: radial-gradient(circle at 30% 25%, rgba(0, 122, 255, 0.22), rgba(0, 122, 255, 0.06) 72%); }
+  .chat-plus-btn {
+    background: radial-gradient(circle at 32% 28%, rgba(0, 122, 255, 0.22), rgba(0, 122, 255, 0.06) 70%);
+    box-shadow: inset 0 0 0 1px rgba(0, 122, 255, 0.28), 0 3px 10px rgba(60, 60, 67, 0.14);
+  }
+  .chat-plus-btn[aria-expanded="true"] {
+    background: #007aff;
+    color: #ffffff;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35), 0 0 16px rgba(0, 122, 255, 0.4);
+  }
+  .msg-avatar, .char-avatar { border-color: rgba(0, 0, 0, 0.06); }
+  .error-bubble { color: #d70015; border-color: rgba(255, 59, 48, 0.4); }
+  .retry-btn { color: #d70015; border-color: rgba(255, 59, 48, 0.4); }
+  #tool-diary-time { color-scheme: light; }
+
+  /* 通讯录 */
+  .characters-body { background: #f2f2f7; }
+  #character-list,
+  #user-profile-list { background: #ffffff; border-color: #e3e3e9; }
+  #character-list .char-item + .char-item,
+  #user-profile-list .char-item + .char-item { border-top-color: rgba(0, 0, 0, 0.07); }
+  #character-list .char-item.active,
+  #user-profile-list .char-item.active { background: rgba(0, 122, 255, 0.08); }
+  .contacts-tabs { background: rgba(255, 255, 255, 0.94); border-top-color: rgba(0, 0, 0, 0.08); }
+  .contacts-tab-icon { background: rgba(0, 0, 0, 0.05); }
+  .contacts-tab.active .contacts-tab-icon { background: rgba(0, 122, 255, 0.14); }
+  .char-avatar { background: radial-gradient(circle at 32% 26%, rgba(0, 122, 255, 0.20), rgba(0, 122, 255, 0.05)); border-color: rgba(0, 122, 255, 0.18); }
+
+  /* 论坛 / 邮箱 / 阅读 */
+  #view-forum { background: #f2f2f7; }
+  #view-email { background: #f2f2f7; }
+  .forum-header { background: rgba(255, 255, 255, 0.94); }
+  .forum-tabs { background: rgba(255, 255, 255, 0.94); }
+  .forum-post:active { background: #f2f2f7; }
+  .forum-board-editor input,
+  .forum-board-editor textarea { background: #ffffff; }
+  .forum-share-row:active { background: #f2f2f7; }
+  .book-card:active { background: #f2f2f7; }
+  .book-progress { background: #e5e5ea; }
+  .book-delete:active { background: #f2f2f7; color: #ff3b30; }
+  .reader-bar-btn:active { background: #f2f2f7; }
+  .reader-footer { background: #ffffff; border-top-color: rgba(0, 0, 0, 0.08); }
+  .reader-character-select { background: #f7f7fa; }
+  .reader-chat-input { background: #ffffff; }
+  .reader-chat-input textarea { background: #f7f7fa; }
+  .forum-post-content,
+  .forum-detail-content,
+  .forum-comment-text { color: #3a3a3c; }
+  .forum-comment-name { color: #0066d6; }
+  .mail-sender { color: #3a3a3c; }
+  .mail-row.unread .mail-sender,
+  .mail-subject { color: #1c1c1e; }
+  .mail-detail-text { color: #3a3a3c; }
+  .reader-content { color: #1c1c1e; }
+  .reader-annotation { color: #3a3a3c; }
+  .reader-annotation-name { color: #0066d6; }
+
+  /* 日记（iOS 备忘录浅色） */
+  #view-diary { background: #f2f2f7; }
+  #view-diary .diary-header { background: rgba(255, 255, 255, 0.96); border-bottom-color: rgba(0, 0, 0, 0.08); }
+  .diary-body {
+    background:
+      radial-gradient(circle at 18% 0%, rgba(255, 204, 0, 0.10), transparent 42%),
+      #f2f2f7;
+  }
+  .diary-note {
+    background: #ffffff;
+    border-color: rgba(0, 0, 0, 0.06);
+    box-shadow: 0 2px 10px rgba(60, 60, 67, 0.10);
+  }
+  .diary-note-title { color: #1c1c1e; }
+  .diary-note-text { color: #3a3a3c; }
+  .diary-note-mood { background: rgba(255, 149, 0, 0.12); color: #a05a00; }
+  .diary-todo-section { border-top-color: rgba(0, 0, 0, 0.08); }
+  .diary-empty { background: #ffffff; border-color: rgba(0, 0, 0, 0.12); }
+  .diary-empty-title { color: #1c1c1e; }
+
+  /* 小手机通知 */
+  .phone-notice {
+    background: rgba(255, 255, 255, 0.95);
+    border-color: rgba(0, 0, 0, 0.08);
+    box-shadow: 0 10px 30px rgba(60, 60, 67, 0.22);
+  }
+  .phone-notice-title { color: #1c1c1e; }
+  .phone-notice-text { color: #6e6e73; }
+
+  /* 切换角色过场 */
+  .char-switch-overlay {
+    background:
+      radial-gradient(circle at 50% 42%, rgba(0, 122, 255, 0.14), transparent 55%),
+      rgba(242, 242, 247, 0.94);
+  }
+  .char-switch-avatar {
+    background: radial-gradient(circle at 32% 26%, rgba(0, 122, 255, 0.22), #ffffff);
+    color: #007aff;
+  }
+  .char-switch-name { color: #1c1c1e; }
+  .char-switch-remark { color: #6e6e73; }
+}
