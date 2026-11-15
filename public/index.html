@@ -41,6 +41,10 @@
             <span class="app-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></span>
             <span class="app-name">相机</span>
           </button>
+          <button class="app-icon" data-app="moments">
+            <span class="app-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.2"/><path d="M12 3v5.8M21 12h-5.8M12 21v-5.8M3 12h5.8"/></svg></span>
+            <span class="app-name">动态</span>
+          </button>
           <button class="app-icon" data-app="memory">
             <span class="app-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></span>
             <span class="app-name">记忆</span>
@@ -328,6 +332,78 @@
         <input type="file" id="file-book-import" accept=".txt,.epub,.pdf,text/plain,application/epub+zip,application/pdf" multiple hidden>
       </div>
 
+      <!-- 动态（朋友圈） -->
+      <div class="app-view" id="view-moments">
+        <header class="app-header moments-header">
+          <button class="back-btn" id="btn-moments-back" type="button">返回</button>
+          <span class="app-title">动态</span>
+          <button class="moments-settings-btn" id="btn-moments-settings" type="button">设置</button>
+        </header>
+
+        <div class="moments-scroll" id="moments-scroll">
+          <div class="moments-cover">
+            <div class="moments-cover-bg" id="moments-cover-bg"></div>
+            <div class="moments-cover-bottom">
+              <div class="moments-cover-name" id="moments-user-name">我</div>
+              <div class="moments-cover-avatar" id="moments-user-avatar">我</div>
+            </div>
+          </div>
+          <div class="moments-toolbar">
+            <span class="moments-status" id="moments-status">绑定角色后，他们会按间隔发布动态。</span>
+            <button class="moments-publish-btn" id="btn-moments-publish-now" type="button">立即发布</button>
+          </div>
+          <div class="moments-feed" id="moments-feed"></div>
+        </div>
+
+        <button class="mail-fab moments-fab" id="btn-moments-compose" type="button" aria-label="发布动态">＋</button>
+
+        <section class="forum-panel" id="moments-compose-panel" hidden>
+          <header class="forum-panel-head">
+            <button class="back-btn" id="btn-moments-compose-close" type="button">取消</button>
+            <span class="forum-panel-title">发布动态</span>
+            <button class="moments-publish-btn" id="btn-moments-compose-submit" type="button">发布</button>
+          </header>
+          <div class="forum-panel-body">
+            <label class="field">
+              <span class="field-label">这一刻的想法</span>
+              <textarea id="moments-compose-text" rows="5" placeholder="写点什么…"></textarea>
+            </label>
+            <div class="field">
+              <span class="field-label">配图</span>
+              <div class="moment-compose-preview" id="moments-compose-preview">尚未选择图片</div>
+              <div class="backup-row">
+                <button class="fetch-btn" id="btn-moments-compose-image" type="button">选择图片</button>
+                <button class="fetch-btn" id="btn-moments-compose-image-clear" type="button" disabled>移除图片</button>
+              </div>
+              <span class="field-hint">可以从相册选一张图；不选图也可以只发文字。</span>
+              <input type="file" id="file-moment-image" accept="image/*" hidden />
+            </div>
+          </div>
+        </section>
+
+        <section class="forum-panel" id="moments-settings" hidden>
+          <header class="forum-panel-head">
+            <button class="back-btn" id="btn-moments-settings-close" type="button">返回</button>
+            <span class="forum-panel-title">动态设置</span>
+            <span class="app-header-spacer"></span>
+          </header>
+          <div class="forum-panel-body">
+            <p class="field-hint">勾选会定时发动态的角色。每条角色动态都会带图，绑定生图时生成图片，否则用文字画面描述代替。</p>
+            <div class="field">
+              <span class="field-label">发动态的角色</span>
+              <div class="forum-check-list" id="moments-character-list"></div>
+            </div>
+            <label class="field">
+              <span class="field-label">发布间隔（小时）</span>
+              <input id="moments-interval-hours" type="number" min="1" max="720" step="1" value="24" />
+              <span class="field-hint">默认 24 小时；填 1 表示每小时最多一条。</span>
+            </label>
+            <button class="test-btn" id="btn-moments-settings-save" type="button">保存动态设置</button>
+            <div class="field-hint" id="moments-settings-hint"></div>
+          </div>
+        </section>
+      </div>
+
       <!-- 邮箱应用 -->
       <div class="app-view" id="view-email">
         <header class="mail-header">
@@ -599,8 +675,8 @@
 
               <div class="field">
                 <span class="field-label">应用图标</span>
-                <div class="icon-custom-list" id="icon-custom-list"></div>
-                <span class="field-hint">每个应用单独设置图标；设置后会隐藏该应用默认的线条图标与底图，不影响其它应用。</span>
+                <button type="button" class="fetch-btn" id="btn-icon-manager">管理应用图标</button>
+                <span class="field-hint">在独立窗口里逐个应用设置图标；设置后会隐藏该应用默认的线条图标与底图，不影响其它应用。</span>
               </div>
 
               <div class="field">
@@ -764,6 +840,28 @@
 
         <div class="chat-style-footer">
           <button class="fetch-btn" id="btn-chat-style-save" type="button">保存聊天方式</button>
+        </div>
+      </div>
+
+      <!-- 应用图标管理 -->
+      <div class="app-view" id="view-icon-manager">
+        <header class="app-header">
+          <button class="back-btn" id="btn-icon-manager-back" type="button">返回</button>
+          <span class="app-title" id="icon-manager-title">应用图标</span>
+          <span class="app-header-spacer"></span>
+        </header>
+        <div class="icon-manager-body">
+          <div class="icon-manager-grid" id="icon-manager-grid"></div>
+          <div class="icon-manager-detail" id="icon-manager-detail" hidden>
+            <button class="back-btn icon-manager-detail-back" id="btn-icon-manager-detail-back" type="button">返回列表</button>
+            <div class="icon-manager-preview" id="icon-manager-preview"></div>
+            <div class="icon-manager-app-name" id="icon-manager-app-name"></div>
+            <div class="icon-manager-actions">
+              <button type="button" class="fetch-btn" id="btn-icon-manager-upload">上传图片</button>
+              <button type="button" class="fetch-btn" id="btn-icon-manager-clear">恢复默认</button>
+            </div>
+            <span class="field-hint">上传后只替换这个应用的图标，其它应用保持不变。</span>
+          </div>
         </div>
       </div>
 

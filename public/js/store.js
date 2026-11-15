@@ -202,6 +202,7 @@ const DOC_STICKERS = 'stickers';       // 表情包按角色分仓：stickers:<�
 const DOC_APPEARANCE = 'appearance';   // 美化：主屏壁纸 / 各应用图标 / 状态栏开关
 const DOC_NOTIFICATION = 'notification'; // 通知：开关 / 自定义提示音 / 后台保活
 const DOC_FORUM = 'forum';             // 论坛：绑定设置 / 主题 / 帖子 / 用户主页
+const DOC_MOMENTS = 'moments';         // 动态（朋友圈）：绑定角色 / 动态 / 点赞 / 评论
 const DOC_EMAIL = 'email';             // 邮箱：角色来信 / 已发送 / 定时任务
 const DOC_BOOKS = 'books';             // 小说书架：书目列表 / 当前书 / 阅读进度
 const DOC_BOOK_PREFIX = 'book:';       // 单本书内容：章节正文 / 批注
@@ -762,6 +763,210 @@ async function clearForumProfileImage(kind) {
   await updateForumProfile({ [field]: null });
   revokeFileUrl(oldId);
   try { await deleteFile(oldId); } catch (_) {}
+}
+
+// ---------- 动态（朋友圈，IndexedDB） ----------
+// 动态必须带图：imageId 指向 files 里的真实图片；没有生图时用 imageDesc 文字描述图。
+function normalizeMomentLike(raw) {
+  if (!raw) return null;
+  const type = raw.authorType === 'character' ? 'character' : 'user';
+  const name = String(raw.name || (type === 'user' ? '我' : '角色')).trim();
+  return {
+    id: raw.id || genId(),
+    authorType: type,
+    characterId: raw.characterId || null,
+    name: name || (type === 'user' ? '我' : '角色'),
+  };
+}
+
+function normalizeMomentComment(raw) {
+  if (!raw) return null;
+  const content = String(raw.content || raw.text || '').trim();
+  if (!content) return null;
+  const type = raw.authorType === 'character' || raw.authorType === 'user' ? raw.authorType : 'npc';
+  return {
+    id: raw.id || genId(),
+    authorType: type,
+    authorId: raw.authorId || null,
+    characterId: raw.characterId || raw.authorId || null,
+    name: String(raw.name || (type === 'user' ? '我' : '路人')).trim() || '路人',
+    content,
+    createdAt: raw.createdAt || Date.now(),
+  };
+}
+
+function normalizeMomentPost(raw) {
+  if (!raw) return null;
+  const text = String(raw.text || raw.content || '').trim();
+  const imageId = raw.imageId || null;
+  const imageDesc = String(raw.imageDesc || '').trim();
+  if (!text && !imageId && !imageDesc) return null;
+  const type = raw.authorType === 'character' ? 'character' : 'user';
+  return {
+    id: raw.id || genId(),
+    authorType: type,
+    authorId: raw.authorId || null,
+    authorName: String(raw.authorName || (type === 'user' ? '我' : '角色')).trim() || (type === 'user' ? '我' : '角色'),
+    text,
+    imageId,
+    imageDesc,
+    createdAt: Number(raw.createdAt) || Date.now(),
+    likes: (Array.isArray(raw.likes) ? raw.likes : []).map(normalizeMomentLike).filter(Boolean),
+    comments: (Array.isArray(raw.comments) ? raw.comments : []).map(normalizeMomentComment).filter(Boolean)
+      .sort((a, b) => a.createdAt - b.createdAt),
+  };
+}
+
+function normalizeMomentSettings(raw) {
+  const d = raw || {};
+  const ids = (Array.isArray(d.characterIds) ? d.characterIds : []).filter(Boolean);
+  let interval = parseInt(d.intervalHours, 10);
+  if (!Number.isFinite(interval)) interval = 24;
+  interval = Math.max(1, Math.min(720, interval));
+  const lastPostAt = {};
+  if (d.lastPostAt && typeof d.lastPostAt === 'object') {
+    Object.keys(d.lastPostAt).forEach((key) => {
+      const v = Number(d.lastPostAt[key]);
+      if (Number.isFinite(v) && v > 0) lastPostAt[key] = v;
+    });
+  }
+  return {
+    characterIds: Array.from(new Set(ids)),
+    intervalHours: interval,
+    lastCheckedAt: Number(d.lastCheckedAt) || 0,
+    lastPostAt,
+  };
+}
+
+function normalizeMoments(doc) {
+  const d = doc || {};
+  return {
+    settings: normalizeMomentSettings(d.settings),
+    posts: (Array.isArray(d.posts) ? d.posts : [])
+      .map(normalizeMomentPost)
+      .filter(Boolean)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, 200),
+  };
+}
+
+async function getMoments() {
+  return normalizeMoments(await getDoc(DOC_MOMENTS));
+}
+
+function mutateMoments(mutator) {
+  return mutateDoc(DOC_MOMENTS, (doc) => {
+    const base = normalizeMoments(doc);
+    doc.settings = base.settings;
+    doc.posts = base.posts;
+    mutator(doc);
+    doc.settings = normalizeMomentSettings(doc.settings);
+    doc.posts = (Array.isArray(doc.posts) ? doc.posts : [])
+      .map(normalizeMomentPost)
+      .filter(Boolean)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, 200);
+  });
+}
+
+async function updateMomentSettings(patch) {
+  const p = patch || {};
+  await mutateMoments((doc) => {
+    const s = normalizeMomentSettings(doc.settings);
+    if (p.characterIds !== undefined) {
+      s.characterIds = Array.from(new Set((Array.isArray(p.characterIds) ? p.characterIds : []).filter(Boolean)));
+    }
+    if (p.intervalHours !== undefined) {
+      let v = parseInt(p.intervalHours, 10);
+      if (!Number.isFinite(v)) v = 24;
+      s.intervalHours = Math.max(1, Math.min(720, v));
+    }
+    if (p.lastCheckedAt !== undefined) s.lastCheckedAt = Number(p.lastCheckedAt) || 0;
+    if (p.lastPostAt && typeof p.lastPostAt === 'object') {
+      Object.keys(p.lastPostAt).forEach((key) => {
+        const v = Number(p.lastPostAt[key]);
+        if (Number.isFinite(v) && v > 0) s.lastPostAt[key] = v;
+      });
+    }
+    doc.settings = s;
+  });
+}
+
+async function addMomentPost(post) {
+  let record = null;
+  await mutateMoments((doc) => {
+    record = normalizeMomentPost(Object.assign({ createdAt: Date.now() }, post || {}));
+    if (!record) return;
+    doc.posts.unshift(record);
+    if (record.authorType === 'character' && record.authorId) {
+      doc.settings.lastPostAt[record.authorId] = record.createdAt;
+    }
+  });
+  if (!record) throw new Error('动态内容为空');
+  return record;
+}
+
+async function addMomentComments(postId, comments) {
+  const list = (Array.isArray(comments) ? comments : []).map(normalizeMomentComment).filter(Boolean);
+  if (!list.length) return [];
+  await mutateMoments((doc) => {
+    const p = doc.posts.find((x) => x.id === postId);
+    if (p) p.comments = p.comments.concat(list);
+  });
+  return list;
+}
+
+async function addMomentLike(postId, like) {
+  const record = normalizeMomentLike(like);
+  if (!record) return;
+  await mutateMoments((doc) => {
+    const p = doc.posts.find((x) => x.id === postId);
+    if (!p) return;
+    const exists = p.likes.some((l) => {
+      if (l.authorType !== record.authorType) return false;
+      if (record.authorType === 'character') return l.characterId === record.characterId;
+      return true;
+    });
+    if (!exists) p.likes.push(record);
+  });
+}
+
+async function toggleMomentLike(postId, like) {
+  const record = normalizeMomentLike(like);
+  if (!record) return false;
+  let added = false;
+  await mutateMoments((doc) => {
+    const p = doc.posts.find((x) => x.id === postId);
+    if (!p) return;
+    const idx = p.likes.findIndex((l) => {
+      if (l.authorType !== record.authorType) return false;
+      if (record.authorType === 'character') return l.characterId === record.characterId;
+      return true;
+    });
+    if (idx >= 0) p.likes.splice(idx, 1);
+    else { p.likes.push(record); added = true; }
+  });
+  return added;
+}
+
+async function deleteMomentPost(postId) {
+  let imageId = null;
+  await mutateMoments((doc) => {
+    const target = doc.posts.find((x) => x.id === postId);
+    if (target) imageId = target.imageId || null;
+    doc.posts = doc.posts.filter((x) => x.id !== postId);
+  });
+  if (imageId) {
+    revokeFileUrl(imageId);
+    try { await deleteFile(imageId); } catch (_) {}
+  }
+}
+
+async function deleteMomentComment(postId, commentId) {
+  await mutateMoments((doc) => {
+    const p = doc.posts.find((x) => x.id === postId);
+    if (p) p.comments = p.comments.filter((c) => c.id !== commentId);
+  });
 }
 
 // ---------- 邮箱（IndexedDB） ----------
@@ -1526,6 +1731,14 @@ async function deleteCharacter(id) {
     });
   } catch (_) {}
 
+  // 动态里解绑该角色；已发布的动态保留作者名快照
+  try {
+    await mutateMoments((doc) => {
+      doc.settings.characterIds = doc.settings.characterIds.filter((x) => x !== id);
+      delete doc.settings.lastPostAt[id];
+    });
+  } catch (_) {}
+
   const wb = await getWorldbook();
   if (wb.some((e) => e.scope === 'character' && e.characterId === id)) {
     await putDoc({ id: DOC_WORLDBOOK, entries: wb.filter((e) => !(e.scope === 'character' && e.characterId === id)) });
@@ -1986,6 +2199,7 @@ async function buildBackup() {
   const appearance = await getAppearance();
   const notification = await getNotificationConfig();
   const forum = await getForum();
+  const moments = await getMoments();
   const email = await getEmail();
   const books = await getBooksBackup();
   const appearanceFileIds = [
@@ -1994,6 +2208,7 @@ async function buildBackup() {
     notification.soundId,
     forum.profile.avatarId,
     forum.profile.coverId,
+    ...moments.posts.map((p) => p.imageId),
   ].filter(Boolean);
   for (const fileId of appearanceFileIds) {
     const f = await getFile(fileId);
@@ -2013,6 +2228,7 @@ async function buildBackup() {
     appearance,
     notification,
     forum,
+    moments,
     email,
     books,
     characters,
@@ -2117,6 +2333,12 @@ async function applyBackup(data) {
     activeBoardId: forum.activeBoardId,
     profile: forum.profile,
     posts: forum.posts,
+  });
+  const moments = normalizeMoments(data.moments);
+  await putDoc({
+    id: DOC_MOMENTS,
+    settings: moments.settings,
+    posts: moments.posts,
   });
   const email = normalizeEmail(data.email);
   await putDoc({

@@ -53,6 +53,9 @@
 - 聊天方式入口已从聊天顶栏移到加号工具菜单（`data-tool="style"`），点击直接进入独立页，不再保留顶栏按钮。
 - 角色的聊天方式（口吻）存在角色记录 `chatStyle.options`，选项定义在 `store.js` 的 `CHAT_STYLE_OPTIONS`；`年上/年下`、`网感好/差` 各自互斥。`buildChatStylePrompt()` 生成短规则后拼到 system 人设末尾，普通聊天、通话、共读讨论共用；聊天加号工具的「聊天方式」入口进入独立页，保存后下一轮生效。
 - 论坛数据集中存在 `forum` 文档：`settings`（独立 API、`refreshCount`、`worldbookIds`、`characterIds`）、`boards`（多个板块，每个含 `id`/标题/简介/路人提示词）、`activeBoardId`、`profile`（昵称/签名/头像/背景图 id）、`posts`。帖子 `authorType: npc | character | user`，并带 `boardId` 归属板块；角色帖带 `authorId`，评论挂在帖子 `comments` 上。旧数据里的单份 `theme` 会在读写时自动迁移成 `boards`。首页只显示当前板块的帖子，关注/我的跨板块；刷新入口是板块下方的下拉栏（可改生成条数），不设悬浮刷新钮；「我的」页全屏显示并隐藏论坛顶栏、板块与刷新栏。删除板块会同时删除板块内帖子，且至少保留一个板块。用户主页图片 Blob 存 `files`，文档只存 `avatarId` / `coverId`；换图或清除时删除旧文件。删除角色时从 `settings.characterIds` 解绑，但保留历史帖子的作者名快照。
+- 动态（朋友圈）数据集中存在 `moments` 文档：`settings`（`characterIds`、`intervalHours` 默认 24、`lastCheckedAt`、`lastPostAt` 按角色记录上次发布）、`posts`。动态 `authorType` 为 `character | user`，带 `authorId` / `authorName` 快照、`text`、`imageId` 或 `imageDesc`、`likes`、`comments`（评论 `authorType` 还支持 `npc` 路人）。角色动态必须带图：绑定生图（角色 `image.enabled` + 设置里的生图服务）时调 `/api/image` 生成并存入 `files`，否则用 `imageDesc` 文字描述图；每条角色动态配 3-5 条路人评论。用户发动态可自选相册配图，绑定角色会点赞、评论，并在聊天室主动发消息讨论；用户评论角色动态后，角色也在聊天室主动回应。所有发布、点赞、评论与聊天联动都写入对应角色记忆。
+- 定时动态在页面启动、打开动态、回到前台时检查，60 秒节流、每次最多 2 条，按 `intervalHours` 与各角色 `lastPostAt` 判断是否到期；删除角色时从 `settings.characterIds` 和 `lastPostAt` 清理，历史动态保留作者名快照。
+- 聊天外观变量（`--user-bubble-bg` / `--chat-font-family` / `--chat-font-color`）只写在 `#view-chat` 与 `#view-call` 上，不写 `documentElement`，避免影响其它页面。
 - 论坛生成走后端 `/api/forum`（Vercel 为 `api/forum.js`，共享 `lib/ai.js` 的 `forumChat()`），未部署后端时直连 OpenAI 兼容接口；论坛 API 留空则复用主 AI 配置。刷新生成的帖子要写入绑定角色的记忆；分享帖子到聊天室时写入 `kind: 'forum'` 卡片消息，并写一条记忆。
 
 ## 风格约束

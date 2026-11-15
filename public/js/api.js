@@ -327,6 +327,103 @@ async function requestDiaryChat({ baseUrl, apiKey, model, system, user, maxToken
   return directDiaryChat(baseUrl, apiKey, model, system, user, maxTokens);
 }
 
+// 动态（朋友圈）内容生成（走后端 /api/moment，无后端则直连）
+async function directMomentChat(baseUrl, apiKey, model, system, user, maxTokens) {
+  const url = directChatUrl(baseUrl);
+  if (!url) return { ok: false, reason: '动态接口地址不能为空', hints: ['先在设置里填写 AI 接口地址'] };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DIRECT_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'system', content: String(system || '') }, { role: 'user', content: String(user || '') }],
+        max_tokens: maxTokens || 1400,
+        temperature: 0.95,
+        stream: false,
+      }),
+      signal: controller.signal,
+    });
+    const text = await res.text();
+    let data = null; try { data = text ? JSON.parse(text) : null; } catch (_) { data = null; }
+    if (res.ok) {
+      const reply = (data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+      return { ok: true, status: res.status, reply };
+    }
+    const errMsg = (data && (data.error && (data.error.message || data.error.code))) || (data && data.message) || text || ('HTTP ' + res.status);
+    return { ok: false, status: res.status, reason: '动态接口返回错误（HTTP ' + res.status + '）', message: String(errMsg).slice(0, 500), hints: ['检查 AI 接口地址、Key、模型名'] };
+  } catch (err) {
+    if (err && err.name === 'AbortError') return { ok: false, reason: '动态请求超时（30 秒未响应）', hints: ['稍后重试或换模型'] };
+    return { ok: false, reason: '动态直连失败（可能被跨域拦截）：' + (err && err.message ? err.message : err), hints: ['建议使用 Vercel 部署，或允许服务商 CORS'] };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function requestMomentChat({ baseUrl, apiKey, model, system, user, maxTokens }) {
+  try {
+    const res = await fetch('/api/moment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ baseUrl, apiKey, model, system, user, maxTokens }),
+    });
+    const text = await res.text();
+    if (isBackendResponse(res, text)) {
+      try { return JSON.parse(text); } catch (_) {}
+    }
+  } catch (_) { /* 无后端 */ }
+  return directMomentChat(baseUrl, apiKey, model, system, user, maxTokens);
+}
+
+// 生图（走后端 /api/image，无后端则直连 /images/generations）
+async function directImageGenerate(baseUrl, apiKey, model, prompt, size) {
+  const base = directNormalizeBase(baseUrl);
+  const url = base ? base + '/images/generations' : null;
+  if (!url) return { ok: false, reason: '生图接口地址不能为空', hints: ['到「设置 → 生图服务」填写接口地址'] };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 60000);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey },
+      body: JSON.stringify({ model, prompt: String(prompt || ''), n: 1, size: size || '1024x1024', response_format: 'b64_json' }),
+      signal: controller.signal,
+    });
+    const text = await res.text();
+    let data = null; try { data = text ? JSON.parse(text) : null; } catch (_) { data = null; }
+    if (!res.ok) {
+      const errMsg = (data && (data.error && (data.error.message || data.error.code))) || (data && data.message) || text || ('HTTP ' + res.status);
+      return { ok: false, status: res.status, reason: '生图接口返回错误（HTTP ' + res.status + '）', message: String(errMsg).slice(0, 500), hints: ['检查生图地址、Key、模型名'] };
+    }
+    const item = data && Array.isArray(data.data) ? data.data[0] : null;
+    if (item && item.b64_json) return { ok: true, b64: String(item.b64_json), mime: 'image/png' };
+    if (item && item.url) return { ok: true, url: String(item.url) };
+    return { ok: false, reason: '生图接口没有返回图片', hints: ['检查模型是否支持图片生成'] };
+  } catch (err) {
+    if (err && err.name === 'AbortError') return { ok: false, reason: '生图请求超时（60 秒未响应）', hints: ['稍后重试或换模型'] };
+    return { ok: false, reason: '生图直连失败（可能被跨域拦截）：' + (err && err.message ? err.message : err), hints: ['建议使用 Vercel 部署，或允许服务商 CORS'] };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function requestImageGenerate({ baseUrl, apiKey, model, prompt, size }) {
+  try {
+    const res = await fetch('/api/image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ baseUrl, apiKey, model, prompt, size }),
+    });
+    const text = await res.text();
+    if (isBackendResponse(res, text)) {
+      try { return JSON.parse(text); } catch (_) {}
+    }
+  } catch (_) { /* 无后端 */ }
+  return directImageGenerate(baseUrl, apiKey, model, prompt, size);
+}
+
 async function directReadingChat(baseUrl, apiKey, model, system, user, maxTokens) {
   const url = directChatUrl(baseUrl);
   if (!url) return { ok: false, reason: '阅读接口地址不能为空', hints: ['先在设置里填写 AI 接口地址'] };

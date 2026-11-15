@@ -269,40 +269,76 @@ body.statusbar-off .statusbar { visibility: hidden; }
 .preview-empty { font-size: 12px; color: rgba(255, 255, 255, 0.7); }
 .wallpaper-preview.has-image .preview-empty { display: none; }
 
-.icon-custom-list {
+/* ===== 应用图标管理独立窗口 ===== */
+#view-icon-manager { background: var(--screen-bg); }
+.icon-manager-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 14px calc(20px + var(--statusbar-space, 0px));
+}
+.icon-manager-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px 10px;
+}
+.icon-manager-tile {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-}
-.icon-custom-row {
-  display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: 10px;
-  border: 1px solid var(--card-border);
-  background: rgba(0, 0, 0, 0.18);
+  gap: 7px;
+  padding: 8px 4px;
+  border: none;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
 }
-.icon-custom-preview {
-  width: 38px;
-  height: 38px;
-  flex: 0 0 auto;
-  border-radius: 10px;
+.icon-manager-tile:active { background: rgba(127, 127, 127, 0.12); }
+.icon-manager-glyph {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
   display: grid;
   place-items: center;
-  font-size: 14px;
-  color: var(--muted);
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  color: #cfd6e4;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+.icon-manager-glyph svg { width: 28px; height: 28px; }
+.icon-manager-glyph.accent { background: linear-gradient(160deg, #4f8cff, #3b76e8); color: #fff; border: none; }
+.icon-manager-glyph.custom-icon { border-color: transparent; background-color: transparent; }
+.icon-manager-tile-name { font-size: 11px; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.icon-manager-tile.has-custom .icon-manager-tile-name { color: var(--text); }
+.icon-manager-detail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 4px 20px;
+}
+.icon-manager-detail-back { align-self: flex-start; }
+.icon-manager-preview {
+  width: 116px;
+  height: 116px;
+  border-radius: 28px;
+  display: grid;
+  place-items: center;
   background-color: var(--card);
   border: 1px solid var(--card-border);
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
 }
-.icon-custom-preview.has-image { border-color: rgba(255, 255, 255, 0.24); }
-.icon-custom-name { flex: 1 1 auto; font-size: 13px; }
-.icon-custom-actions { display: flex; gap: 6px; flex: 0 0 auto; }
-.icon-custom-btn { padding: 5px 9px; font-size: 11px; }
-.icon-custom-btn:disabled { opacity: 0.35; cursor: default; }
+.icon-manager-preview.has-image { border-color: transparent; }
+.icon-manager-preview .icon-manager-glyph { width: 76px; height: 76px; border: none; background: transparent; }
+.icon-manager-preview .icon-manager-glyph svg { width: 52px; height: 52px; }
+.icon-manager-app-name { font-size: 16px; font-weight: 600; }
+.icon-manager-actions { display: flex; gap: 10px; }
 
 
 /* ===== 抽屉（设置项 / 角色绑定项） ===== */
@@ -732,6 +768,8 @@ body.statusbar-off .statusbar { visibility: hidden; }
 }
 #view-chat { font-family: var(--chat-font-family, inherit); }
 #view-chat input, #view-chat textarea { font-family: inherit; }
+#view-call { font-family: var(--chat-font-family, inherit); }
+#view-call input, #view-call textarea { font-family: inherit; }
 
 .typing-bubble { color: var(--muted); font-style: italic; }
 .error-bubble { border-color: rgba(255, 92, 92, 0.5); color: #ff8a8a; }
@@ -3350,6 +3388,260 @@ body.statusbar-off .statusbar { visibility: hidden; }
 @keyframes charSwitchTextIn {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* ===== 动态（朋友圈） ===== */
+#view-moments { background: var(--screen-bg); }
+.moments-header { justify-content: space-between; }
+.moments-settings-btn {
+  border: none;
+  background: transparent;
+  color: var(--accent, #4f8cff);
+  font-size: 13px;
+  padding: 8px 4px;
+  cursor: pointer;
+}
+.moments-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: calc(84px + var(--statusbar-space, 0px));
+  background: #111113;
+}
+.moments-cover {
+  position: relative;
+  height: 232px;
+  background: #1c1c1e;
+}
+.moments-cover-bg {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 18% 22%, rgba(255, 255, 255, 0.18), transparent 42%),
+    linear-gradient(150deg, #2b3b52 0%, #3c516b 48%, #55677c 100%);
+  background-size: cover;
+  background-position: center;
+}
+.moments-cover-bottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -28px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 0 16px;
+}
+.moments-cover-name {
+  align-self: flex-start;
+  margin-top: 34px;
+  margin-right: auto;
+  padding-left: 4px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #f7fbff;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
+}
+.moments-cover-avatar {
+  width: 68px;
+  height: 68px;
+  border-radius: 12px;
+  border: 3px solid #fff;
+  background: linear-gradient(150deg, #6f8fb5, #3f5c7e);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  overflow: hidden;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+.moments-cover-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.moments-toolbar {
+  margin-top: 40px;
+  padding: 0 16px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.moments-status { font-size: 12px; color: #8a8a8e; line-height: 1.5; }
+.moments-publish-btn {
+  border: 1px solid rgba(125, 155, 209, 0.36);
+  background: #1f1f22;
+  color: #8fb0e8;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.moments-publish-btn:active { background: #2c2c2e; }
+.moments-feed { padding: 0 0 12px; }
+.moment-card {
+  display: flex;
+  gap: 11px;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+.moment-avatar {
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: linear-gradient(150deg, #8aa4c5, #4b6b92);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+}
+.moment-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.moment-main { flex: 1 1 auto; min-width: 0; }
+.moment-author { font-size: 15px; font-weight: 600; color: #8fb0e8; line-height: 1.35; word-break: break-word; }
+.moment-text { margin-top: 5px; font-size: 14px; line-height: 1.55; color: #e8e8ea; white-space: pre-wrap; word-break: break-word; }
+.moment-image {
+  display: block;
+  margin-top: 9px;
+  width: 100%;
+  max-width: 230px;
+  max-height: 300px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: #dfe3e8;
+}
+.moment-image-desc {
+  margin-top: 9px;
+  padding: 12px 13px;
+  border-radius: 5px;
+  background: linear-gradient(150deg, #232b36, #1b222b);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+.moment-image-desc-label {
+  display: inline-block;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: #8fa3bd;
+  border: 1px solid rgba(143, 163, 189, 0.4);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+.moment-image-desc p { margin: 7px 0 0; font-size: 12px; line-height: 1.6; color: #b9c4d2; }
+.moment-meta-row {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.moment-time { font-size: 12px; color: #8a8a8e; }
+.moment-actions { display: flex; gap: 6px; }
+.moment-action-btn {
+  border: none;
+  background: #2c2c2e;
+  color: #8fb0e8;
+  border-radius: 4px;
+  padding: 4px 9px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.moment-action-btn.active { color: #ff7b7b; }
+.moment-action-btn.danger { color: #8a8a8e; }
+.moment-likes {
+  margin-top: 8px;
+  padding: 7px 9px;
+  border-radius: 4px;
+  background: #1c1c1e;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #8fb0e8;
+  word-break: break-word;
+}
+.moment-likes .moment-heart { color: #ff7b7b; margin-right: 4px; }
+.moment-comments { margin-top: 2px; padding: 2px 9px 6px; border-radius: 0 0 4px 4px; background: #1c1c1e; }
+.moment-comment { font-size: 12.5px; line-height: 1.65; color: #d6d6d8; word-break: break-word; padding: 3px 0; }
+.moment-comment-name { color: #8fb0e8; }
+.moment-comment-del {
+  border: none;
+  background: transparent;
+  color: #b0b0b4;
+  font-size: 11px;
+  padding: 0 0 0 5px;
+  cursor: pointer;
+}
+.moment-comment-form {
+  margin-top: 8px;
+  display: flex;
+  gap: 7px;
+  align-items: center;
+}
+.moment-comment-form[hidden] { display: none; }
+.moment-comment-form input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #2c2c2e;
+  color: #f2f2f7;
+  border-radius: 5px;
+  padding: 7px 9px;
+  font-size: 12.5px;
+  outline: none;
+}
+.moment-comment-form button {
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 5px;
+  background: #576b95;
+  color: #fff;
+  font-size: 12px;
+  padding: 7px 11px;
+  cursor: pointer;
+}
+.moment-comment-form button:disabled { opacity: 0.45; }
+.moments-empty { padding: 46px 24px; text-align: center; color: #8a8a8e; font-size: 13px; line-height: 1.7; }
+.moment-compose-preview {
+  min-height: 96px;
+  border-radius: 8px;
+  border: 1px dashed var(--card-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 12px;
+  background: var(--card);
+  background-size: cover;
+  background-position: center;
+  overflow: hidden;
+}
+.moment-compose-preview.has-image { border-style: solid; color: transparent; }
+
+/* 日间模式：朋友圈还原微信浅色观感 */
+@media (prefers-color-scheme: light) {
+  .moments-scroll { background: #ececec; }
+  .moments-cover { background: #dfe3e8; }
+  .moments-cover-bg {
+    background:
+      radial-gradient(circle at 18% 22%, rgba(255, 255, 255, 0.7), transparent 42%),
+      linear-gradient(150deg, #8fb3dd 0%, #b7cee2 48%, #e2eaf1 100%);
+  }
+  .moments-publish-btn { background: #fff; color: #576b95; border-color: rgba(87, 107, 149, 0.3); }
+  .moments-publish-btn:active { background: #f1f3f6; }
+  .moment-card { border-bottom-color: rgba(0, 0, 0, 0.06); }
+  .moment-author { color: #576b95; }
+  .moment-text { color: #191919; }
+  .moment-image-desc { background: linear-gradient(150deg, #eef2f6, #dfe7ef); border-color: rgba(0, 0, 0, 0.05); }
+  .moment-image-desc-label { color: #7c8ba1; border-color: rgba(124, 139, 161, 0.45); }
+  .moment-image-desc p { color: #5d6b7d; }
+  .moment-action-btn { background: #f2f3f5; color: #576b95; }
+  .moment-action-btn.danger { color: #9a9a9e; }
+  .moment-likes { background: #f2f3f5; color: #576b95; }
+  .moment-comments { background: #f2f3f5; }
+  .moment-comment { color: #333; }
+  .moment-comment-name { color: #576b95; }
+  .moment-comment-form input { background: #fff; color: #191919; border-color: rgba(0, 0, 0, 0.1); }
+  .moment-comment-form button { background: #576b95; }
 }
 
 /* ===== 跟随系统日夜：日间模式（iOS 蓝 / 白 / 灰 / 绿） ===== */

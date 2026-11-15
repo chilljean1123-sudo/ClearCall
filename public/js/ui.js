@@ -17,6 +17,8 @@ const viewChatStyle = $('view-chat-style');
 const viewEmail = $('view-email');
 const viewBooks = $('view-books');
 const viewDiary = $('view-diary');
+const viewIconManager = $('view-icon-manager');
+const viewMoments = $('view-moments');
 
 function showView(view) {
   document.querySelectorAll('.app-view').forEach((el) => el.classList.remove('active'));
@@ -962,6 +964,7 @@ function showPhoneNotice(options) {
   $('phone-notice-title').textContent = opt.title || '通知';
   $('phone-notice-text').textContent = opt.text || '';
   box.dataset.characterId = opt.characterId || '';
+  box.dataset.target = opt.target || '';
   box.hidden = false;
   box.classList.remove('show');
   void box.offsetWidth;
@@ -1489,16 +1492,18 @@ function applyAppearance(cfg, wallpaperUrl, iconUrls) {
   renderAppearancePreview(wallpaperUrl, urls);
 }
 
-// 气泡颜色 / 聊天字体 / 字体颜色：写进 CSS 变量，留空即恢复默认
+// 气泡颜色 / 聊天字体 / 字体颜色：只写到聊天与通话窗口，不影响其它页面
 function applyChatAppearance(cfg) {
-  const root = document.documentElement.style;
-  const setOrRemove = (name, value) => {
-    if (value) root.setProperty(name, value);
-    else root.removeProperty(name);
+  const targets = [$('view-chat'), $('view-call')].filter(Boolean);
+  const setOrRemove = (el, name, value) => {
+    if (value) el.style.setProperty(name, value);
+    else el.style.removeProperty(name);
   };
-  setOrRemove('--user-bubble-bg', cfg && cfg.bubbleColor);
-  setOrRemove('--chat-font-color', cfg && cfg.fontColor);
-  setOrRemove('--chat-font-family', cfg && cfg.fontFamily);
+  targets.forEach((el) => {
+    setOrRemove(el, '--user-bubble-bg', cfg && cfg.bubbleColor);
+    setOrRemove(el, '--chat-font-color', cfg && cfg.fontColor);
+    setOrRemove(el, '--chat-font-family', cfg && cfg.fontFamily);
+  });
 
   const bubble = $('input-bubble-color');
   const bubbleLabel = $('bubble-color-value');
@@ -1514,67 +1519,109 @@ function applyChatAppearance(cfg) {
   if (font) font.value = (cfg && cfg.fontFamily) || '';
 }
 
-function renderAppearancePreview(wallpaperUrl, iconUrls) {
+function renderAppearancePreview(wallpaperUrl) {
   const wp = $('wallpaper-preview');
   if (wp) {
     wp.style.backgroundImage = wallpaperUrl ? 'url("' + wallpaperUrl + '")' : '';
     wp.classList.toggle('has-image', !!wallpaperUrl);
   }
-  renderIconCustomList(iconUrls || {});
 }
 
-function renderIconCustomList(iconUrls) {
-  const list = $('icon-custom-list');
-  if (!list) return;
-  list.innerHTML = '';
+// ===== 应用图标管理（独立窗口，逐个应用编辑） =====
+let iconManagerTarget = '';
+
+function iconManagerApps() {
   const seen = new Set();
+  const apps = [];
   document.querySelectorAll('.app-icon, .dock-icon').forEach((btn) => {
     const app = btn.dataset.app;
     if (!app || seen.has(app)) return;
     seen.add(app);
     const nameEl = btn.querySelector('.app-name');
-    const name = nameEl ? nameEl.textContent : app;
-    const url = iconUrls[app];
-
-    const row = document.createElement('div');
-    row.className = 'icon-custom-row';
-
-    const preview = document.createElement('span');
-    preview.className = 'icon-custom-preview';
-    if (url) {
-      preview.style.backgroundImage = 'url("' + url + '")';
-      preview.classList.add('has-image');
-    } else {
-      preview.textContent = (name || '?').charAt(0);
-    }
-
-    const label = document.createElement('span');
-    label.className = 'icon-custom-name';
-    label.textContent = name;
-
-    const actions = document.createElement('span');
-    actions.className = 'icon-custom-actions';
-
-    const pick = document.createElement('button');
-    pick.type = 'button';
-    pick.className = 'fetch-btn icon-custom-btn';
-    pick.dataset.iconPick = app;
-    pick.textContent = '上传';
-
-    const clear = document.createElement('button');
-    clear.type = 'button';
-    clear.className = 'fetch-btn icon-custom-btn';
-    clear.dataset.iconClear = app;
-    clear.textContent = '恢复';
-    clear.disabled = !url;
-
-    actions.appendChild(pick);
-    actions.appendChild(clear);
-    row.appendChild(preview);
-    row.appendChild(label);
-    row.appendChild(actions);
-    list.appendChild(row);
+    apps.push({
+      id: app,
+      name: nameEl ? nameEl.textContent : app,
+      glyph: btn.querySelector('.app-glyph'),
+    });
   });
+  return apps;
+}
+
+function buildIconPreview(glyph, url) {
+  const preview = document.createElement('span');
+  preview.className = 'icon-manager-glyph';
+  if (url) {
+    preview.classList.add('custom-icon');
+    preview.style.backgroundImage = 'url("' + url.replace(/"/g, '%22') + '")';
+  } else if (glyph) {
+    preview.innerHTML = glyph.innerHTML;
+    if (glyph.classList.contains('accent')) preview.classList.add('accent');
+  }
+  return preview;
+}
+
+async function renderIconManagerGrid() {
+  const grid = $('icon-manager-grid');
+  if (!grid) return;
+  const cfg = await getAppearance();
+  grid.innerHTML = '';
+  for (const app of iconManagerApps()) {
+    const url = await getFileUrl(cfg.icons[app.id] || null);
+    const tile = document.createElement('button');
+    tile.type = 'button';
+    tile.className = 'icon-manager-tile';
+    tile.dataset.iconApp = app.id;
+    tile.appendChild(buildIconPreview(app.glyph, url));
+    const label = document.createElement('span');
+    label.className = 'icon-manager-tile-name';
+    label.textContent = app.name;
+    tile.appendChild(label);
+    if (url) tile.classList.add('has-custom');
+    grid.appendChild(tile);
+  }
+}
+
+async function openIconManager() {
+  iconManagerTarget = '';
+  $('icon-manager-detail').hidden = true;
+  $('icon-manager-grid').hidden = false;
+  $('icon-manager-title').textContent = '应用图标';
+  await renderIconManagerGrid();
+  showView(viewIconManager);
+}
+
+async function renderIconManagerDetail(app) {
+  iconManagerTarget = app;
+  const grid = $('icon-manager-grid');
+  const detail = $('icon-manager-detail');
+  const target = iconManagerApps().find((x) => x.id === app);
+  if (!target) { iconManagerTarget = ''; return; }
+  const cfg = await getAppearance();
+  const url = await getFileUrl(cfg.icons[app] || null);
+  grid.hidden = true;
+  detail.hidden = false;
+  $('icon-manager-title').textContent = target.name;
+  $('icon-manager-app-name').textContent = target.name;
+  const preview = $('icon-manager-preview');
+  preview.innerHTML = '';
+  preview.className = 'icon-manager-preview' + (url ? ' has-image' : '');
+  preview.style.backgroundImage = url ? 'url("' + url.replace(/"/g, '%22') + '")' : '';
+  if (!url) preview.appendChild(buildIconPreview(target.glyph, null));
+  $('btn-icon-manager-clear').disabled = !url;
+}
+
+function closeIconManagerDetail() {
+  iconManagerTarget = '';
+  $('icon-manager-detail').hidden = true;
+  $('icon-manager-grid').hidden = false;
+  $('icon-manager-title').textContent = '应用图标';
+  renderIconManagerGrid();
+}
+
+function refreshIconManagerIfOpen() {
+  if (!viewIconManager || !viewIconManager.classList.contains('active')) return;
+  if (iconManagerTarget) renderIconManagerDetail(iconManagerTarget);
+  else renderIconManagerGrid();
 }
 
 // ===== 记忆应用渲染 =====
@@ -2708,6 +2755,183 @@ function renderReaderCharacters(characters, selectedId) {
   });
   const pick = characters.some((c) => c.id === selectedId) ? selectedId : characters[0].id;
   sel.value = pick;
+}
+
+// ===== 动态（朋友圈）渲染 =====
+function momentTimeText(ts) {
+  const t = Number(ts) || 0;
+  if (!t) return '';
+  const diff = Date.now() - t;
+  if (diff < 60 * 1000) return '刚刚';
+  if (diff < 60 * 60 * 1000) return Math.floor(diff / 60000) + ' 分钟前';
+  const d = new Date(t);
+  const now = new Date();
+  const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  if (sameDay) return hh + ':' + mm;
+  const diffDay = Math.floor((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - new Date(d.getFullYear(), d.getMonth(), d.getDate())) / 86400000);
+  if (diffDay === 1) return '昨天 ' + hh + ':' + mm;
+  return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + hh + ':' + mm;
+}
+
+function momentAvatarEl(name, url) {
+  const el = uiEl('div', 'moment-avatar');
+  if (url) {
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = '';
+    el.appendChild(img);
+  } else {
+    el.textContent = String(name || '?').slice(0, 1);
+  }
+  return el;
+}
+
+async function buildMomentCard(post, identity, charMap, avatarMap) {
+  const card = uiEl('div', 'moment-card');
+  card.dataset.momentId = post.id;
+
+  const isUser = post.authorType === 'user';
+  let avatar = '';
+  if (isUser) avatar = identity.avatarUrl || '';
+  else if (post.authorId) avatar = avatarMap[post.authorId] || '';
+
+  card.appendChild(momentAvatarEl(post.authorName, avatar));
+
+  const main = uiEl('div', 'moment-main');
+  main.appendChild(uiEl('div', 'moment-author', post.authorName));
+
+  if (post.text) main.appendChild(uiEl('div', 'moment-text', post.text));
+
+  if (post.imageId) {
+    const url = await getFileUrl(post.imageId);
+    if (url) {
+      const img = document.createElement('img');
+      img.className = 'moment-image';
+      img.src = url;
+      img.alt = post.imageDesc || '动态图片';
+      main.appendChild(img);
+    }
+  } else if (post.imageDesc) {
+    const desc = uiEl('div', 'moment-image-desc');
+    desc.appendChild(uiEl('span', 'moment-image-desc-label', '文字配图'));
+    desc.appendChild(uiEl('p', '', post.imageDesc));
+    main.appendChild(desc);
+  }
+
+  const metaRow = uiEl('div', 'moment-meta-row');
+  metaRow.appendChild(uiEl('span', 'moment-time', momentTimeText(post.createdAt)));
+  const actions = uiEl('div', 'moment-actions');
+
+  const userLiked = post.likes.some((l) => l.authorType === 'user');
+  const likeBtn = uiEl('button', 'moment-action-btn' + (userLiked ? ' active' : ''), '赞');
+  likeBtn.type = 'button';
+  likeBtn.dataset.momentLike = post.id;
+  actions.appendChild(likeBtn);
+
+  const commentBtn = uiEl('button', 'moment-action-btn', '评论');
+  commentBtn.type = 'button';
+  commentBtn.dataset.momentCommentToggle = post.id;
+  actions.appendChild(commentBtn);
+
+  if (isUser) {
+    const delBtn = uiEl('button', 'moment-action-btn danger', '删除');
+    delBtn.type = 'button';
+    delBtn.dataset.momentDelete = post.id;
+    actions.appendChild(delBtn);
+  }
+  metaRow.appendChild(actions);
+  main.appendChild(metaRow);
+
+  if (post.likes.length) {
+    const likeRow = uiEl('div', 'moment-likes');
+    likeRow.appendChild(uiEl('span', 'moment-heart', '♥'));
+    likeRow.appendChild(document.createTextNode(post.likes.map((l) => l.name).join('、')));
+    main.appendChild(likeRow);
+  }
+
+  if (post.comments.length) {
+    const comments = uiEl('div', 'moment-comments');
+    post.comments.forEach((c) => {
+      const row = uiEl('div', 'moment-comment');
+      const name = uiEl('span', 'moment-comment-name', c.name + '：');
+      row.appendChild(name);
+      row.appendChild(document.createTextNode(c.content));
+      if (c.authorType === 'user') {
+        const del = uiEl('button', 'moment-comment-del', '删除');
+        del.type = 'button';
+        del.dataset.momentCommentDelete = c.id;
+        del.dataset.momentCommentPost = post.id;
+        row.appendChild(del);
+      }
+      comments.appendChild(row);
+    });
+    main.appendChild(comments);
+  }
+
+  const form = uiEl('div', 'moment-comment-form');
+  form.hidden = true;
+  form.dataset.momentCommentForm = post.id;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.placeholder = '回复 ' + post.authorName + '…';
+  input.dataset.momentCommentInput = post.id;
+  const send = uiEl('button', '', '发送');
+  send.type = 'button';
+  send.dataset.momentCommentSend = post.id;
+  form.appendChild(input);
+  form.appendChild(send);
+  main.appendChild(form);
+
+  card.appendChild(main);
+  return card;
+}
+
+async function renderMomentsFeed(moments, identity, characters) {
+  const feed = $('moments-feed');
+  if (!feed) return;
+  feed.innerHTML = '';
+  const posts = (moments && moments.posts) || [];
+  if (!posts.length) {
+    const empty = uiEl('div', 'moments-empty');
+    empty.appendChild(uiEl('div', '', '这里还没有动态'));
+    empty.appendChild(uiEl('div', '', '点右下角「＋」发布第一条，或到设置里绑定角色，让他们按间隔发动态。'));
+    feed.appendChild(empty);
+    return;
+  }
+  const charMap = new Map((characters || []).map((c) => [c.id, c]));
+  const avatarMap = {};
+  await Promise.all((characters || []).map(async (c) => {
+    avatarMap[c.id] = await getAvatarUrlById(c.avatarId);
+  }));
+  for (const post of posts) {
+    feed.appendChild(await buildMomentCard(post, identity, charMap, avatarMap));
+  }
+}
+
+function renderMomentsSettings(moments, characters) {
+  const box = $('moments-character-list');
+  if (!box) return;
+  box.innerHTML = '';
+  if (!characters.length) {
+    box.appendChild(uiEl('div', 'field-hint', '还没有角色，先到角色应用创建角色。'));
+  } else {
+    const bound = new Set(moments.settings.characterIds);
+    characters.forEach((c) => {
+      const row = document.createElement('label');
+      row.className = 'forum-check-row';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = 'moment-char-check';
+      cb.dataset.characterId = c.id;
+      cb.checked = bound.has(c.id);
+      row.appendChild(cb);
+      row.appendChild(uiEl('span', '', c.name || '未命名角色'));
+      box.appendChild(row);
+    });
+  }
+  $('moments-interval-hours').value = String(moments.settings.intervalHours || 24);
 }
 
 function renderReaderChat(messages, characterName, typing) {

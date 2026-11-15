@@ -106,6 +106,37 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // 动态（朋友圈）内容生成接口
+  if (req.method === 'POST' && url.pathname === '/api/moment') {
+    const payload = await ai.readJsonBody(req, 5e6);
+    const result = await ai.momentChat({
+      baseUrl: payload.baseUrl,
+      apiKey: payload.apiKey,
+      model: payload.model,
+      system: payload.system,
+      user: payload.user,
+      maxTokens: payload.maxTokens,
+    });
+    console.log('[api/moment]', result.ok ? 'success' : 'failed', result.reason || '');
+    ai.sendJson(res, result);
+    return;
+  }
+
+  // 生图接口：统一返回 base64，前端转 Blob 存档
+  if (req.method === 'POST' && url.pathname === '/api/image') {
+    const payload = await ai.readJsonBody(req, 5e6);
+    const result = await ai.generateImage({
+      baseUrl: payload.baseUrl,
+      apiKey: payload.apiKey,
+      model: payload.model,
+      prompt: payload.prompt,
+      size: payload.size,
+    });
+    console.log('[api/image]', result.ok ? 'success' : 'failed', result.reason || '');
+    ai.sendJson(res, result);
+    return;
+  }
+
   // 阅读讨论接口（角色陪读 + 批注动作尾注）
   if (req.method === 'POST' && url.pathname === '/api/reading') {
     const payload = await ai.readJsonBody(req, 5e6);

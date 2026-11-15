@@ -66,6 +66,14 @@ let diaryWriting = false;
 let diarySchedulerTimer = null;
 let diaryLastCheckAt = 0;
 
+// 动态（朋友圈）
+let momentsGenerating = false;
+let momentsSchedulerTimer = null;
+let momentsLastCheckAt = 0;
+let momentsReactionBusy = false;
+let pendingMomentImage = null;
+let pendingMomentImageUrl = '';
+
 // 最近聊天直接带上；更早的内容交给记忆总结
 const RECENT_HISTORY_LIMIT = 20;
 const AUTO_SUMMARIZE_MIN_NEW = 20;
@@ -135,6 +143,7 @@ async function refreshAppearance() {
     iconUrls[app] = await getFileUrl(cfg.icons[app] || null);
   }));
   applyAppearance(cfg, await getFileUrl(cfg.wallpaperId), iconUrls);
+  refreshIconManagerIfOpen();
 }
 
 // ---- 通知：浏览器推送 / 自定义提示音 / 后台保活 ----
@@ -3640,6 +3649,8 @@ document.querySelectorAll('.app-icon, .dock-icon').forEach((btn) => {
     const app = btn.dataset.app;
     if (app === 'forum') {
       openForum();
+    } else if (app === 'moments') {
+      openMoments();
     } else if (app === 'mail') {
       openMail();
     } else if (app === 'books') {
@@ -3871,19 +3882,29 @@ $('file-wallpaper').addEventListener('change', async (e) => {
   }
 });
 
-$('icon-custom-list').addEventListener('click', (e) => {
-  const pick = e.target.closest('[data-icon-pick]');
-  if (pick) {
-    iconUploadTarget = pick.dataset.iconPick;
-    $('file-icon-custom').click();
-    return;
-  }
-  const clear = e.target.closest('[data-icon-clear]');
-  if (clear) {
-    const app = clear.dataset.iconClear;
-    clearAppearanceIcon(app).then(refreshAppearance).then(() => toast('图标已恢复默认')).catch((err) => {
-      toast('恢复失败：' + (err && err.message ? err.message : err));
-    });
+$('btn-icon-manager').addEventListener('click', () => openIconManager());
+$('btn-icon-manager-back').addEventListener('click', () => {
+  if (iconManagerTarget) closeIconManagerDetail();
+  else showView(viewSettings);
+});
+$('btn-icon-manager-detail-back').addEventListener('click', () => closeIconManagerDetail());
+$('icon-manager-grid').addEventListener('click', (e) => {
+  const tile = e.target.closest('[data-icon-app]');
+  if (tile) renderIconManagerDetail(tile.dataset.iconApp);
+});
+$('btn-icon-manager-upload').addEventListener('click', () => {
+  if (!iconManagerTarget) return;
+  iconUploadTarget = iconManagerTarget;
+  $('file-icon-custom').click();
+});
+$('btn-icon-manager-clear').addEventListener('click', async () => {
+  if (!iconManagerTarget) return;
+  try {
+    await clearAppearanceIcon(iconManagerTarget);
+    await refreshAppearance();
+    toast('图标已恢复默认');
+  } catch (err) {
+    toast('恢复失败：' + (err && err.message ? err.message : err));
   }
 });
 $('file-icon-custom').addEventListener('change', async (e) => {
@@ -4114,9 +4135,609 @@ $('diary-body').addEventListener('click', async (e) => {
   toast('日记已删除');
 });
 
-$('phone-notice').addEventListener('click', () => {
-  const characterId = $('phone-notice').dataset.characterId;
+// ---------------- 动态（朋友圈） ----------------
+function parseMomentJson(text) {
+  let s = String(text || '').trim();
+  s = s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  const start = s.indexOf('{');
+  const end = s.lastIndexOf('}');
+  if (start >= 0 && end > start) s = s.slice(start, end + 1);
+  try {
+    const data = JSON.parse(s);
+    if (!data || typeof data !== 'object') return null;
+    return data;
+  } catch (_) {
+    return null;
+  }
+}
+
+function b64ToBlob(b64, mime) {
+  const bin = atob(String(b64 || ''));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: mime || 'image/png' });
+}
+
+function momentCommentFallbacks(character) {
+  const name = (character && character.name) || '角色';
+  return [
+    { name: '小鹿', content: '这张图的氛围感绝了，今天状态很好呀。' },
+    { name: '阿柚', content: '好久没见你发动态了，蹲一个后续～' },
+    { name: '橘子汽水', content: '「' + name + '」最近是不是遇到什么开心事了？' },
+  ];
+}
+
+function normalizeMomentComments(raw, character) {
+  let list = Array.isArray(raw) ? raw : [];
+  list = list.map((c) => {
+    if (typeof c === 'string') return { name: '', content: c };
+    if (!c || typeof c !== 'object') return null;
+    return { name: String(c.name || c.author || '').trim(), content: String(c.content || c.text || c.comment || '').trim() };
+  }).filter((c) => c && c.content);
+  const out = list.slice(0, 5).map((c) => ({
+    authorType: 'npc',
+    name: c.name || '路人',
+    content: c.content.slice(0, 120),
+  }));
+  if (out.length < 3) {
+    momentCommentFallbacks(character).slice(0, 3 - out.length).forEach((c) => out.push({
+      authorType: 'npc',
+      name: c.name,
+      content: c.content,
+    }));
+  }
+  return out.slice(0, 5);
+}
+
+async function momentsIdentity() {
+  const profile = await getActiveUserProfile();
+  let avatarUrl = '';
+  try {
+    const forum = await getForum();
+    avatarUrl = await getFileUrl(forum.profile.avatarId);
+  } catch (_) {}
+  return {
+    name: (profile && profile.name) || '我',
+    avatarUrl,
+  };
+}
+
+async function refreshMomentsUI() {
+  const [moments, charsDoc, identity, forum] = await Promise.all([
+    getMoments(),
+    getCharacters(),
+    momentsIdentity(),
+    getForum().catch(() => null),
+  ]);
+  $('moments-user-name').textContent = identity.name;
+  const avatarEl = $('moments-user-avatar');
+  avatarEl.innerHTML = '';
+  if (identity.avatarUrl) {
+    const img = document.createElement('img');
+    img.src = identity.avatarUrl;
+    img.alt = '';
+    avatarEl.appendChild(img);
+  } else {
+    avatarEl.textContent = identity.name.slice(0, 1);
+  }
+  let coverUrl = '';
+  try {
+    coverUrl = await getFileUrl(forum && forum.profile ? forum.profile.coverId : null);
+  } catch (_) {}
+  $('moments-cover-bg').style.backgroundImage = coverUrl ? 'url("' + coverUrl.replace(/"/g, '%22') + '")' : '';
+
+  const boundCount = moments.settings.characterIds.filter((id) => charsDoc.list.some((c) => c.id === id)).length;
+  $('moments-status').textContent = boundCount
+    ? '已绑定 ' + boundCount + ' 个角色，每 ' + moments.settings.intervalHours + ' 小时最多发一条动态。'
+    : '还没有绑定角色，到「设置」里勾选后，他们会定时发布动态。';
+
+  await renderMomentsFeed(moments, identity, charsDoc.list);
+  if (!$('moments-settings').hidden) renderMomentsSettings(moments, charsDoc.list);
+}
+
+async function openMoments() {
   hidePhoneNotice();
+  showView(viewMoments);
+  await refreshMomentsUI();
+  runMomentsSchedule().catch(() => {});
+}
+
+async function openMomentsSettings() {
+  const [moments, charsDoc] = await Promise.all([getMoments(), getCharacters()]);
+  renderMomentsSettings(moments, charsDoc.list);
+  $('moments-settings').hidden = false;
+}
+
+function setMomentComposePreview(url) {
+  const box = $('moments-compose-preview');
+  box.style.backgroundImage = url ? 'url("' + url.replace(/"/g, '%22') + '")' : '';
+  box.classList.toggle('has-image', !!url);
+  box.textContent = url ? '' : '尚未选择图片';
+  $('btn-moments-compose-image-clear').disabled = !url;
+}
+
+function clearPendingMomentImage() {
+  if (pendingMomentImageUrl) {
+    URL.revokeObjectURL(pendingMomentImageUrl);
+    pendingMomentImageUrl = '';
+  }
+  pendingMomentImage = null;
+  setMomentComposePreview('');
+}
+
+async function buildMomentSystemPrompt(character, characterId) {
+  const memoryDoc = await getMemory(characterId);
+  const history = await getHistory(characterId);
+  return [
+    '你正在扮演「' + (character.name || '角色') + '」，现在要在朋友圈发一条动态。',
+    '【角色人设】',
+    (character.persona || '（暂无详细人设，请按角色名字的气质自然发挥）'),
+    buildChatStylePrompt(character.chatStyle),
+    '【你记得的事】',
+    formatMemoryLayers(memoryDoc) || '（暂时没有长期记忆，请从日常生活写起）',
+    '【最近的聊天片段】',
+    historyToText(history.slice(-12)) || '（最近没有聊天记录）',
+    '【发布要求】',
+    '1. 用第一人称，完全符合角色的口吻和生活方式，不要像 AI 助手或广告文案。',
+    '2. 正文 40-120 个汉字，像真实朋友圈，不要标题、不要分点列举。',
+    '3. 必须配图：imagePrompt 写一段给生图模型的画面描述（场景、主体、光线、构图、风格），画面里不要出现文字；imageDesc 写 30-60 个字的中文画面描述，给看不到图片的人看。',
+    '4. comments 生成 3-5 条与角色生活相关的路人评论，每条 8-25 个字，名字像真实网友，不要复读正文，也不要都夸同一件事。',
+    '5. 不要解释自己在扮演角色，不要提到 AI、模型或提示词。',
+    '6. 只输出 JSON，格式：{"text":"正文","imagePrompt":"生图画面描述","imageDesc":"中文画面描述","comments":[{"name":"网友名","content":"评论"}]}',
+  ].join('\n');
+}
+
+async function generateCharacterMoment(characterId) {
+  const character = await getCharacter(characterId);
+  if (!character) throw new Error('角色不存在或已被删除');
+  const api = emailApiConfig();
+  if (!api.baseUrl || !api.apiKey || !api.model) {
+    throw new Error('请先到设置里配置 AI 接口地址、API Key 和模型名');
+  }
+  const system = await buildMomentSystemPrompt(character, characterId);
+  const data = await requestMomentChat({
+    baseUrl: api.baseUrl,
+    apiKey: api.apiKey,
+    model: api.model,
+    system,
+    user: '请现在发布一条朋友圈动态。',
+    maxTokens: 1800,
+  });
+  if (!data || !data.ok) throw new Error((data && (data.reason || data.message)) || '动态生成失败');
+  const parsed = parseMomentJson(data.reply);
+  if (!parsed) throw new Error('模型没有返回有效的动态内容，请稍后重试或换模型');
+
+  const text = String(parsed.text || parsed.content || '').trim();
+  if (!text) throw new Error('模型返回的动态正文为空，请稍后重试');
+
+  let imageId = null;
+  let imageDesc = String(parsed.imageDesc || parsed.image_description || '').trim();
+  const imageSettings = getImageSettings();
+  const imagePrompt = String(parsed.imagePrompt || parsed.image_prompt || '').trim();
+  const imageBound = character.image && character.image.enabled
+    && imageSettings.baseUrl && imageSettings.apiKey && imageSettings.model;
+  if (imageBound) {
+    try {
+      const prompt = [character.image.prompt, imagePrompt].filter(Boolean).join('，');
+      const result = await requestImageGenerate({
+        baseUrl: imageSettings.baseUrl,
+        apiKey: imageSettings.apiKey,
+        model: imageSettings.model,
+        prompt: prompt || text,
+        size: imageSettings.size,
+      });
+      if (result && result.ok) {
+        let blob = null;
+        if (result.b64) blob = b64ToBlob(result.b64, result.mime);
+        else if (result.url) {
+          const res = await fetch(result.url);
+          if (res.ok) blob = await res.blob();
+        }
+        if (blob) {
+          imageId = genId();
+          await putFile({ id: imageId, name: 'moment-' + imageId, type: blob.type || 'image/png', blob });
+        }
+      }
+    } catch (_) { /* 生图失败时退回文字描述图 */ }
+  }
+  if (!imageId && !imageDesc) {
+    imageDesc = '一张与这条动态相配的生活画面：' + text.slice(0, 48);
+  }
+
+  const comments = normalizeMomentComments(parsed.comments, character);
+  const post = await addMomentPost({
+    authorType: 'character',
+    authorId: character.id,
+    authorName: character.name || '角色',
+    text,
+    imageId,
+    imageDesc,
+  });
+  if (comments.length) {
+    const now = Date.now();
+    await addMomentComments(post.id, comments.map((c, i) => Object.assign({ createdAt: now + i }, c)));
+  }
+  await addMemoryEntry({
+    category: 'event',
+    text: '你在朋友圈发了一条动态：' + text.slice(0, 80) + (imageId ? '（配了图片）' : '（文字配图：' + imageDesc.slice(0, 40) + '）') + '。',
+  }, character.id);
+  return post;
+}
+
+function parseMomentReaction(text) {
+  const data = parseMomentJson(text);
+  if (!data) return null;
+  const comment = String(data.comment || data.reply || '').trim();
+  const chat = String(data.chat || data.message || '').trim();
+  if (!comment && !chat) return null;
+  return { comment, chat };
+}
+
+async function buildMomentReactionPrompt(character, characterId, post, userComment) {
+  const memoryDoc = await getMemory(characterId);
+  const history = await getHistory(characterId);
+  const parts = [
+    '你正在扮演「' + (character.name || '角色') + '」，正在刷朋友圈。',
+    '【角色人设】',
+    (character.persona || '（暂无详细人设，请按角色名字的气质自然发挥）'),
+    buildChatStylePrompt(character.chatStyle),
+    '【你记得的事】',
+    formatMemoryLayers(memoryDoc) || '（暂时没有长期记忆）',
+    '【最近的聊天片段】',
+    historyToText(history.slice(-10)) || '（最近没有聊天记录）',
+    '【这条动态】',
+    '作者：' + (post.authorName || '我'),
+    '正文：' + (post.text || '（没有文字，只有图片）'),
+  ];
+  if (post.imageDesc) parts.push('配图：' + post.imageDesc);
+  if (userComment) {
+    parts.push('【用户刚刚的评论】');
+    parts.push(userComment.content);
+    parts.push('【要求】');
+    parts.push('1. 在聊天室主动发一条消息回应用户的评论，可以顺着评论聊下去、表达情绪或追问，30-90 个字。');
+    parts.push('2. 完全用角色的口吻，不要像客服，不要提到 AI 或提示词。');
+    parts.push('3. 只输出 JSON，格式：{"chat":"聊天室里说的话"}');
+  } else {
+    parts.push('【要求】');
+    parts.push('1. 给这条动态点个赞。');
+    parts.push('2. 写一条符合角色口吻的评论，10-40 个字，不要空泛夸赞。');
+    parts.push('3. 再在聊天室主动发一条消息讨论这条动态，30-90 个字，可以调侃、关心或追问。');
+    parts.push('4. 只输出 JSON，格式：{"comment":"朋友圈评论","chat":"聊天室里说的话"}');
+  }
+  return parts.join('\n');
+}
+
+async function appendProactiveChatMessage(characterId, content) {
+  const text = String(content || '').trim();
+  if (!text) return;
+  await mutateHistory((arr) => {
+    arr.push({ role: 'assistant', content: text, createdAt: Date.now() });
+  }, characterId);
+  const { activeId } = await getCharacters();
+  const chattingHere = viewChat.classList.contains('active') && activeId === characterId;
+  if (chattingHere) {
+    try { await renderChat(); } catch (_) {}
+  } else {
+    const c = await getCharacter(characterId);
+    showPhoneNotice({
+      title: ((c && c.name) || '角色') + ' 发来消息',
+      text: text.length > 52 ? text.slice(0, 52) + '…' : text,
+      characterId,
+      target: 'chat',
+    });
+  }
+  notifyCharacterReply(characterId, text).catch(() => {});
+}
+
+async function reactToUserMoment(post) {
+  if (momentsReactionBusy) return;
+  momentsReactionBusy = true;
+  try {
+    const [moments, charsDoc, api] = [await getMoments(), await getCharacters(), emailApiConfig()];
+    const bound = charsDoc.list.filter((c) => moments.settings.characterIds.includes(c.id));
+    if (!bound.length) return;
+    if (!api.baseUrl || !api.apiKey || !api.model) return;
+    const character = bound[Math.floor(Math.random() * bound.length)];
+    const system = await buildMomentReactionPrompt(character, character.id, post, null);
+    const data = await requestMomentChat({
+      baseUrl: api.baseUrl,
+      apiKey: api.apiKey,
+      model: api.model,
+      system,
+      user: '请现在看看用户刚发的这条动态，按格式回复。',
+      maxTokens: 900,
+    });
+    if (!data || !data.ok) return;
+    const parsed = parseMomentReaction(data.reply);
+    if (!parsed) return;
+
+    await addMomentLike(post.id, { authorType: 'character', characterId: character.id, name: character.name || '角色' });
+    if (parsed.comment) {
+      await addMomentComments(post.id, [{
+        authorType: 'character',
+        authorId: character.id,
+        name: character.name || '角色',
+        content: parsed.comment.slice(0, 120),
+        createdAt: Date.now(),
+      }]);
+    }
+    if (parsed.chat) await appendProactiveChatMessage(character.id, parsed.chat);
+    await addMemoryEntry({
+      category: 'event',
+      text: '你发了朋友圈「' + (post.text || '一张图片').slice(0, 60) + '」，' + (character.name || '角色')
+        + ' 点了赞' + (parsed.comment ? '并评论：' + parsed.comment : '') + (parsed.chat ? '，还在聊天里和你聊起这件事。' : '。'),
+    }, character.id);
+    if (viewMoments.classList.contains('active')) await refreshMomentsUI();
+  } catch (_) {
+    /* 角色反应失败不影响动态本身 */
+  } finally {
+    momentsReactionBusy = false;
+  }
+}
+
+async function discussMomentComment(post, comment) {
+  const character = await getCharacter(post.authorId);
+  if (!character) return;
+  const api = emailApiConfig();
+  if (!api.baseUrl || !api.apiKey || !api.model) return;
+  const system = await buildMomentReactionPrompt(character, character.id, post, comment);
+  const data = await requestMomentChat({
+    baseUrl: api.baseUrl,
+    apiKey: api.apiKey,
+    model: api.model,
+    system,
+    user: '请现在回应这条评论。',
+    maxTokens: 700,
+  });
+  if (!data || !data.ok) return;
+  const parsed = parseMomentReaction(data.reply);
+  if (!parsed || !parsed.chat) return;
+  await appendProactiveChatMessage(character.id, parsed.chat);
+  await addMemoryEntry({
+    category: 'event',
+    text: '用户在朋友圈评论了你的动态「' + (post.text || '').slice(0, 40) + '」：' + comment.content.slice(0, 60)
+      + '。你在聊天里回应：' + parsed.chat.slice(0, 80),
+  }, character.id);
+}
+
+async function submitMomentPost() {
+  const text = $('moments-compose-text').value.trim();
+  if (!text && !pendingMomentImage) { toast('写点文字或选一张配图再发布'); return; }
+  const identity = await momentsIdentity();
+  let imageId = null;
+  try {
+    if (pendingMomentImage) {
+      const blob = await fileToImage(pendingMomentImage, 1280);
+      imageId = genId();
+      await putFile({ id: imageId, name: 'moment-user-' + imageId, type: blob.type || 'image/jpeg', blob });
+    }
+  } catch (err) {
+    toast('配图保存失败：' + (err && err.message ? err.message : err));
+    return;
+  }
+  let post;
+  try {
+    post = await addMomentPost({
+      authorType: 'user',
+      authorName: identity.name,
+      text,
+      imageId,
+      imageDesc: '',
+    });
+  } catch (err) {
+    toast('发布失败：' + (err && err.message ? err.message : err));
+    return;
+  }
+  $('moments-compose-text').value = '';
+  clearPendingMomentImage();
+  $('moments-compose-panel').hidden = true;
+  toast('动态已发布');
+  await refreshMomentsUI();
+  reactToUserMoment(post).catch(() => {});
+}
+
+async function addUserMomentComment(postId, text) {
+  const content = String(text || '').trim();
+  if (!content) return;
+  const [moments, identity] = [await getMoments(), await momentsIdentity()];
+  const post = moments.posts.find((p) => p.id === postId);
+  if (!post) return;
+  const added = await addMomentComments(postId, [{
+    authorType: 'user',
+    name: identity.name,
+    content: content.slice(0, 200),
+    createdAt: Date.now(),
+  }]);
+  await refreshMomentsUI();
+  if (post.authorType === 'character' && post.authorId) {
+    await addMemoryEntry({
+      category: 'event',
+      text: '用户在朋友圈评论了你的动态「' + (post.text || '').slice(0, 40) + '」：' + content.slice(0, 60),
+    }, post.authorId);
+    discussMomentComment(post, added[0]).catch(() => {});
+  }
+}
+
+async function publishMomentNow() {
+  if (momentsGenerating) { toast('还在发布上一条，稍等一下'); return; }
+  const [moments, charsDoc] = [await getMoments(), await getCharacters()];
+  const bound = charsDoc.list.filter((c) => moments.settings.characterIds.includes(c.id));
+  if (!bound.length) {
+    toast('先在动态设置里勾选一个角色');
+    openMomentsSettings().catch(() => {});
+    return;
+  }
+  const character = bound[Math.floor(Math.random() * bound.length)];
+  momentsGenerating = true;
+  $('moments-status').textContent = '「' + (character.name || '角色') + '」正在拍照片、写动态…';
+  try {
+    await generateCharacterMoment(character.id);
+    await refreshMomentsUI();
+    toast('「' + (character.name || '角色') + '」发布了一条动态');
+  } catch (err) {
+    toast('发布失败：' + (err && err.message ? err.message : err));
+    await refreshMomentsUI();
+  } finally {
+    momentsGenerating = false;
+  }
+}
+
+async function runMomentsSchedule(options) {
+  const opt = options || {};
+  if (momentsGenerating) return { generated: 0, reason: 'busy' };
+  const now = Date.now();
+  if (!opt.force && now - momentsLastCheckAt < 60 * 1000) return { generated: 0, reason: 'throttled' };
+  momentsLastCheckAt = now;
+
+  const [moments, charsDoc, api] = [await getMoments(), await getCharacters(), emailApiConfig()];
+  if (!api.baseUrl || !api.apiKey || !api.model) return { generated: 0, reason: 'noapi' };
+  const bound = charsDoc.list.filter((c) => moments.settings.characterIds.includes(c.id));
+  if (!bound.length) return { generated: 0, reason: 'none' };
+
+  const intervalMs = moments.settings.intervalHours * 3600 * 1000;
+  const due = bound.filter((c) => now - (moments.settings.lastPostAt[c.id] || 0) >= intervalMs);
+  if (!due.length) return { generated: 0, reason: 'none' };
+
+  momentsGenerating = true;
+  let generated = 0;
+  let firstPost = null;
+  try {
+    for (const c of due.slice(0, 2)) {
+      try {
+        const post = await generateCharacterMoment(c.id);
+        generated++;
+        if (!firstPost) firstPost = { post, character: c };
+      } catch (_) { /* 单个角色失败不影响其它角色 */ }
+    }
+    await updateMomentSettings({ lastCheckedAt: Date.now() });
+  } finally {
+    momentsGenerating = false;
+  }
+  if (generated) {
+    if (firstPost) {
+      showPhoneNotice({
+        title: '动态 · ' + (firstPost.character.name || '角色') + ' 发布了新动态',
+        text: (firstPost.post.text || '发了一条带图动态').slice(0, 52),
+        characterId: firstPost.character.id,
+        target: 'moments',
+      });
+    }
+    if (viewMoments.classList.contains('active')) await refreshMomentsUI();
+  }
+  return { generated };
+}
+
+function startMomentsScheduler() {
+  if (momentsSchedulerTimer) return;
+  runMomentsSchedule().catch(() => {});
+  momentsSchedulerTimer = setInterval(() => { runMomentsSchedule().catch(() => {}); }, 2 * 60 * 1000);
+}
+
+$('btn-moments-back').addEventListener('click', () => showView(viewHome));
+$('btn-moments-settings').addEventListener('click', () => { openMomentsSettings().catch(() => {}); });
+$('btn-moments-settings-close').addEventListener('click', () => { $('moments-settings').hidden = true; });
+$('btn-moments-settings-save').addEventListener('click', async () => {
+  const ids = Array.from(document.querySelectorAll('.moment-char-check:checked')).map((el) => el.dataset.characterId);
+  let interval = parseInt($('moments-interval-hours').value, 10);
+  if (!Number.isFinite(interval)) interval = 24;
+  try {
+    await updateMomentSettings({ characterIds: ids, intervalHours: interval });
+    $('moments-settings').hidden = true;
+    await refreshMomentsUI();
+    toast(ids.length ? '已绑定 ' + ids.length + ' 个角色' : '已停止定时发布动态');
+  } catch (err) {
+    toast('保存失败：' + (err && err.message ? err.message : err));
+  }
+});
+$('btn-moments-publish-now').addEventListener('click', publishMomentNow);
+$('btn-moments-compose').addEventListener('click', () => {
+  $('moments-compose-panel').hidden = false;
+});
+$('btn-moments-compose-close').addEventListener('click', () => {
+  $('moments-compose-panel').hidden = true;
+});
+$('btn-moments-compose-submit').addEventListener('click', submitMomentPost);
+$('btn-moments-compose-image').addEventListener('click', () => $('file-moment-image').click());
+$('btn-moments-compose-image-clear').addEventListener('click', clearPendingMomentImage);
+$('file-moment-image').addEventListener('change', (e) => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  if (!f.type.startsWith('image/')) { toast('请选择图片文件'); return; }
+  if (pendingMomentImageUrl) URL.revokeObjectURL(pendingMomentImageUrl);
+  pendingMomentImage = f;
+  pendingMomentImageUrl = URL.createObjectURL(f);
+  setMomentComposePreview(pendingMomentImageUrl);
+});
+
+$('moments-feed').addEventListener('click', async (e) => {
+  const like = e.target.closest('[data-moment-like]');
+  if (like) {
+    const identity = await momentsIdentity();
+    await toggleMomentLike(like.dataset.momentLike, { authorType: 'user', name: identity.name });
+    await refreshMomentsUI();
+    return;
+  }
+  const toggle = e.target.closest('[data-moment-comment-toggle]');
+  if (toggle) {
+    const form = $('moments-feed').querySelector('[data-moment-comment-form="' + toggle.dataset.momentCommentToggle + '"]');
+    if (form) {
+      form.hidden = !form.hidden;
+      if (!form.hidden) {
+        const input = form.querySelector('input');
+        if (input) input.focus();
+      }
+    }
+    return;
+  }
+  const send = e.target.closest('[data-moment-comment-send]');
+  if (send) {
+    const postId = send.dataset.momentCommentSend;
+    const input = $('moments-feed').querySelector('[data-moment-comment-input="' + postId + '"]');
+    const text = input ? input.value.trim() : '';
+    if (!text) { toast('先写一句评论'); return; }
+    if (input) input.value = '';
+    await addUserMomentComment(postId, text);
+    return;
+  }
+  const delComment = e.target.closest('[data-moment-comment-delete]');
+  if (delComment) {
+    await deleteMomentComment(delComment.dataset.momentCommentPost, delComment.dataset.momentCommentDelete);
+    await refreshMomentsUI();
+    return;
+  }
+  const del = e.target.closest('[data-moment-delete]');
+  if (del) {
+    if (!window.confirm('删除这条动态？')) return;
+    await deleteMomentPost(del.dataset.momentDelete);
+    await refreshMomentsUI();
+    toast('动态已删除');
+  }
+});
+
+$('moments-feed').addEventListener('keydown', (e) => {
+  const input = e.target.closest('[data-moment-comment-input]');
+  if (!input) return;
+  if (e.key === 'Enter' && !e.isComposing) {
+    e.preventDefault();
+    const postId = input.dataset.momentCommentInput;
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    addUserMomentComment(postId, text).catch(() => {});
+  }
+});
+
+$('phone-notice').addEventListener('click', () => {
+  const box = $('phone-notice');
+  const characterId = box.dataset.characterId;
+  const target = box.dataset.target;
+  hidePhoneNotice();
+  if (target === 'moments') { openMoments().catch(() => {}); return; }
+  if (target === 'chat' && characterId) {
+    setActiveCharacter(characterId).then(() => openChat()).catch(() => {});
+    return;
+  }
   if (characterId) openDiary(characterId).catch(() => {});
 });
 
@@ -4213,6 +4834,7 @@ $('chk-keepalive').addEventListener('change', async () => {
   } catch (_) {}
   startMailScheduler();
   startDiaryScheduler();
+  startMomentsScheduler();
 })();
 
 // 回到前台时补检查一次邮箱 / 日记定时任务
@@ -4220,4 +4842,5 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) return;
   runEmailSchedule().catch(() => {});
   runDiarySchedule().catch(() => {});
+  runMomentsSchedule().catch(() => {});
 });
