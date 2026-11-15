@@ -29,7 +29,8 @@
 - 备份导出/导入走 `store.js` 的 `buildBackup()` / `applyBackup()`，图片在备份里转 base64 dataUrl。
 - 存取失败（尤其 `QuotaExceededError` 空间不足）要转成友好提示，别静默丢数据。
 - 改动存储结构时，旧数据要先迁移（见 `store.js` 的 `migrate()`），迁移成功再清理旧键。
-- 多角色结构：`characters` 文档存 `{ list, activeId }`；每个角色有独立头像（`avatarId` 指向 `files`）、聊天（`chatHistory:<角色id>`）、记忆（`memory:<角色id>`）。新增功能按角色取数时用当前角色 id，别写回全局单份文档。
+- 多角色结构：`characters` 文档存 `{ list, activeId }`；每个角色有独立头像（`avatarId` 指向 `files`）、聊天（`chatHistory:<角色id>`）、记忆（`memory:<角色id>`）。新增功能按角色取数时用当前角色 id，别写回全局单份文档。主屏入口名为「通讯录」，内部仍沿用角色数据结构。
+- 「我」（用户人设）存 `userProfiles` 文档：`{ list: [{ id, name, persona }], activeId }`，可保存多套；入口是通讯录顶部的「我」名片。当前人设由 `app.js` 的 `buildUserPersonaPrompt()` 注入聊天 system，只注入身份设定、不要求模型复述；备份随 `userProfiles` 一起导出导入。
 - 角色的语音、生图绑定存在角色记录里：`voice { enabled, voiceId, model }`、`image { enabled, prompt, referenceImageId }`；参考图 Blob 存 `files`，删除角色或换图时要清理旧文件。
 - 世界书条目用 `scope: global | character` + `characterId` 绑定角色；全局条目所有角色参与匹配，角色条目只给绑定角色。选择角色用下拉，不要把所有角色平铺成顶栏标签。
 - 角色记忆按「个人信息 / 约定与待办 / 事件与进展 / 风格偏好」四类，条目用稳定 id 存各角色的 `memory:<角色id>` 文档，预留向量检索扩展（按 id/text 扩展即可）。

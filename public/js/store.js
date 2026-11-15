@@ -193,6 +193,7 @@ const DB_VERSION = 1;
 const STORE_DOCS = 'documents';   // 各类结构化文档：角色、聊天记录、未来记忆/各 App 存档
 const STORE_FILES = 'files';      // 图片等二进制 Blob，用稳定 id 引用
 const DOC_CHARACTERS = 'characters';   // 角色列表：{ list: [...], activeId }
+const DOC_USER_PROFILES = 'userProfiles'; // 「我」的用户人设，可保存多套：{ list: [...], activeId }
 const DOC_CHARACTER = 'character';     // 旧版单角色文档（仅用于迁移 / 兼容旧备份）
 const DOC_CHAT = 'chatHistory';        // 旧版聊天文档（迁移用；新数据按角色分仓）
 const DOC_MEMORY = 'memory';           // 旧版记忆文档（迁移用；新数据按角色分仓）
@@ -1530,6 +1531,73 @@ async function deleteCharacter(id) {
   });
 }
 
+// ---------- 我（用户人设，可保存多套） ----------
+// 存在 userProfiles 文档：{ list: [{ id, name, persona }], activeId }
+// 当前人设由 app.js 注入聊天 system，让角色知道「我」是谁。
+function normalizeUserProfile(raw) {
+  if (!raw) return null;
+  return {
+    id: raw.id || genId(),
+    name: String(raw.name || '').trim(),
+    persona: String(raw.persona || ''),
+    createdAt: raw.createdAt || Date.now(),
+    updatedAt: raw.updatedAt || Date.now(),
+  };
+}
+
+async function getUserProfiles() {
+  const doc = await getDoc(DOC_USER_PROFILES);
+  const list = (doc && Array.isArray(doc.list))
+    ? doc.list.map((p) => normalizeUserProfile(p)).filter(Boolean)
+    : [];
+  let activeId = (doc && doc.activeId) || null;
+  if (!list.some((p) => p.id === activeId)) activeId = list.length ? list[0].id : null;
+  return { list, activeId };
+}
+
+async function getActiveUserProfile() {
+  const { list, activeId } = await getUserProfiles();
+  return list.find((p) => p.id === activeId) || null;
+}
+
+async function addUserProfile({ name, persona } = {}) {
+  const record = normalizeUserProfile({ name, persona });
+  await mutateDoc(DOC_USER_PROFILES, (doc) => {
+    if (!Array.isArray(doc.list)) doc.list = [];
+    doc.list.push(record);
+    if (!doc.activeId) doc.activeId = record.id;
+  });
+  return record;
+}
+
+async function updateUserProfile(id, patch) {
+  await mutateDoc(DOC_USER_PROFILES, (doc) => {
+    if (!Array.isArray(doc.list)) doc.list = [];
+    const p = doc.list.find((x) => x.id === id);
+    if (!p) return;
+    if (patch.name !== undefined) p.name = String(patch.name || '').trim();
+    if (patch.persona !== undefined) p.persona = String(patch.persona || '');
+    p.updatedAt = Date.now();
+  });
+}
+
+async function setActiveUserProfile(id) {
+  await mutateDoc(DOC_USER_PROFILES, (doc) => {
+    if (!Array.isArray(doc.list)) doc.list = [];
+    if (doc.list.some((p) => p.id === id)) doc.activeId = id;
+  });
+}
+
+async function deleteUserProfile(id) {
+  await mutateDoc(DOC_USER_PROFILES, (doc) => {
+    if (!Array.isArray(doc.list)) doc.list = [];
+    doc.list = doc.list.filter((p) => p.id !== id);
+    if (doc.activeId === id || !doc.list.some((p) => p.id === doc.activeId)) {
+      doc.activeId = doc.list.length ? doc.list[0].id : null;
+    }
+  });
+}
+
 // 当前角色（聊天、记忆默认都取当前角色）
 async function getChar() {
   const c = await getActiveCharacter();
@@ -1810,6 +1878,7 @@ async function buildBackup() {
   const voiceSettings = getVoiceSettings();
   const imageSettings = getImageSettings();
   const { list, activeId } = await getCharacters();
+  const userProfiles = await getUserProfiles();
   const files = {};
   const characters = [];
   const chats = {};
@@ -1887,6 +1956,7 @@ async function buildBackup() {
     books,
     characters,
     activeId,
+    userProfiles,
     chats,
     directives,
     stickers,
@@ -1950,6 +2020,15 @@ async function applyBackup(data) {
   }
 
   await putDoc({ id: DOC_CHARACTERS, list: characters, activeId });
+  // 「我」的人设：旧备份没有这一项时按空列表处理
+  const userProfiles = data.userProfiles || {};
+  const userProfileList = (Array.isArray(userProfiles.list) ? userProfiles.list : [])
+    .map((p) => normalizeUserProfile(p)).filter(Boolean);
+  let activeUserProfileId = userProfiles.activeId || null;
+  if (!userProfileList.some((p) => p.id === activeUserProfileId)) {
+    activeUserProfileId = userProfileList[0] ? userProfileList[0].id : null;
+  }
+  await putDoc({ id: DOC_USER_PROFILES, list: userProfileList, activeId: activeUserProfileId });
   const appearance = normalizeAppearance(data.appearance);
   await putDoc({
     id: DOC_APPEARANCE,

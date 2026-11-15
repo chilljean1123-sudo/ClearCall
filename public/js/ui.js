@@ -17,6 +17,7 @@ const viewChatStyle = $('view-chat-style');
 const viewEmail = $('view-email');
 const viewBooks = $('view-books');
 const viewDiary = $('view-diary');
+const viewUserProfile = $('view-user-profile');
 
 function showView(view) {
   document.querySelectorAll('.app-view').forEach((el) => el.classList.remove('active'));
@@ -998,6 +999,7 @@ async function renderCharactersUI() {
   const { list, activeId } = await getCharacters();
   const rows = await Promise.all(list.map(async (c) => ({ ...c, avatar: await getAvatarUrlById(c.avatarId) })));
   renderCharacterList(rows, activeId);
+  await renderMyProfileCard();
 }
 
 function renderCharacterList(characters, activeId) {
@@ -1006,7 +1008,7 @@ function renderCharacterList(characters, activeId) {
   if (!characters.length) {
     const empty = document.createElement('div');
     empty.className = 'memory-empty';
-    empty.textContent = '还没有角色。点「新建角色」创建人设；聊天和记忆会按角色分开保存。';
+    empty.textContent = '还没有联系人。点「新建联系人」创建人设；聊天和记忆会按联系人分开保存。';
     box.appendChild(empty);
     return;
   }
@@ -1096,14 +1098,14 @@ function renderCharacterForm(character, avatarUrl, refImageUrl) {
 
   const title = document.createElement('div');
   title.className = 'memory-form-title';
-  title.textContent = character ? '编辑角色' : '新建角色';
+  title.textContent = character ? '编辑联系人' : '新建联系人';
   box.appendChild(title);
 
   const name = document.createElement('input');
   name.id = 'char-name-input';
   name.className = 'wb-input';
   name.type = 'text';
-  name.placeholder = '角色名字，例如：小助手';
+  name.placeholder = '联系人名字，例如：小助手';
   name.value = (character && character.name) || '';
   box.appendChild(name);
 
@@ -1243,6 +1245,132 @@ function renderCharacterForm(character, avatarUrl, refImageUrl) {
   cancelBtn.className = 'fetch-btn';
   cancelBtn.textContent = '取消';
   cancelBtn.addEventListener('click', cancelCharacterForm);
+  btns.appendChild(saveBtn);
+  btns.appendChild(cancelBtn);
+  box.appendChild(btns);
+}
+
+// ===== 通讯录：我的主页（用户人设，可多套） =====
+async function renderMyProfileCard() {
+  const { list, activeId } = await getUserProfiles();
+  const active = list.find((p) => p.id === activeId) || null;
+  const nameEl = $('my-profile-name');
+  const avatarEl = $('my-profile-avatar');
+  const descEl = $('my-profile-summary');
+  const displayName = (active && active.name) || '我';
+  if (nameEl) nameEl.textContent = displayName;
+  if (avatarEl) avatarEl.textContent = displayName.trim().charAt(0) || '我';
+  if (descEl) {
+    const persona = active ? String(active.persona || '').trim() : '';
+    descEl.textContent = active
+      ? (persona || '已选择人设，点开编辑')
+      : '设置你在聊天里是谁，可添加多套人设';
+  }
+}
+
+function renderUserProfileList(profiles, activeId) {
+  const box = $('user-profile-list');
+  box.innerHTML = '';
+  if (!profiles.length) {
+    const empty = document.createElement('div');
+    empty.className = 'memory-empty';
+    empty.textContent = '还没有人设。点「新建人设」写下你的名字和自我介绍，聊天时会作为「我」注入。';
+    box.appendChild(empty);
+    return;
+  }
+  profiles.forEach((p) => {
+    const isActive = p.id === activeId;
+    const row = document.createElement('div');
+    row.className = 'char-item' + (isActive ? ' active' : '');
+    row.addEventListener('click', () => switchActiveUserProfile(p.id));
+
+    const avatar = document.createElement('div');
+    avatar.className = 'char-avatar';
+    avatar.innerHTML = charAvatarHTML('', p.name || '我');
+    row.appendChild(avatar);
+
+    const info = document.createElement('div');
+    info.className = 'char-info';
+
+    const nameRow = document.createElement('div');
+    nameRow.className = 'char-name-row';
+    const name = document.createElement('div');
+    name.className = 'char-name';
+    name.textContent = p.name || '未命名人设';
+    nameRow.appendChild(name);
+    if (isActive) {
+      const chip = document.createElement('span');
+      chip.className = 'char-active-chip';
+      chip.textContent = '当前';
+      nameRow.appendChild(chip);
+    }
+    info.appendChild(nameRow);
+
+    const persona = document.createElement('div');
+    persona.className = 'char-persona';
+    persona.textContent = String(p.persona || '').trim() || '未填写人设';
+    info.appendChild(persona);
+
+    const actions = document.createElement('div');
+    actions.className = 'char-actions';
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'memory-link';
+    editBtn.textContent = '编辑';
+    editBtn.addEventListener('click', (e) => { e.stopPropagation(); openUserProfileEdit(p.id); });
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'memory-link danger';
+    delBtn.textContent = '删除';
+    delBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteUserProfileConfirm(p.id); });
+    actions.appendChild(editBtn);
+    actions.appendChild(delBtn);
+    info.appendChild(actions);
+
+    row.appendChild(info);
+    box.appendChild(row);
+  });
+}
+
+// 渲染「新建 / 编辑我的人设」表单；profile 为空表示新增
+function renderUserProfileForm(profile) {
+  const box = $('user-profile-form');
+  box.innerHTML = '';
+  box.hidden = false;
+
+  const title = document.createElement('div');
+  title.className = 'memory-form-title';
+  title.textContent = profile ? '编辑人设' : '新建人设';
+  box.appendChild(title);
+
+  const name = document.createElement('input');
+  name.id = 'user-profile-name-input';
+  name.className = 'wb-input';
+  name.type = 'text';
+  name.placeholder = '你的名字，聊天里的称呼';
+  name.value = (profile && profile.name) || '';
+  box.appendChild(name);
+
+  const persona = document.createElement('textarea');
+  persona.id = 'user-profile-persona-input';
+  persona.className = 'wb-textarea';
+  persona.rows = 6;
+  persona.placeholder = '关于你：身份、性格、习惯、和联系人的关系…例如：25 岁设计师，话不多但很会接梗。';
+  persona.value = (profile && profile.persona) || '';
+  box.appendChild(persona);
+
+  const btns = document.createElement('div');
+  btns.className = 'wb-form-actions';
+  const saveBtn = document.createElement('button');
+  saveBtn.type = 'button';
+  saveBtn.className = 'fetch-btn';
+  saveBtn.textContent = '保存';
+  saveBtn.addEventListener('click', saveUserProfileForm);
+  const cancelBtn = document.createElement('button');
+  cancelBtn.type = 'button';
+  cancelBtn.className = 'fetch-btn';
+  cancelBtn.textContent = '取消';
+  cancelBtn.addEventListener('click', cancelUserProfileForm);
   btns.appendChild(saveBtn);
   btns.appendChild(cancelBtn);
   box.appendChild(btns);

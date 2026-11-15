@@ -26,6 +26,7 @@ let pendingAvatarUrl = '';
 let pendingRefImage = null;    // 生图参考图，同理暂存
 let pendingRefImageUrl = '';
 let iconUploadTarget = '';
+let editingUserProfileId = null; // 正在编辑的「我」的人设
 let pendingChatImage = null;   // 聊天里待发送的相册图片
 let pendingChatImageUrl = '';
 let toolLocationCoords = null; // 手机定位得到的真实坐标
@@ -528,6 +529,89 @@ async function deleteCharacterConfirm(id) {
   }
 }
 
+// ---- 通讯录：我的主页（用户人设，可保存多套） ----
+async function openUserProfile() {
+  cancelUserProfileForm();
+  const { list, activeId } = await getUserProfiles();
+  renderUserProfileList(list, activeId);
+  showView(viewUserProfile);
+}
+
+function openUserProfileAdd() {
+  editingUserProfileId = null;
+  renderUserProfileForm(null);
+}
+
+async function openUserProfileEdit(id) {
+  const { list } = await getUserProfiles();
+  const p = list.find((x) => x.id === id);
+  if (!p) return;
+  editingUserProfileId = id;
+  renderUserProfileForm(p);
+  const box = $('user-profile-form');
+  if (box && box.scrollIntoView) box.scrollIntoView({ block: 'nearest' });
+}
+
+function cancelUserProfileForm() {
+  editingUserProfileId = null;
+  const box = $('user-profile-form');
+  if (!box) return;
+  box.hidden = true;
+  box.innerHTML = '';
+}
+
+async function saveUserProfileForm() {
+  const name = $('user-profile-name-input').value.trim();
+  const persona = $('user-profile-persona-input').value;
+  if (!name) { toast('名字不能为空'); return; }
+  try {
+    if (editingUserProfileId) {
+      await updateUserProfile(editingUserProfileId, { name, persona });
+    } else {
+      const rec = await addUserProfile({ name, persona });
+      await setActiveUserProfile(rec.id);
+    }
+    editingUserProfileId = null;
+    cancelUserProfileForm();
+    await refreshUserProfiles();
+    toast('人设已保存');
+  } catch (err) {
+    toast('保存失败：' + (err && err.message ? err.message : err));
+  }
+}
+
+async function switchActiveUserProfile(id) {
+  try {
+    await setActiveUserProfile(id);
+    await refreshUserProfiles();
+    toast('已切换人设');
+  } catch (err) {
+    toast('切换失败：' + (err && err.message ? err.message : err));
+  }
+}
+
+async function deleteUserProfileConfirm(id) {
+  const { list } = await getUserProfiles();
+  const p = list.find((x) => x.id === id);
+  if (!p) return;
+  const ok = window.confirm('删除人设「' + (p.name || '未命名人设') + '」？');
+  if (!ok) return;
+  try {
+    await deleteUserProfile(id);
+    if (editingUserProfileId === id) cancelUserProfileForm();
+    await refreshUserProfiles();
+    toast('人设已删除');
+  } catch (err) {
+    toast('删除失败：' + (err && err.message ? err.message : err));
+  }
+}
+
+async function refreshUserProfiles() {
+  const { list, activeId } = await getUserProfiles();
+  renderUserProfileList(list, activeId);
+  await renderMyProfileCard();
+}
+
 function loadTriggerSettings() {
   const m = getTriggerModes();
   $('chk-instant').checked = m.instant;
@@ -799,6 +883,9 @@ async function currentChatPayload(message, priorHistory, characterId) {
   let persona = (c && c.persona) || '';
   const stylePrompt = buildChatStylePrompt(c && c.chatStyle);
   if (stylePrompt) persona += '\n\n' + stylePrompt;
+  const userProfile = await getActiveUserProfile();
+  const userPrompt = buildUserPersonaPrompt(userProfile);
+  if (userPrompt) persona += '\n\n' + userPrompt;
   const stickers = id ? await getStickers(id) : [];
   if (stickers.length) persona += '\n\n' + buildStickerPersonaInstruction(stickers);
 
@@ -824,6 +911,18 @@ async function currentChatPayload(message, priorHistory, characterId) {
     worldDepth: world.depth,
     directiveUsed: directive,
   };
+}
+
+// 让角色知道「我」是谁；只注入身份设定，不要求模型复述
+function buildUserPersonaPrompt(profile) {
+  if (!profile) return '';
+  const name = String(profile.name || '').trim();
+  const detail = String(profile.persona || '').trim();
+  if (!name && !detail) return '';
+  return '【关于对方（用户「我」）】' +
+    (name ? '正在和你聊天的人叫「' + name + '」。' : '') +
+    (detail ? '对方的设定：' + detail : '') +
+    '\n以上是对方的身份信息，理解即可，不要直接复述或解释这段设定。';
 }
 
 // 让角色知道可以主动发表情包；名称列表供模型选择
@@ -3569,6 +3668,13 @@ $('chat-style-grid').addEventListener('change', (e) => {
 // 角色应用
 $('btn-characters-back').addEventListener('click', () => showView(viewHome));
 $('btn-character-add').addEventListener('click', openCharacterAdd);
+// 通讯录：我的主页
+$('btn-my-profile').addEventListener('click', openUserProfile);
+$('btn-user-profile-back').addEventListener('click', async () => {
+  await renderCharactersUI();
+  showView(viewCharacters);
+});
+$('btn-user-profile-add').addEventListener('click', openUserProfileAdd);
 $('file-char-avatar').addEventListener('change', async (e) => {
   const f = e.target.files && e.target.files[0];
   e.target.value = '';

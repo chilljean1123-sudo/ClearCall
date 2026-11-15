@@ -51,7 +51,7 @@
           </button>
           <button class="app-icon" data-app="characters">
             <span class="app-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
-            <span class="app-name">角色</span>
+            <span class="app-name">通讯录</span>
           </button>
           <button class="app-icon" data-app="memory">
             <span class="app-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></span>
@@ -658,7 +658,7 @@
                 <button type="button" class="fetch-btn" id="btn-import">导入备份</button>
                 <input type="file" id="file-import" accept="application/json,.json" hidden />
               </div>
-              <span class="field-hint">备份包含 AI / 记忆 / 语音 / 生图设置、触发模式、通知与提示音、壁纸与图标、所有角色（含头像与参考图）、各自的聊天记录与记忆、世界书；导入会覆盖当前数据。备份文件内含 API Key，请妥善保管。</span>
+              <span class="field-hint">备份包含 AI / 记忆 / 语音 / 生图设置、触发模式、通知与提示音、壁纸与图标、所有联系人（含头像与参考图）、各自的聊天记录与记忆、「我」的多套人设、世界书；导入会覆盖当前数据。备份文件内含 API Key，请妥善保管。</span>
             </div>
           </details>
         </div>
@@ -785,21 +785,48 @@
         </div>
       </div>
 
-      <!-- 角色应用 -->
+      <!-- 通讯录应用 -->
       <div class="app-view" id="view-characters">
         <header class="app-header">
           <button class="back-btn" id="btn-characters-back" type="button">返回</button>
-          <span class="app-title">角色</span>
+          <span class="app-title">通讯录</span>
           <span class="app-header-spacer"></span>
         </header>
 
         <div class="characters-body">
-          <button type="button" class="fetch-btn" id="btn-character-add">新建角色</button>
-          <p class="wb-hint">每个角色有独立的人设、头像、聊天记录、记忆、世界书绑定，以及可选的语音与生图绑定；点角色卡片可切换当前角色。</p>
+          <button type="button" class="char-item my-card" id="btn-my-profile">
+            <span class="char-avatar" id="my-profile-avatar">我</span>
+            <span class="char-info">
+              <span class="char-name-row">
+                <span class="char-name" id="my-profile-name">我</span>
+                <span class="char-active-chip">当前人设</span>
+              </span>
+              <span class="char-persona" id="my-profile-summary">设置你在聊天里是谁，可添加多套人设</span>
+            </span>
+            <span class="char-chevron" aria-hidden="true">›</span>
+          </button>
+          <button type="button" class="fetch-btn" id="btn-character-add">新建联系人</button>
+          <p class="wb-hint">每个联系人都有独立的人设、头像、聊天记录、记忆、世界书绑定，以及可选的语音与生图绑定；点联系人卡片可切换当前聊天对象。</p>
           <div class="wb-form" id="character-form" hidden></div>
           <div class="char-list" id="character-list"></div>
           <input type="file" id="file-char-avatar" accept="image/*" hidden />
           <input type="file" id="file-char-ref" accept="image/*" hidden />
+        </div>
+      </div>
+
+      <!-- 通讯录 - 我（用户人设） -->
+      <div class="app-view" id="view-user-profile">
+        <header class="app-header">
+          <button class="back-btn" id="btn-user-profile-back" type="button">返回</button>
+          <span class="app-title">我</span>
+          <span class="app-header-spacer"></span>
+        </header>
+
+        <div class="characters-body">
+          <button type="button" class="fetch-btn" id="btn-user-profile-add">新建人设</button>
+          <p class="wb-hint">这里填写你在聊天里的身份。可以保存多套人设，点卡片切换当前使用的一套；当前人设会注入角色聊天的系统提示，让联系人知道「我」是谁。</p>
+          <div class="wb-form" id="user-profile-form" hidden></div>
+          <div class="char-list" id="user-profile-list"></div>
         </div>
       </div>
 
