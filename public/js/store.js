@@ -352,10 +352,14 @@ function normalizeIconIds(raw) {
 
 function normalizeAppearance(doc) {
   const d = doc || {};
+  const color = (v) => (/^#[0-9a-f]{6}$/i.test(String(v || '')) ? String(v).toLowerCase() : '');
   return {
     wallpaperId: d.wallpaperId || null,
     icons: normalizeIconIds(d.icons),
     statusBar: d.statusBar !== false,
+    bubbleColor: color(d.bubbleColor),
+    fontColor: color(d.fontColor),
+    fontFamily: String(d.fontFamily || '').trim().slice(0, 160),
   };
 }
 
@@ -369,6 +373,9 @@ function setAppearance(patch) {
     doc.wallpaperId = next.wallpaperId || null;
     doc.icons = normalizeIconIds(next.icons);
     doc.statusBar = next.statusBar !== false;
+    doc.bubbleColor = next.bubbleColor || '';
+    doc.fontColor = next.fontColor || '';
+    doc.fontFamily = next.fontFamily || '';
   });
 }
 
@@ -1722,11 +1729,17 @@ function memoryDocId(characterId) { return DOC_MEMORY + ':' + characterId; }
 
 async function getMemory(characterId) {
   const id = characterId || await getActiveCharacterId();
-  if (!id) return { entries: [], lastSummarizedCount: 0 };
+  if (!id) return { entries: [], longTerm: [], core: [], lastSummarizedCount: 0, longTermSourceCount: 0, coreSourceCount: 0 };
   const doc = await getDoc(memoryDocId(id));
+  const entries = (doc && Array.isArray(doc.entries)) ? doc.entries : [];
+  const longTerm = (doc && Array.isArray(doc.longTerm)) ? doc.longTerm : [];
   return {
-    entries: (doc && Array.isArray(doc.entries)) ? doc.entries : [],
+    entries,
+    longTerm,
+    core: (doc && Array.isArray(doc.core)) ? doc.core : [],
     lastSummarizedCount: (doc && typeof doc.lastSummarizedCount === 'number') ? doc.lastSummarizedCount : 0,
+    longTermSourceCount: Math.min((doc && typeof doc.longTermSourceCount === 'number') ? doc.longTermSourceCount : 0, entries.length),
+    coreSourceCount: Math.min((doc && typeof doc.coreSourceCount === 'number') ? doc.coreSourceCount : 0, longTerm.length),
   };
 }
 
@@ -1735,7 +1748,11 @@ async function mutateMemory(mutator, characterId) {
   if (!id) throw new Error('请先创建角色');
   return mutateDoc(memoryDocId(id), (doc) => {
     if (!Array.isArray(doc.entries)) doc.entries = [];
+    if (!Array.isArray(doc.longTerm)) doc.longTerm = [];
+    if (!Array.isArray(doc.core)) doc.core = [];
     if (typeof doc.lastSummarizedCount !== 'number') doc.lastSummarizedCount = 0;
+    if (typeof doc.longTermSourceCount !== 'number') doc.longTermSourceCount = 0;
+    if (typeof doc.coreSourceCount !== 'number') doc.coreSourceCount = 0;
     mutator(doc);
   });
 }
@@ -1777,6 +1794,43 @@ async function mergeMemoryEntries(newEntries, characterId) {
       const dup = doc.entries.some((e) => e.category === category && e.text.trim() === text);
       if (!dup) doc.entries.push({ id: genId(), category, text, createdAt: Date.now(), updatedAt: Date.now() });
     });
+  }, characterId);
+}
+
+// ---------- 长期记忆 / 核心记忆 ----------
+// 长期记忆：每 30 条短期记忆总结一条；核心记忆：每 5 条长期记忆总结一条。
+async function addLongTermMemory({ text, count }, characterId) {
+  const value = String(text || '').trim();
+  if (!value) return null;
+  const record = { id: genId(), text: value, count: Number(count) || 0, createdAt: Date.now() };
+  await mutateMemory((doc) => doc.longTerm.push(record), characterId);
+  return record;
+}
+
+async function addCoreMemory({ text }, characterId) {
+  const value = String(text || '').trim();
+  if (!value) return null;
+  const record = { id: genId(), text: value, createdAt: Date.now() };
+  await mutateMemory((doc) => doc.core.push(record), characterId);
+  return record;
+}
+
+async function deleteLongTermMemory(id, characterId) {
+  await mutateMemory((doc) => {
+    doc.longTerm = doc.longTerm.filter((x) => x.id !== id);
+  }, characterId);
+}
+
+async function deleteCoreMemory(id, characterId) {
+  await mutateMemory((doc) => {
+    doc.core = doc.core.filter((x) => x.id !== id);
+  }, characterId);
+}
+
+async function setMemoryTierCounts(patch, characterId) {
+  await mutateMemory((doc) => {
+    if (patch.longTermSourceCount !== undefined) doc.longTermSourceCount = Math.max(0, Number(patch.longTermSourceCount) || 0);
+    if (patch.coreSourceCount !== undefined) doc.coreSourceCount = Math.max(0, Number(patch.coreSourceCount) || 0);
   }, characterId);
 }
 
@@ -1920,7 +1974,11 @@ async function buildBackup() {
     const memDoc = (await getDoc(memoryDocId(c.id))) || {};
     memories[c.id] = {
       entries: Array.isArray(memDoc.entries) ? memDoc.entries : [],
+      longTerm: Array.isArray(memDoc.longTerm) ? memDoc.longTerm : [],
+      core: Array.isArray(memDoc.core) ? memDoc.core : [],
       lastSummarizedCount: memDoc.lastSummarizedCount || 0,
+      longTermSourceCount: memDoc.longTermSourceCount || 0,
+      coreSourceCount: memDoc.coreSourceCount || 0,
     };
   }
 
@@ -2038,6 +2096,9 @@ async function applyBackup(data) {
     wallpaperId: appearance.wallpaperId,
     icons: appearance.icons,
     statusBar: appearance.statusBar,
+    bubbleColor: appearance.bubbleColor,
+    fontColor: appearance.fontColor,
+    fontFamily: appearance.fontFamily,
   });
   const notification = normalizeNotification(data.notification);
   await putDoc({
@@ -2080,7 +2141,11 @@ async function applyBackup(data) {
     await putDoc({
       id: memoryDocId(c.id),
       entries: Array.isArray(mem.entries) ? mem.entries : [],
+      longTerm: Array.isArray(mem.longTerm) ? mem.longTerm : [],
+      core: Array.isArray(mem.core) ? mem.core : [],
       lastSummarizedCount: mem.lastSummarizedCount || 0,
+      longTermSourceCount: mem.longTermSourceCount || 0,
+      coreSourceCount: mem.coreSourceCount || 0,
     });
     const diary = normalizeDiaryDoc(diaries[c.id]);
     await putDoc({

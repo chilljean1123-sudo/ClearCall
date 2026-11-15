@@ -34,7 +34,8 @@
 - 聊天室从「切换」进入通讯录并选中联系人后，先播放全屏切换过场（居中头像 + 荧光旋转描边 + 角色名，有 `remark` 时显示备注），约 1.5 秒后再打开对应聊天窗口。
 - 角色的语音、生图绑定存在角色记录里：`voice { enabled, voiceId, model }`、`image { enabled, prompt, referenceImageId }`；参考图 Blob 存 `files`，删除角色或换图时要清理旧文件。
 - 世界书条目用 `scope: global | character` + `characterId` 绑定角色；全局条目所有角色参与匹配，角色条目只给绑定角色。选择角色用下拉，不要把所有角色平铺成顶栏标签。
-- 角色记忆按「个人信息 / 约定与待办 / 事件与进展 / 风格偏好」四类，条目用稳定 id 存各角色的 `memory:<角色id>` 文档，预留向量检索扩展（按 id/text 扩展即可）。
+- 角色记忆分三层存各角色的 `memory:<角色id>`：短期记忆 `entries`（按「个人信息 / 约定与待办 / 事件与进展 / 风格偏好」分类，稳定 id）、长期记忆 `longTerm`（每 30 条短期记忆总结 1 条）、核心记忆 `core`（每 5 条长期记忆总结 1 条）；用 `longTermSourceCount` / `coreSourceCount` 记录已归档数量，避免重复总结。总结优先走记忆摘要服务，失败或无配置时用本地摘要兜底；聊天注入顺序为核心 → 长期（最近 10 条）→ 最近 20 条短期。预留向量检索扩展（按 id/text 扩展即可）。
+- 聊天气泡颜色、字体与字体颜色存 `appearance` 的 `bubbleColor` / `fontFamily` / `fontColor`，由 `applyChatAppearance()` 写成 CSS 变量 `--user-bubble-bg` / `--chat-font-family` / `--chat-font-color`；留空表示恢复默认，只作用于聊天窗口，不改全局布局。
 - 聊天上下文：最近 20 条直接带上，更早内容整理成记忆总结注入 system；记忆服务独立配置，留空则复用聊天 AI 接口。
 - 聊天消息除文本外还有 `kind: location | image | sticker | transfer`，附件数据挂在消息上；相册图片 Blob 存 `files`，消息只存 `imageId`。系统指令存在该角色聊天文档的 `directive` 字段，注入下一轮回复后清除。
 - 表情包按角色存在 `stickers:<角色id>` 文档，只保存远程 URL 与名称；导入时自动绑定当前角色。角色主动发表情包用 `[[sticker:名称]]` 标记（兼容 id），标记可能和正文混在同一回复里，渲染层必须逐段解析成图片并剥离标记，不能把代码原样显示。

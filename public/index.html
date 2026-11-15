@@ -566,6 +566,38 @@
               </div>
 
               <div class="field">
+                <span class="field-label">聊天气泡颜色</span>
+                <div class="color-field">
+                  <input type="color" id="input-bubble-color" value="#4f8cff" />
+                  <span class="color-value" id="bubble-color-value">#4f8cff</span>
+                  <button type="button" class="memory-link" id="btn-bubble-color-clear">恢复默认</button>
+                </div>
+                <span class="field-hint">只改变「我」发出的气泡背景色。</span>
+              </div>
+
+              <div class="field">
+                <span class="field-label">聊天字体</span>
+                <input id="input-chat-font" type="text" list="chat-font-presets" placeholder="留空使用系统默认字体" autocomplete="off" />
+                <datalist id="chat-font-presets">
+                  <option value="PingFang SC, Microsoft YaHei, sans-serif">系统无衬线</option>
+                  <option value="Songti SC, SimSun, serif">宋体</option>
+                  <option value="Kaiti SC, KaiTi, STKaiti, serif">楷体</option>
+                  <option value="STXingkai, cursive">行楷</option>
+                </datalist>
+                <span class="field-hint">填写本机已安装的字体名，多个用逗号分隔；只作用于聊天窗口。</span>
+              </div>
+
+              <div class="field">
+                <span class="field-label">聊天字体颜色</span>
+                <div class="color-field">
+                  <input type="color" id="input-font-color" value="#e8eaef" />
+                  <span class="color-value" id="font-color-value">#e8eaef</span>
+                  <button type="button" class="memory-link" id="btn-font-color-clear">恢复默认</button>
+                </div>
+                <span class="field-hint">应用于聊天气泡与输入框文字，请选与气泡颜色对比明显的颜色。</span>
+              </div>
+
+              <div class="field">
                 <span class="field-label">应用图标</span>
                 <div class="icon-custom-list" id="icon-custom-list"></div>
                 <span class="field-hint">每个应用单独设置图标；设置后会隐藏该应用默认的线条图标与底图，不影响其它应用。</span>
@@ -658,7 +690,7 @@
                 <button type="button" class="fetch-btn" id="btn-import">导入备份</button>
                 <input type="file" id="file-import" accept="application/json,.json" hidden />
               </div>
-              <span class="field-hint">备份包含 AI / 记忆 / 语音 / 生图设置、触发模式、通知与提示音、壁纸与图标、所有联系人（含头像与参考图）、各自的聊天记录与记忆、「我」的多套人设、世界书；导入会覆盖当前数据。备份文件内含 API Key，请妥善保管。</span>
+              <span class="field-hint">备份包含 AI / 记忆 / 语音 / 生图设置、触发模式、通知与提示音、壁纸与图标、气泡颜色与聊天字体、所有联系人（含头像与参考图）、各自的聊天记录与三层记忆、「我」的多套人设、世界书；导入会覆盖当前数据。备份文件内含 API Key，请妥善保管。</span>
             </div>
           </details>
         </div>
@@ -848,9 +880,37 @@
         </header>
 
         <div class="memory-body">
-          <button type="button" class="fetch-btn" id="btn-memory-add">添加记忆</button>
-          <div class="memory-form" id="memory-form" hidden></div>
-          <div class="memory-list" id="memory-list"></div>
+          <section class="memory-section">
+            <div class="memory-section-head">
+              <div>
+                <div class="memory-section-title">短期记忆</div>
+                <div class="memory-section-sub">从聊天和应用里整理出的事实，点「整理」补充；每满 30 条自动总结成一条长期记忆</div>
+              </div>
+              <button type="button" class="fetch-btn memory-add-btn" id="btn-memory-add">添加</button>
+            </div>
+            <div class="memory-form" id="memory-form" hidden></div>
+            <div class="memory-list" id="memory-list"></div>
+          </section>
+
+          <section class="memory-section">
+            <div class="memory-section-head">
+              <div>
+                <div class="memory-section-title">长期记忆</div>
+                <div class="memory-section-sub">每 30 条短期记忆总结一条；每 5 条长期记忆再总结一条核心记忆</div>
+              </div>
+            </div>
+            <div class="memory-list" id="memory-long-list"></div>
+          </section>
+
+          <section class="memory-section">
+            <div class="memory-section-head">
+              <div>
+                <div class="memory-section-title">核心记忆</div>
+                <div class="memory-section-sub">从长期记忆里提炼出的最重要设定，聊天时会优先注入</div>
+              </div>
+            </div>
+            <div class="memory-list" id="memory-core-list"></div>
+          </section>
         </div>
       </div>
 

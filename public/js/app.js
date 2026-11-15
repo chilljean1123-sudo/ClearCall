@@ -69,6 +69,9 @@ let diaryLastCheckAt = 0;
 // 最近聊天直接带上；更早的内容交给记忆总结
 const RECENT_HISTORY_LIMIT = 20;
 const AUTO_SUMMARIZE_MIN_NEW = 20;
+// 记忆分层：30 条短期 → 1 条长期；5 条长期 → 1 条核心
+const MEMORY_LONG_TERM_BATCH = 30;
+const MEMORY_CORE_BATCH = 5;
 
 // 世界书关键词扫描最近多少条对话
 const WORLDBOOK_SCAN_LIMIT = 6;
@@ -888,7 +891,7 @@ function ensureConfigured() {
 async function currentChatPayload(message, priorHistory, characterId) {
   const id = characterId || await getActiveCharacterId();
   const c = id ? await getCharacter(id) : null;
-  const { entries } = await getMemory(id);
+  const memoryDoc = await getMemory(id);
   const worldbook = await getWorldbook();
   const world = buildWorldInfo(worldbook, worldbookScanText(priorHistory, message), id);
 
@@ -901,7 +904,7 @@ async function currentChatPayload(message, priorHistory, characterId) {
   const stickers = id ? await getStickers(id) : [];
   if (stickers.length) persona += '\n\n' + buildStickerPersonaInstruction(stickers);
 
-  const memory = formatMemory(entries);
+  const memory = formatMemoryLayers(memoryDoc);
   const directive = id ? await getPendingDirective(id) : '';
   let worldAfter = world.after || '';
   if (directive) {
@@ -1433,6 +1436,12 @@ async function openMemory() {
   await renderMemory();
   cancelMemoryForm();
   showView(viewMemory);
+  const characterId = await getActiveCharacterId();
+  if (characterId) {
+    consolidateMemory(characterId)
+      .then((changed) => { if (changed) renderMemory(); })
+      .catch(() => {});
+  }
 }
 
 function openMemoryAdd() {
@@ -1527,6 +1536,7 @@ async function rememberCallToMemory(characterId, startCount) {
   }
 
   await setLastSummarizedCount(history.length, characterId);
+  consolidateMemory(characterId).catch(() => {});
   if ((await getActiveCharacterId()) === characterId) toast('通话内容已写入记忆');
 }
 
@@ -1554,6 +1564,7 @@ async function summarizeChatToMemory() {
     const newEntries = data.entries || [];
     await mergeMemoryEntries(newEntries, characterId);
     await setLastSummarizedCount(history.length, characterId);
+    await consolidateMemory(characterId).catch(() => {});
     await renderMemory();
     toast('已整理 ' + newEntries.length + ' 条记忆');
   } catch (err) {
@@ -1582,8 +1593,108 @@ async function autoSummarizeIfNeeded() {
     if (data.ok) {
       await mergeMemoryEntries(data.entries || [], characterId);
       await setLastSummarizedCount(targetEnd, characterId);
+      consolidateMemory(characterId).catch(() => {});
     }
   } catch (_) { /* 自动整理失败静默 */ }
+}
+
+// ---- 记忆分层：短期每 30 条 -> 长期，长期每 5 条 -> 核心 ----
+function localMemoryDigest(content, max) {
+  const lines = String(content || '').split('\n').map((s) => s.trim()).filter(Boolean);
+  let text = lines.join('；');
+  if (!text) return '';
+  if (text.length > max) text = text.slice(0, max) + '…';
+  return text;
+}
+
+// 优先走记忆摘要服务；未配置或失败时用本地摘要兜底，保证内容不丢
+async function summarizeMemoryBatch(content, kind) {
+  const raw = String(content || '').trim();
+  if (!raw) return '';
+  const ms = getEffectiveMemorySettings();
+  if (ms.baseUrl && ms.apiKey && ms.model) {
+    try {
+      const data = await requestMemorySummary({
+        baseUrl: ms.baseUrl, apiKey: ms.apiKey, model: ms.model,
+        content: raw, existing: '',
+      });
+      if (data.ok && Array.isArray(data.entries) && data.entries.length) {
+        const merged = data.entries.map((e) => e.text).filter(Boolean).join('；').trim();
+        if (merged) return merged.slice(0, kind === 'core' ? 600 : 800);
+      }
+    } catch (_) { /* 走本地兜底 */ }
+  }
+  return localMemoryDigest(raw, kind === 'core' ? 500 : 700);
+}
+
+// 防止并发触发造成重复总结
+const memoryConsolidating = new Map();
+function consolidateMemory(characterId) {
+  if (!characterId) return Promise.resolve(false);
+  if (memoryConsolidating.has(characterId)) return memoryConsolidating.get(characterId);
+  const task = doConsolidateMemory(characterId).finally(() => memoryConsolidating.delete(characterId));
+  memoryConsolidating.set(characterId, task);
+  return task;
+}
+
+async function doConsolidateMemory(characterId) {
+  let changed = false;
+  let mem = await getMemory(characterId);
+
+  let guard = 0;
+  while (mem.entries.length - mem.longTermSourceCount >= MEMORY_LONG_TERM_BATCH && guard < 5) {
+    const start = mem.longTermSourceCount;
+    const batch = mem.entries.slice(start, start + MEMORY_LONG_TERM_BATCH);
+    const content = batch.map((e) => '[' + (MEMORY_CATEGORY_LABELS[e.category] || e.category) + '] ' + e.text).join('\n');
+    const text = await summarizeMemoryBatch(content, 'longTerm');
+    if (!text) break;
+    await addLongTermMemory({ text, count: batch.length }, characterId);
+    await setMemoryTierCounts({ longTermSourceCount: start + batch.length }, characterId);
+    changed = true;
+    guard += 1;
+    mem = await getMemory(characterId);
+  }
+
+  guard = 0;
+  while (mem.longTerm.length - mem.coreSourceCount >= MEMORY_CORE_BATCH && guard < 3) {
+    const start = mem.coreSourceCount;
+    const batch = mem.longTerm.slice(start, start + MEMORY_CORE_BATCH);
+    const text = await summarizeMemoryBatch(batch.map((x) => x.text).join('\n'), 'core');
+    if (!text) break;
+    await addCoreMemory({ text }, characterId);
+    await setMemoryTierCounts({ coreSourceCount: start + batch.length }, characterId);
+    changed = true;
+    guard += 1;
+    mem = await getMemory(characterId);
+  }
+
+  return changed;
+}
+
+async function deleteMemoryTierConfirm(kind, id) {
+  const label = kind === 'core' ? '核心记忆' : '长期记忆';
+  if (!window.confirm('删除这条' + label + '？')) return;
+  try {
+    if (kind === 'core') await deleteCoreMemory(id);
+    else await deleteLongTermMemory(id);
+    await renderMemory();
+    toast(label + '已删除');
+  } catch (err) {
+    toast('删除失败：' + (err && err.message ? err.message : err));
+  }
+}
+
+// 聊天注入：核心记忆 -> 长期记忆 -> 最近 20 条短期记忆
+function formatMemoryLayers(mem) {
+  if (!mem) return '';
+  const parts = [];
+  const core = (mem.core || []).map((x) => x.text).filter(Boolean);
+  if (core.length) parts.push('【核心记忆】\n' + core.join('\n'));
+  const longTerm = (mem.longTerm || []).slice(-10).map((x) => x.text).filter(Boolean);
+  if (longTerm.length) parts.push('【长期记忆】\n' + longTerm.join('\n'));
+  const short = formatMemory((mem.entries || []).slice(-20));
+  if (short) parts.push('【短期记忆】\n' + short);
+  return parts.join('\n\n');
 }
 
 // ---- 世界书：触发判定与提示词组装 ----
@@ -2408,7 +2519,7 @@ function parseEmailJson(text) {
 }
 
 async function buildEmailSystemPrompt(character, characterId) {
-  const { entries } = await getMemory(characterId);
+  const memoryDoc = await getMemory(characterId);
   const history = await getHistory(characterId);
   const email = await getEmail();
   const lastOut = email.mails.find((m) => m.characterId === characterId && m.direction === 'out');
@@ -2417,7 +2528,7 @@ async function buildEmailSystemPrompt(character, characterId) {
     '【角色人设】',
     (character.persona || '（暂无详细人设，请按角色名字的气质自然发挥）'),
     '【你记得的事】',
-    formatMemory(entries) || '（暂时没有长期记忆，请从日常写起）',
+    formatMemoryLayers(memoryDoc) || '（暂时没有长期记忆，请从日常写起）',
     '【最近的聊天片段】',
     historyToText(history.slice(-12)) || '（最近没有聊天记录）',
   ];
@@ -2724,7 +2835,7 @@ function parseDiaryJson(text) {
 }
 
 async function buildDiarySystemPrompt(character, characterId) {
-  const { entries } = await getMemory(characterId);
+  const memoryDoc = await getMemory(characterId);
   const history = await getHistory(characterId);
   const now = new Date();
   const week = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
@@ -2734,7 +2845,7 @@ async function buildDiarySystemPrompt(character, characterId) {
     '【角色人设】',
     (character.persona || '（暂无详细人设，请按角色名字的气质自然发挥）'),
     '【你记得的事】',
-    formatMemory(entries) || '（暂时没有长期记忆，请从今天的生活写起）',
+    formatMemoryLayers(memoryDoc) || '（暂时没有长期记忆，请从今天的生活写起）',
     '【最近的聊天片段】',
     historyToText(history.slice(-12)) || '（最近没有聊天记录）',
     '【今天的日期】',
@@ -3797,6 +3908,53 @@ $('chk-statusbar').addEventListener('change', async () => {
     await refreshAppearance();
   } catch (err) {
     toast('状态栏设置失败：' + (err && err.message ? err.message : err));
+  }
+});
+
+// 聊天气泡颜色 / 字体 / 字体颜色
+$('input-bubble-color').addEventListener('change', async () => {
+  try {
+    await setAppearance({ bubbleColor: $('input-bubble-color').value });
+    await refreshAppearance();
+    toast('气泡颜色已更新');
+  } catch (err) {
+    toast('气泡颜色保存失败：' + (err && err.message ? err.message : err));
+  }
+});
+$('btn-bubble-color-clear').addEventListener('click', async () => {
+  try {
+    await setAppearance({ bubbleColor: '' });
+    await refreshAppearance();
+    toast('已恢复默认气泡颜色');
+  } catch (err) {
+    toast('恢复失败：' + (err && err.message ? err.message : err));
+  }
+});
+$('input-font-color').addEventListener('change', async () => {
+  try {
+    await setAppearance({ fontColor: $('input-font-color').value });
+    await refreshAppearance();
+    toast('字体颜色已更新');
+  } catch (err) {
+    toast('字体颜色保存失败：' + (err && err.message ? err.message : err));
+  }
+});
+$('btn-font-color-clear').addEventListener('click', async () => {
+  try {
+    await setAppearance({ fontColor: '' });
+    await refreshAppearance();
+    toast('已恢复默认字体颜色');
+  } catch (err) {
+    toast('恢复失败：' + (err && err.message ? err.message : err));
+  }
+});
+$('input-chat-font').addEventListener('change', async () => {
+  try {
+    await setAppearance({ fontFamily: $('input-chat-font').value.trim() });
+    await refreshAppearance();
+    toast('聊天字体已更新');
+  } catch (err) {
+    toast('字体保存失败：' + (err && err.message ? err.message : err));
   }
 });
 

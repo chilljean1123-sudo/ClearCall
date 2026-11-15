@@ -369,6 +369,19 @@ body.statusbar-off .statusbar { visibility: hidden; }
 
 .field-hint { display: block; font-size: 11px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
 
+/* 颜色选择行（气泡 / 字体颜色） */
+.color-field { display: flex; align-items: center; gap: 10px; }
+.field .color-field input[type="color"] {
+  width: 46px;
+  height: 34px;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--card);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.color-value { font-size: 12px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
 /* ===== 通知设置 ===== */
 .notify-actions { display: flex; gap: 8px; margin-top: 8px; }
 .notify-actions .fetch-btn {
@@ -707,16 +720,18 @@ body.statusbar-off .statusbar { visibility: hidden; }
   white-space: pre-wrap;
 }
 .user-bubble {
-  background: var(--accent);
-  color: #fff;
+  background: var(--user-bubble-bg, var(--accent));
+  color: var(--chat-font-color, #fff);
   border-top-right-radius: 4px;
 }
 .assistant-bubble {
   background: var(--card);
   border: 1px solid var(--card-border);
-  color: var(--text);
+  color: var(--chat-font-color, var(--text));
   border-top-left-radius: 4px;
 }
+#view-chat { font-family: var(--chat-font-family, inherit); }
+#view-chat input, #view-chat textarea { font-family: inherit; }
 
 .typing-bubble { color: var(--muted); font-style: italic; }
 .error-bubble { border-color: rgba(255, 92, 92, 0.5); color: #ff8a8a; }
@@ -1291,6 +1306,27 @@ body.statusbar-off .statusbar { visibility: hidden; }
 .memory-textarea { font-family: inherit; resize: vertical; line-height: 1.5; }
 .memory-form-actions { display: flex; gap: 8px; }
 .memory-form-actions .fetch-btn { flex: 1 1 auto; padding: 9px 0; text-align: center; }
+
+/* 记忆三层：短期 / 长期 / 核心 */
+.memory-section { margin-bottom: 20px; }
+.memory-section:last-child { margin-bottom: 0; }
+.memory-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.memory-section-title { font-size: 15px; font-weight: 600; }
+.memory-section-sub { font-size: 11px; color: var(--muted); line-height: 1.55; margin-top: 3px; }
+.memory-add-btn { flex: 0 0 auto; padding: 6px 14px; font-size: 12px; }
+.memory-tier-item {
+  background: linear-gradient(180deg, rgba(79, 140, 255, 0.09), rgba(79, 140, 255, 0.03));
+  border: 1px solid rgba(79, 140, 255, 0.18);
+  border-radius: 12px;
+  padding: 11px 12px;
+}
+.memory-tier-meta { flex: 1 1 auto; font-size: 11px; color: var(--muted); margin-left: 8px; }
 
 /* ===== 回复触发模式设置 ===== */
 .divider { height: 1px; background: var(--card-border); margin: 18px 0; }

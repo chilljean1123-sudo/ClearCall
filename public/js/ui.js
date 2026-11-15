@@ -1484,7 +1484,34 @@ function applyAppearance(cfg, wallpaperUrl, iconUrls) {
   const chk = $('chk-statusbar');
   if (chk) chk.checked = !(cfg && cfg.statusBar === false);
 
+  applyChatAppearance(cfg);
+
   renderAppearancePreview(wallpaperUrl, urls);
+}
+
+// 气泡颜色 / 聊天字体 / 字体颜色：写进 CSS 变量，留空即恢复默认
+function applyChatAppearance(cfg) {
+  const root = document.documentElement.style;
+  const setOrRemove = (name, value) => {
+    if (value) root.setProperty(name, value);
+    else root.removeProperty(name);
+  };
+  setOrRemove('--user-bubble-bg', cfg && cfg.bubbleColor);
+  setOrRemove('--chat-font-color', cfg && cfg.fontColor);
+  setOrRemove('--chat-font-family', cfg && cfg.fontFamily);
+
+  const bubble = $('input-bubble-color');
+  const bubbleLabel = $('bubble-color-value');
+  const fontColor = $('input-font-color');
+  const fontColorLabel = $('font-color-value');
+  const font = $('input-chat-font');
+  const bubbleValue = (cfg && cfg.bubbleColor) || '#4f8cff';
+  const fontColorValue = (cfg && cfg.fontColor) || '#e8eaef';
+  if (bubble) bubble.value = bubbleValue;
+  if (bubbleLabel) bubbleLabel.textContent = (cfg && cfg.bubbleColor) ? bubbleValue : '默认';
+  if (fontColor) fontColor.value = fontColorValue;
+  if (fontColorLabel) fontColorLabel.textContent = (cfg && cfg.fontColor) ? fontColorValue : '默认';
+  if (font) font.value = (cfg && cfg.fontFamily) || '';
 }
 
 function renderAppearancePreview(wallpaperUrl, iconUrls) {
@@ -1553,16 +1580,63 @@ function renderIconCustomList(iconUrls) {
 // ===== 记忆应用渲染 =====
 async function renderMemory() {
   const list = $('memory-list');
+  const { entries, longTerm, core } = await getMemory();
   list.innerHTML = '';
-  const { entries } = await getMemory();
   if (!entries.length) {
     const empty = document.createElement('div');
     empty.className = 'memory-empty';
-    empty.textContent = '还没有记忆。点「整理」从聊天里总结，或点「添加记忆」手动写一条。';
+    empty.textContent = '还没有短期记忆。点「整理」从聊天里总结，或点「添加」手动写一条。';
     list.appendChild(empty);
+  } else {
+    entries.forEach((e) => list.appendChild(memoryEntryRow(e)));
+  }
+  renderMemoryTierList('memory-long-list', longTerm, '还没有长期记忆。短期记忆每满 30 条会自动总结一条。', 'longTerm');
+  renderMemoryTierList('memory-core-list', core, '还没有核心记忆。长期记忆每满 5 条会自动总结一条。', 'core');
+}
+
+// 长期 / 核心记忆：系统自动总结，可删除不准确的一条
+function renderMemoryTierList(boxId, items, emptyText, kind) {
+  const box = $(boxId);
+  if (!box) return;
+  box.innerHTML = '';
+  if (!items.length) {
+    const empty = document.createElement('div');
+    empty.className = 'memory-empty';
+    empty.textContent = emptyText;
+    box.appendChild(empty);
     return;
   }
-  entries.forEach((e) => list.appendChild(memoryEntryRow(e)));
+  items.slice().reverse().forEach((item) => {
+    const row = document.createElement('div');
+    row.className = 'memory-tier-item';
+
+    const head = document.createElement('div');
+    head.className = 'memory-item-head';
+    const chip = document.createElement('span');
+    chip.className = 'memory-chip';
+    chip.textContent = kind === 'core' ? '核心' : '长期';
+    head.appendChild(chip);
+
+    const meta = document.createElement('span');
+    meta.className = 'memory-tier-meta';
+    meta.textContent = item.createdAt ? new Date(item.createdAt).toLocaleDateString('zh-CN') : '';
+    head.appendChild(meta);
+
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'memory-link danger';
+    delBtn.textContent = '删除';
+    delBtn.addEventListener('click', () => deleteMemoryTierConfirm(kind, item.id));
+    head.appendChild(delBtn);
+    row.appendChild(head);
+
+    const text = document.createElement('div');
+    text.className = 'memory-item-text';
+    text.textContent = item.text;
+    row.appendChild(text);
+
+    box.appendChild(row);
+  });
 }
 
 function memoryEntryRow(e) {
