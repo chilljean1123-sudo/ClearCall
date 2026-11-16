@@ -209,6 +209,8 @@ const DOC_BOOK_PREFIX = 'book:';       // 单本书内容：章节正文 / 批�
 const DOC_BOOK_CHAT_PREFIX = 'bookChat:'; // 单本书的阅读讨论，按角色分仓
 const DOC_DIARY_PREFIX = 'diary:';     // 角色日记：按角色分仓
 const DEFAULT_DIARY_TIME = '22:00';    // 默认每天写日记的时间
+const DOC_SCHEDULE_PREFIX = 'schedule:'; // 角色日程：按角色分仓
+const DEFAULT_SCHEDULE_TIME = '07:00';   // 默认每天刷新日程的时间
 const LEGACY_CHARACTER_ID = 'character';
 
 let _dbPromise = null;
@@ -1456,6 +1458,105 @@ async function toggleDiaryTodo(characterId, entryId, todoId) {
   });
 }
 
+// ===== 日程 =====
+function scheduleDocId(characterId) { return DOC_SCHEDULE_PREFIX + characterId; }
+
+function normalizeClock(value) {
+  const m = String(value || '').trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return '';
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (!(h >= 0 && h <= 23) || !(min >= 0 && min <= 59)) return '';
+  return String(h).padStart(2, '0') + ':' + String(min).padStart(2, '0');
+}
+
+function addClockMinutes(clock, minutes) {
+  const [h, m] = clock.split(':').map(Number);
+  const total = Math.min(h * 60 + m + minutes, 23 * 60 + 59);
+  return String(Math.floor(total / 60)).padStart(2, '0') + ':' + String(total % 60).padStart(2, '0');
+}
+
+function normalizeScheduleTime(value) {
+  return normalizeClock(value) || DEFAULT_SCHEDULE_TIME;
+}
+
+function normalizeScheduleItem(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const title = String(raw.title || raw.activity || raw.what || '').trim();
+  const start = normalizeClock(raw.start || raw.time);
+  if (!title || !start) return null;
+  let end = normalizeClock(raw.end || raw.until || '');
+  if (!end || end <= start) end = addClockMinutes(start, 60);
+  return {
+    start,
+    end,
+    title,
+    place: String(raw.place || raw.location || '').trim(),
+    note: String(raw.note || raw.detail || '').trim(),
+  };
+}
+
+function normalizeScheduleDoc(doc) {
+  const d = doc || {};
+  return {
+    enabled: !!d.enabled,
+    time: normalizeScheduleTime(d.time),
+    lastRunDate: String(d.lastRunDate || '').slice(0, 10),
+    date: /^\d{4}-\d{2}-\d{2}$/.test(String(d.date || '')) ? String(d.date) : '',
+    items: (Array.isArray(d.items) ? d.items : [])
+      .map(normalizeScheduleItem)
+      .filter(Boolean)
+      .sort((a, b) => a.start.localeCompare(b.start)),
+    updatedAt: Number(d.updatedAt) || 0,
+  };
+}
+
+async function getSchedule(characterId) {
+  const id = characterId || await getActiveCharacterId();
+  if (!id) return normalizeScheduleDoc(null);
+  return normalizeScheduleDoc(await getDoc(scheduleDocId(id)));
+}
+
+function mutateSchedule(characterId, mutator) {
+  if (!characterId) return Promise.reject(new Error('请先创建角色'));
+  return mutateDoc(scheduleDocId(characterId), (doc) => {
+    const base = normalizeScheduleDoc(doc);
+    doc.enabled = base.enabled;
+    doc.time = base.time;
+    doc.lastRunDate = base.lastRunDate;
+    doc.date = base.date;
+    doc.items = base.items;
+    mutator(doc);
+    doc.items = (Array.isArray(doc.items) ? doc.items : [])
+      .map(normalizeScheduleItem)
+      .filter(Boolean)
+      .sort((a, b) => a.start.localeCompare(b.start));
+    doc.updatedAt = Date.now();
+  });
+}
+
+async function updateScheduleSettings(characterId, patch) {
+  await mutateSchedule(characterId, (doc) => {
+    if (patch.enabled !== undefined) doc.enabled = !!patch.enabled;
+    if (patch.time !== undefined) doc.time = normalizeScheduleTime(patch.time);
+    if (patch.lastRunDate !== undefined) doc.lastRunDate = String(patch.lastRunDate || '').slice(0, 10);
+  });
+}
+
+async function saveSchedule(characterId, payload) {
+  const items = (Array.isArray(payload && payload.items) ? payload.items : [])
+    .map(normalizeScheduleItem)
+    .filter(Boolean)
+    .sort((a, b) => a.start.localeCompare(b.start));
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(String((payload && payload.date) || '')) ? payload.date : diaryDateKey();
+  await mutateSchedule(characterId, (doc) => {
+    doc.date = date;
+    doc.items = items;
+    doc.lastRunDate = date;
+  });
+  return { date, items };
+}
+
 // 在一个事务里完成「读-改-写」，避免并发写丢字段
 function mutateDoc(id, mutator) {
   return new Promise((resolve, reject) => {
@@ -1713,6 +1814,7 @@ async function deleteCharacter(id) {
   try { await deleteDoc(memoryDocId(id)); } catch (_) {}
   try { await deleteDoc(stickerDocId(id)); } catch (_) {}
   try { await deleteDoc(diaryDocId(id)); } catch (_) {}
+  try { await deleteDoc(scheduleDocId(id)); } catch (_) {}
 
   // 论坛里解绑该角色；已发布的帖子保留作者名快照，避免内容凭空消失
   try {
@@ -2155,6 +2257,7 @@ async function buildBackup() {
   const stickers = {};
   const memories = {};
   const diaries = {};
+  const schedules = {};
 
   for (const c of list) {
     const chatDoc = (await getDoc(chatDocId(c.id))) || {};
@@ -2184,6 +2287,7 @@ async function buildBackup() {
     directives[c.id] = chatDoc.directive || '';
     stickers[c.id] = await getStickers(c.id);
     diaries[c.id] = await getDiary(c.id);
+    schedules[c.id] = await getSchedule(c.id);
     const memDoc = (await getDoc(memoryDocId(c.id))) || {};
     memories[c.id] = {
       entries: Array.isArray(memDoc.entries) ? memDoc.entries : [],
@@ -2239,6 +2343,7 @@ async function buildBackup() {
     stickers,
     memories,
     diaries,
+    schedules,
     worldbook: {
       entries: Array.isArray(wbDoc.entries) ? wbDoc.entries : [],
     },
@@ -2263,6 +2368,7 @@ async function applyBackup(data) {
   let directives = {};
   let stickers = {};
   const diaries = data.diaries || {};
+  const schedules = data.schedules || {};
   if (Array.isArray(data.characters)) {
     characters = data.characters.map((c) => normalizeCharacter(c)).filter(Boolean);
     activeId = data.activeId || (characters[0] && characters[0].id) || null;
@@ -2376,6 +2482,16 @@ async function applyBackup(data) {
       time: diary.time,
       lastWrittenDate: diary.lastWrittenDate,
       entries: diary.entries,
+    });
+    const schedule = normalizeScheduleDoc(schedules[c.id]);
+    await putDoc({
+      id: scheduleDocId(c.id),
+      enabled: schedule.enabled,
+      time: schedule.time,
+      lastRunDate: schedule.lastRunDate,
+      date: schedule.date,
+      items: schedule.items,
+      updatedAt: schedule.updatedAt,
     });
   }
 

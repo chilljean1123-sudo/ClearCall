@@ -15,6 +15,8 @@ let callCharacterId = null;
 let callStartedAt = 0;
 let callStartHistoryCount = 0;
 let callTimer = null;
+let callRingTimer = null;
+let callConnected = false;
 let callAudio = null;
 let callAudioUrl = '';
 let pendingCallMemory = null;
@@ -65,6 +67,12 @@ let diaryCharacterId = null;
 let diaryWriting = false;
 let diarySchedulerTimer = null;
 let diaryLastCheckAt = 0;
+
+// 日程
+let scheduleCharacterId = null;
+let scheduleGenerating = false;
+let scheduleSchedulerTimer = null;
+let scheduleLastCheckAt = 0;
 
 // 动态（朋友圈）
 let momentsGenerating = false;
@@ -686,17 +694,45 @@ async function startCall(characterId) {
   stopCallAudio();
   callActive = true;
   callCharacterId = characterId;
-  callStartedAt = Date.now();
-  if (callTimer) clearInterval(callTimer);
+  callStartedAt = 0;
+  if (callTimer) { clearInterval(callTimer); callTimer = null; }
+  if (callRingTimer) { clearTimeout(callRingTimer); callRingTimer = null; }
   setCallTimer(0);
-  callTimer = setInterval(() => {
-    setCallTimer(Math.floor((Date.now() - callStartedAt) / 1000));
-  }, 1000);
+  setCallConnected(false);
 
   $('input-call').value = '';
   await updateCallScreen(c);
-  setCallStatus(c.voice && c.voice.enabled ? '正在通话 · 语音已开启' : '正在通话');
+  setCallStatus('正在呼叫…');
   showView(viewCall);
+
+  // 模拟真实拨号：等待 2-4 秒后才接通
+  const ringDelay = 2000 + Math.floor(Math.random() * 2001);
+  callRingTimer = setTimeout(() => {
+    callRingTimer = null;
+    if (!callActive || callCharacterId !== characterId) return;
+    connectCall(c);
+  }, ringDelay);
+}
+
+function connectCall(character) {
+  callStartedAt = Date.now();
+  if (callTimer) clearInterval(callTimer);
+  callTimer = setInterval(() => {
+    setCallTimer(Math.floor((Date.now() - callStartedAt) / 1000));
+  }, 1000);
+  setCallConnected(true);
+  setCallStatus(character && character.voice && character.voice.enabled ? '正在通话 · 语音已开启' : '正在通话');
+}
+
+function setCallConnected(connected) {
+  callConnected = !!connected;
+  viewCall.classList.toggle('ringing', !callConnected);
+  const input = $('input-call');
+  input.disabled = !callConnected;
+  input.placeholder = callConnected ? '说点什么…' : '正在呼叫…';
+  $('btn-call-send').disabled = !callConnected;
+  $('btn-call-redial').disabled = !callConnected;
+  if (!callConnected) setCallTimer(0);
 }
 
 function endCall() {
@@ -704,8 +740,16 @@ function endCall() {
   const startCount = callStartHistoryCount;
   callActive = false;
   callCharacterId = null;
+  if (callRingTimer) { clearTimeout(callRingTimer); callRingTimer = null; }
   if (callTimer) { clearInterval(callTimer); callTimer = null; }
   setCallTimer(0);
+  viewCall.classList.remove('ringing');
+  const input = $('input-call');
+  input.disabled = false;
+  input.placeholder = '说点什么…';
+  $('btn-call-send').disabled = false;
+  $('btn-call-redial').disabled = false;
+  callConnected = false;
   setCallStatus('正在通话');
   stopCallAudio();
   showView(viewHome);
@@ -721,6 +765,7 @@ async function sendCallMessage() {
   const input = $('input-call');
   const msg = input.value.trim();
   if (!msg) return;
+  if (!callConnected) { toast('还在呼叫中，接通后才能说话'); return; }
   if (chatSending) { toast('对方正在回复…'); return; }
   const characterId = await getActiveCharacterId();
   if (!characterId) return;
@@ -734,6 +779,7 @@ async function sendCallMessage() {
 }
 
 async function redialCall() {
+  if (!callConnected) { toast('还在呼叫中，接通后再试'); return; }
   if (chatSending) { toast('对方正在回复…'); return; }
   if (!ensureConfigured()) return;
   const characterId = await getActiveCharacterId();
@@ -912,6 +958,9 @@ async function currentChatPayload(message, priorHistory, characterId) {
   if (userPrompt) persona += '\n\n' + userPrompt;
   const stickers = id ? await getStickers(id) : [];
   if (stickers.length) persona += '\n\n' + buildStickerPersonaInstruction(stickers);
+  const scheduleDoc = id ? await getSchedule(id) : null;
+  const schedulePrompt = buildScheduleContextPrompt(scheduleDoc);
+  if (schedulePrompt) persona += '\n\n' + schedulePrompt;
 
   const memory = formatMemoryLayers(memoryDoc);
   const directive = id ? await getPendingDirective(id) : '';
@@ -3045,6 +3094,217 @@ async function openDiaryFromTool() {
   await openDiary(id);
 }
 
+// ---------------- 日程 ----------------
+function parseScheduleJson(text) {
+  let s = String(text || '').trim();
+  s = s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  const start = s.indexOf('{');
+  const end = s.lastIndexOf('}');
+  if (start >= 0 && end > start) s = s.slice(start, end + 1);
+  try {
+    const data = JSON.parse(s);
+    const raw = Array.isArray(data) ? data : (data.items || data.schedule || data.list || []);
+    const items = raw
+      .map(normalizeScheduleItem)
+      .filter(Boolean)
+      .sort((a, b) => a.start.localeCompare(b.start))
+      .slice(0, 12);
+    if (items.length) return items;
+  } catch (_) {}
+  return null;
+}
+
+function scheduleWorldbookText(entries, characterId) {
+  const rows = (entries || [])
+    .filter((e) => e.scope !== 'character' || !e.characterId || e.characterId === characterId)
+    .slice(0, 40)
+    .map((e) => '· ' + (e.title || '设定') + '：' + String(e.content || '').replace(/\s+/g, ' ').trim())
+    .filter((row) => row.length > 4);
+  return rows.join('\n').slice(0, 3000);
+}
+
+async function buildScheduleSystemPrompt(character, characterId) {
+  const memoryDoc = await getMemory(characterId);
+  const history = await getHistory(characterId);
+  const worldbook = await getWorldbook();
+  const now = new Date();
+  const week = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+  const dateText = now.getFullYear() + '年' + (now.getMonth() + 1) + '月' + now.getDate() + '日 ' + week[now.getDay()];
+  const parts = [
+    '你正在为角色「' + (character.name || '角色') + '」安排今天（' + dateText + '）的日程。',
+    '【角色人设】',
+    (character.persona || '（暂无详细人设，请按角色名字与气质合理推断）'),
+    '【角色世界书】',
+    scheduleWorldbookText(worldbook, characterId) || '（暂无世界书，按人设合理推断）',
+    '【你记得的事】',
+    formatMemoryLayers(memoryDoc) || '（暂时没有长期记忆）',
+    '【最近的聊天片段】',
+    historyToText(history.slice(-8)) || '（最近没有聊天记录）',
+    '【生成要求】',
+    '1. 从角色真实生活视角出发，安排 6-9 个覆盖全天的时间段，从起床到睡前。',
+    '2. 必须符合人设的职业、性格、作息、所在世界和关系状态；有工作、上课、通勤就写具体内容。',
+    '3. 时间用 24 小时制 HH:MM，时间段不重叠，按时间升序，跨度不要出现空档太多。',
+    '4. 每个条目写清楚在做什么，具体、有生活感，不要空泛；地点和备注可以为空字符串。',
+    '5. 不要提到 AI、模型、提示词，也不要解释生成过程。',
+    '6. 只输出 JSON，格式：{"items":[{"start":"07:30","end":"08:10","title":"洗漱吃早饭","place":"家","note":""}]}',
+  ];
+  return parts.join('\n');
+}
+
+// 生成当天日程并写入存储与角色记忆
+async function generateCharacterSchedule(characterId) {
+  const character = await getCharacter(characterId);
+  if (!character) throw new Error('角色不存在或已被删除');
+  const api = emailApiConfig();
+  if (!api.baseUrl || !api.apiKey || !api.model) {
+    throw new Error('请先到设置里配置 AI 接口地址、API Key 和模型名');
+  }
+  const system = await buildScheduleSystemPrompt(character, characterId);
+  const data = await requestScheduleChat({
+    baseUrl: api.baseUrl,
+    apiKey: api.apiKey,
+    model: api.model,
+    system,
+    user: '请生成今天的日程。',
+    maxTokens: 1800,
+  });
+  if (!data || !data.ok) throw new Error((data && (data.reason || data.message)) || '日程生成失败');
+  const items = parseScheduleJson(data.reply);
+  if (!items) throw new Error('模型没有返回有效的日程，请稍后重试或换模型');
+
+  await saveSchedule(characterId, { date: diaryDateKey(), items });
+  await addMemoryEntry({
+    category: 'event',
+    text: '你今天的时间安排：' + items.map((i) => i.start + '-' + i.end + ' ' + i.title).join('；') + '。',
+  }, characterId);
+  return { character, items };
+}
+
+async function refreshSchedulePage(characterId) {
+  const id = characterId || scheduleCharacterId || await getActiveCharacterId();
+  if (!id) return;
+  const [character, schedule] = await Promise.all([getCharacter(id), getSchedule(id)]);
+  if (!character) return;
+  scheduleCharacterId = id;
+  renderSchedulePage(character, schedule);
+}
+
+async function openSchedule() {
+  const id = await getActiveCharacterId();
+  if (!id) {
+    toast('先在「角色」应用里创建并选择一个角色');
+    return;
+  }
+  scheduleCharacterId = id;
+  await refreshSchedulePage(id);
+  showView(viewSchedule);
+  runScheduleSchedule().catch(() => {});
+}
+
+async function refreshScheduleNow() {
+  const id = scheduleCharacterId || await getActiveCharacterId();
+  if (!id) { toast('请先选择一个角色'); return; }
+  if (scheduleGenerating) { toast('日程还在生成，稍等一下'); return; }
+  if (!ensureConfigured()) return;
+  scheduleGenerating = true;
+  const btn = $('btn-schedule-refresh');
+  if (btn) btn.disabled = true;
+  toast('正在安排今天的日程…');
+  try {
+    await generateCharacterSchedule(id);
+    await refreshSchedulePage(id);
+    toast('日程已更新');
+  } catch (err) {
+    toast('日程生成失败：' + (err && err.message ? err.message : err));
+  } finally {
+    scheduleGenerating = false;
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function saveScheduleSettingsFromPage() {
+  const id = scheduleCharacterId || await getActiveCharacterId();
+  if (!id) { toast('请先选择角色'); return; }
+  const enabled = $('schedule-auto-enabled').checked;
+  const time = $('input-schedule-time').value || '07:00';
+  await updateScheduleSettings(id, { enabled, time });
+  toast(enabled ? '已开启：每天 ' + time + ' 自动刷新日程' : '已关闭自动刷新日程');
+  await refreshSchedulePage(id);
+}
+
+// 定时检查：每个开启定时的角色每天最多生成一次，每次最多 2 个
+async function runScheduleSchedule(options) {
+  const opt = options || {};
+  if (scheduleGenerating) return { generated: 0, reason: 'busy' };
+  const now = Date.now();
+  if (!opt.force && now - scheduleLastCheckAt < 60 * 1000) return { generated: 0, reason: 'throttled' };
+  scheduleLastCheckAt = now;
+
+  const { list } = await getCharacters();
+  if (!list.length) return { generated: 0, reason: 'nocharacters' };
+  const api = emailApiConfig();
+  if (!api.baseUrl || !api.apiKey || !api.model) return { generated: 0, reason: 'noapi' };
+
+  const today = diaryDateKey();
+  const nowDate = new Date();
+  const nowMinutes = nowDate.getHours() * 60 + nowDate.getMinutes();
+  const due = [];
+  for (const c of list) {
+    const s = await getSchedule(c.id);
+    if (!s.enabled || s.lastRunDate === today) continue;
+    const [hh, mm] = s.time.split(':').map((x) => parseInt(x, 10) || 0);
+    if (nowMinutes < hh * 60 + mm) continue;
+    due.push(c);
+  }
+  if (!due.length) return { generated: 0, reason: 'none' };
+
+  scheduleGenerating = true;
+  let generated = 0;
+  let firstError = '';
+  try {
+    for (const c of due.slice(0, 2)) {
+      try {
+        await generateCharacterSchedule(c.id);
+        generated += 1;
+        if (viewSchedule.classList.contains('active') && scheduleCharacterId === c.id) {
+          await refreshSchedulePage(c.id);
+        }
+      } catch (err) {
+        firstError = firstError || (err && err.message ? err.message : String(err));
+      }
+    }
+    return { generated, reason: firstError && !generated ? 'error' : 'ok', error: firstError };
+  } finally {
+    scheduleGenerating = false;
+  }
+}
+
+function startScheduleScheduler() {
+  if (scheduleSchedulerTimer) return;
+  runScheduleSchedule().catch(() => {});
+  scheduleSchedulerTimer = setInterval(() => { runScheduleSchedule().catch(() => {}); }, 2 * 60 * 1000);
+}
+
+// 把角色「此刻在做什么」注入聊天 system，让回复带上当前状态
+function buildScheduleContextPrompt(schedule) {
+  if (!schedule || schedule.date !== diaryDateKey() || !Array.isArray(schedule.items) || !schedule.items.length) return '';
+  const d = new Date();
+  const clock = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  const nowItem = schedule.items.find((i) => clock >= i.start && clock < i.end);
+  const nextItem = schedule.items.find((i) => i.start > clock);
+  const lines = ['【你今天的日程（内部参考）】', '现在是 ' + clock + '。'];
+  if (nowItem) {
+    lines.push('这个时间段你正在：' + nowItem.title +
+      (nowItem.place ? '（' + nowItem.place + '）' : '') + '，' + nowItem.start + '-' + nowItem.end + '。');
+  } else {
+    lines.push('这个时间段没有明确安排，可能在休息或自由活动。');
+  }
+  if (nextItem) lines.push('接下来 ' + nextItem.start + ' 你要去' + nextItem.title + '。');
+  lines.push('今天的安排：' + schedule.items.map((i) => i.start + '-' + i.end + ' ' + i.title).join('；') + '。');
+  lines.push('让当前在做什么自然影响语气和话题（在忙、刚结束、正准备出门等）；不要逐条汇报日程，也不要提到日程表、系统或设定。');
+  return lines.join('\n');
+}
+
 
 $('tab-select').addEventListener('click', () => setModelMode('select'));
 $('tab-manual').addEventListener('click', () => setModelMode('manual'));
@@ -3655,6 +3915,8 @@ document.querySelectorAll('.app-icon, .dock-icon').forEach((btn) => {
       openMail();
     } else if (app === 'books') {
       openBooks();
+    } else if (app === 'schedule') {
+      openSchedule();
     } else if (app === 'settings') {
       loadSaved();
       loadTriggerSettings();
@@ -3786,6 +4048,11 @@ $('btn-chat-config').addEventListener('click', () => openCharacters('chat'));
 $('btn-chat-style-back').addEventListener('click', () => showView(viewChat));
 $('btn-chat-style-save').addEventListener('click', saveChatStyle);
 $('btn-diary-back').addEventListener('click', () => showView(viewChat));
+$('btn-schedule-back').addEventListener('click', () => showView(viewHome));
+$('btn-schedule-refresh').addEventListener('click', () => { refreshScheduleNow().catch(() => {}); });
+$('schedule-body').addEventListener('click', (e) => {
+  if (e.target.closest('#btn-schedule-save')) saveScheduleSettingsFromPage().catch(() => {});
+});
 $('btn-diary-write').addEventListener('click', () => writeDiaryNow(diaryCharacterId).catch(() => {}));
 $('chat-style-grid').addEventListener('change', (e) => {
   const input = e.target.closest('input[type="checkbox"]');
@@ -4834,6 +5101,7 @@ $('chk-keepalive').addEventListener('change', async () => {
   } catch (_) {}
   startMailScheduler();
   startDiaryScheduler();
+  startScheduleScheduler();
   startMomentsScheduler();
 })();
 
@@ -4842,5 +5110,6 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) return;
   runEmailSchedule().catch(() => {});
   runDiarySchedule().catch(() => {});
+  runScheduleSchedule().catch(() => {});
   runMomentsSchedule().catch(() => {});
 });

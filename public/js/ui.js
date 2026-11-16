@@ -17,6 +17,7 @@ const viewChatStyle = $('view-chat-style');
 const viewEmail = $('view-email');
 const viewBooks = $('view-books');
 const viewDiary = $('view-diary');
+const viewSchedule = $('view-schedule');
 const viewIconManager = $('view-icon-manager');
 const viewMoments = $('view-moments');
 
@@ -965,6 +966,117 @@ function renderDiaryPage(character, diary) {
     return;
   }
   diary.entries.forEach((entry) => body.appendChild(diaryNoteCard(entry)));
+}
+
+// ===== 日程 =====
+function scheduleNowClock() {
+  const d = new Date();
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
+function renderSchedulePage(character, schedule) {
+  const name = (character && character.name) || '角色';
+  $('schedule-title').textContent = name + '的日程';
+  const body = $('schedule-body');
+  if (!body) return;
+  body.innerHTML = '';
+
+  const now = new Date();
+  const todayKey = diaryDateKey(now);
+  const weekNames = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+
+  const hero = uiEl('div', 'schedule-today');
+  const heroMain = uiEl('div', 'schedule-today-main');
+  heroMain.appendChild(uiEl('div', 'schedule-today-day', String(now.getDate())));
+  const heroMeta = uiEl('div', 'schedule-today-meta');
+  heroMeta.appendChild(uiEl('div', 'schedule-today-week', weekNames[now.getDay()] + ' · 今天'));
+  heroMeta.appendChild(uiEl('div', 'schedule-today-month', now.getFullYear() + ' 年 ' + (now.getMonth() + 1) + ' 月'));
+  heroMain.appendChild(heroMeta);
+  hero.appendChild(heroMain);
+  hero.appendChild(uiEl('div', 'schedule-today-char', name));
+  body.appendChild(hero);
+
+  // 真实日历月视图
+  const cal = uiEl('div', 'schedule-cal');
+  cal.appendChild(uiEl('div', 'schedule-cal-title', now.getFullYear() + ' 年 ' + (now.getMonth() + 1) + ' 月'));
+  const week = uiEl('div', 'schedule-cal-week');
+  ['日', '一', '二', '三', '四', '五', '六'].forEach((w) => week.appendChild(uiEl('span', '', w)));
+  cal.appendChild(week);
+  const grid = uiEl('div', 'schedule-cal-grid');
+  const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).getDay();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const prevMonthDays = new Date(now.getFullYear(), now.getMonth(), 0).getDate();
+  for (let i = firstDay - 1; i >= 0; i -= 1) {
+    grid.appendChild(uiEl('div', 'schedule-cal-day muted', String(prevMonthDays - i)));
+  }
+  for (let d = 1; d <= daysInMonth; d += 1) {
+    grid.appendChild(uiEl('div', 'schedule-cal-day' + (d === now.getDate() ? ' today' : ''), String(d)));
+  }
+  cal.appendChild(grid);
+  body.appendChild(cal);
+
+  const agenda = uiEl('div', 'schedule-agenda');
+  const agendaHead = uiEl('div', 'schedule-agenda-head');
+  agendaHead.appendChild(uiEl('div', 'schedule-agenda-title', '今日安排'));
+  const items = (schedule && schedule.date === todayKey) ? (schedule.items || []) : [];
+  agendaHead.appendChild(uiEl('div', 'schedule-agenda-note', items.length ? '共 ' + items.length + ' 项' : '待生成'));
+  agenda.appendChild(agendaHead);
+
+  if (!items.length) {
+    agenda.appendChild(uiEl('div', 'schedule-empty', '今天还没有日程。点右上角「刷新」，让 ' + name + ' 按人设和世界书安排今天。'));
+  } else {
+    const clock = scheduleNowClock();
+    items.forEach((item) => {
+      const isNow = clock >= item.start && clock < item.end;
+      const row = uiEl('div', 'schedule-item' + (isNow ? ' now' : ''));
+      const time = uiEl('div', 'schedule-item-time');
+      time.appendChild(uiEl('span', 'schedule-item-time-start', item.start));
+      time.appendChild(uiEl('span', 'schedule-item-time-end', item.end));
+      row.appendChild(time);
+      const main = uiEl('div', 'schedule-item-body');
+      const title = uiEl('div', 'schedule-item-title');
+      title.appendChild(document.createTextNode(item.title));
+      if (isNow) title.appendChild(uiEl('span', 'schedule-item-now-tag', '进行中'));
+      main.appendChild(title);
+      const meta = [item.place, item.note].filter(Boolean).join(' · ');
+      if (meta) main.appendChild(uiEl('div', 'schedule-item-meta', meta));
+      row.appendChild(main);
+      agenda.appendChild(row);
+    });
+  }
+
+  // 定时刷新设置（按角色保存）
+  const cfg = schedule || {};
+  const settings = uiEl('details', 'drawer schedule-settings');
+  const head = uiEl('summary', 'drawer-head');
+  head.appendChild(uiEl('span', 'drawer-title', '定时刷新'));
+  head.appendChild(uiEl('span', 'drawer-arrow'));
+  settings.appendChild(head);
+  const settingsBody = uiEl('div', 'drawer-body');
+  const autoRow = uiEl('label', 'schedule-settings-row');
+  autoRow.appendChild(uiEl('span', '', '每天自动刷新'));
+  const autoInput = document.createElement('input');
+  autoInput.type = 'checkbox';
+  autoInput.id = 'schedule-auto-enabled';
+  autoInput.checked = !!cfg.enabled;
+  autoRow.appendChild(autoInput);
+  settingsBody.appendChild(autoRow);
+  const timeField = uiEl('label', 'field');
+  timeField.appendChild(uiEl('span', 'field-label', '刷新时间'));
+  const timeInput = document.createElement('input');
+  timeInput.type = 'time';
+  timeInput.id = 'input-schedule-time';
+  timeInput.value = cfg.time || '07:00';
+  timeField.appendChild(timeInput);
+  settingsBody.appendChild(timeField);
+  const saveBtn = uiEl('button', 'fetch-btn', '保存设置');
+  saveBtn.type = 'button';
+  saveBtn.id = 'btn-schedule-save';
+  settingsBody.appendChild(saveBtn);
+  settingsBody.appendChild(uiEl('p', 'schedule-hint', '到点后会参考人设、世界书和记忆重新生成本日日程，并把角色当前时段在做什么带进聊天。'));
+  settings.appendChild(settingsBody);
+  agenda.appendChild(settings);
+  body.appendChild(agenda);
 }
 
 // 小手机内的通知横幅（写日记等应用完成时提示）
