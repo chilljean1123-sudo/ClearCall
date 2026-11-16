@@ -69,6 +69,15 @@
 - 感知数据存 `perception` 文档：`{ timeEnabled, locationEnabled, location:{lat,lng,label,at}, weather:{address,text,temp,code,updatedAt}, lastActiveAt }`。设置 → 感知进入独立页；开启真实时间后在聊天/通话 system 注入当前日期、时段与「距上次说话多久」；开启真实地点用 `navigator.geolocation` 取坐标并反查城市；天气用 Open-Meteo 地理编码 + 预报接口，结果落在主屏时间下方，30 分钟内复用缓存。感知提示词只影响语气，禁止复述系统信息。
 - 备份导出/导入要覆盖所有新增结构化数据（`music` 已接入；`perception` 属于本机感知偏好，可不跨设备迁移）。
 
+## 安卓壳（android/）
+
+- `android/` 是 WebView 壳，加载 `BuildConfig.APP_URL`（Gradle 属性 `clearcallAppUrl` 或环境变量 `CLEARCALL_APP_URL`）；加载失败时弹原生输入框填写站点地址，存 `SharedPreferences`。
+- 全屏采用 edge-to-edge：隐藏系统栏，按 `displayCutout` 顶/左/右与手势区、输入法底部动态加安全内边距；WebView 不因旋转重建。
+- 侧边返回通过 `window.__handleAndroidBack()` 回到网页上一个页面（优先点当前页返回按钮），主屏再按一次才退出；键盘打开时先收起键盘。
+- 原生能力由 `ClearCallNative` 注入：`getShellState / notify / scheduleNotification / enableNativePush / disableNativePush / requestIgnoreBatteryOptimizations / openBatteryOptimizationSettings / saveTextFile`；网页端「设置 → 手机壳」按桥是否存在显示。备份与世界书导出在壳内走 `saveTextFile`（系统文件选择器），浏览器仍用 Blob 下载。
+- 推送走 WorkManager（`PushWorker`）+ 通知渠道，网页 `sendBrowserNotification()` 在壳内优先走原生。
+- GitHub Actions `.github/workflows/android.yml` 构建 debug APK 并上传 artifact；打 `v*` tag 时附加到 Release。
+
 ## 风格约束
 
 - 文案不指代性别：需要第三人称时统一用「那个人」，不写「她 / 他」。
@@ -119,6 +128,7 @@
 - 网易云扫码登录依赖用户自部署的 NeteaseCloudMusicApi 且需允许跨域；沙箱里无法实测，只能做代码级校验，界面必须把「填 API 地址」这一步说明清楚。
 - 壁纸必须给 `#view-home` 显式写 `background-size: cover; background-position: center; background-repeat: no-repeat;`，只改 inline `background-image` 会沿用 CSS 简写的 `auto`，大图只露左上角，看起来像「没换壁纸」。选图时同时兼容空 MIME 的手机相册文件（按扩展名判断）。
 - 天气使用免 Key 的 Open-Meteo：`geocoding-api.open-meteo.com/v1/search` 取坐标，`api.open-meteo.com/v1/forecast?current=temperature_2m,weather_code` 取实况；定位坐标反查城市用 `api.bigdatacloud.net/data/reverse-geocode-client`。天气失败时显示「天气暂时迷路了」，不能静默。
+- WebView 壳里不要调用 `webView.onPause()`，否则网页定时任务与后台保活会停；只在 `onResume` 里 `resumeTimers()`。返回键先判断输入法是否可见，再看网页返回栈，避免键盘打开时直接跳页。
 
 ## 待补充
 

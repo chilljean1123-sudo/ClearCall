@@ -25,6 +25,26 @@ const viewShop = $('view-shop');
 const viewFood = $('view-food');
 const viewMusic = $('view-music');
 const viewPerception = $('view-perception');
+const viewShell = $('view-shell');
+
+// 安卓壳侧边返回：优先关闭当前页，其次回主屏；主屏交给 Native 决定是否退出
+function androidBack() {
+  const active = document.querySelector('.app-view.active');
+  if (!active) return false;
+  const menu = $('chat-msg-menu');
+  if (menu && !menu.hidden) { menu.hidden = true; return true; }
+  if (active.id === 'view-call') {
+    const hangup = $('btn-call-hangup');
+    if (hangup && hangup.getBoundingClientRect().width > 0) { hangup.click(); return true; }
+  }
+  if (active.id === 'view-home') return false;
+  const backs = Array.from(active.querySelectorAll('.back-btn, .chat-back-circle'));
+  const back = backs.find((el) => el.getBoundingClientRect().width > 0 && !el.disabled);
+  if (back) { back.click(); return true; }
+  showView(viewHome);
+  return true;
+}
+window.__handleAndroidBack = androidBack;
 
 function showView(view) {
   document.querySelectorAll('.app-view').forEach((el) => el.classList.remove('active'));

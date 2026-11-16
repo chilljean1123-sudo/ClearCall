@@ -527,6 +527,17 @@
             <span class="settings-entry-arrow" aria-hidden="true"></span>
           </button>
 
+          <button type="button" class="settings-entry" id="btn-open-shell" hidden>
+            <span class="settings-entry-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2.5" width="12" height="19" rx="3"/><path d="M10.5 5.5h3"/><path d="m9.4 13 1.8 1.8 3.6-3.8"/></svg>
+            </span>
+            <span class="settings-entry-main">
+              <span class="settings-entry-title">手机壳</span>
+              <span class="settings-entry-sub">后台保护与原生推送</span>
+            </span>
+            <span class="settings-entry-arrow" aria-hidden="true"></span>
+          </button>
+
           <details class="drawer">
             <summary class="drawer-head">
               <span class="drawer-title">AI 接口</span>
@@ -923,6 +934,38 @@
             <div class="perception-future-row"><span>电量</span><span>正在路上</span></div>
             <div class="perception-future-row"><span>音乐</span><span>正在路上</span></div>
           </section>
+        </div>
+      </div>
+
+      <!-- 手机壳能力 -->
+      <div class="app-view" id="view-shell">
+        <header class="app-header">
+          <button class="back-btn" id="btn-shell-back" type="button">返回</button>
+          <span class="app-title">手机壳</span>
+          <span class="app-header-spacer"></span>
+        </header>
+        <div class="settings-body">
+          <p class="settings-note">让这台手机，更懂你的使用。</p>
+
+          <section class="perception-card">
+            <label class="perception-row">
+              <span class="perception-row-main">
+                <span class="perception-title">后台保护</span>
+                <span class="perception-sub">绕开省电限制，让消息准时抵达。</span>
+              </span>
+              <input type="checkbox" id="chk-shell-battery" class="perception-switch" />
+            </label>
+            <label class="perception-row">
+              <span class="perception-row-main">
+                <span class="perception-title">原生推送</span>
+                <span class="perception-sub">离开网页后，也能收到轻轻一响。</span>
+              </span>
+              <input type="checkbox" id="chk-shell-push" class="perception-switch" />
+            </label>
+          </section>
+
+          <p class="field-hint" id="shell-status-hint">在手机壳里开启。</p>
+          <p class="field-hint">首次打开若加载失败，会请你填写站点地址。</p>
         </div>
       </div>
 

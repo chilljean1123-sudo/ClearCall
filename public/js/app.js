@@ -356,6 +356,16 @@ async function ensureNotifyPermission() {
 }
 
 async function sendBrowserNotification(title, options) {
+  const native = shellBridge();
+  if (native && typeof native.notify === 'function') {
+    const state = shellState();
+    if (state.pushEnabled && state.notificationsGranted !== false) {
+      try {
+        native.notify(title, (options && (options.body || options.text)) || '');
+        return true;
+      } catch (_) {}
+    }
+  }
   if (!notifySupported() || Notification.permission !== 'granted') return false;
   const opts = Object.assign({ tag: 'clearcall-reply' }, options || {});
   try {
@@ -2508,15 +2518,19 @@ async function exportWorldbook() {
       exportedAt: new Date().toISOString(),
       entries,
     };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = '世界书-' + label + '-' + new Date().toISOString().slice(0, 10) + '.json';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    const text = JSON.stringify(data, null, 2);
+    const filename = '世界书-' + label + '-' + new Date().toISOString().slice(0, 10) + '.json';
+    if (!saveTextThroughShell(filename, text)) {
+      const blob = new Blob([text], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
     toast('世界书已导出');
   } catch (err) {
     toast('导出失败：' + (err && err.message ? err.message : err));
@@ -4417,6 +4431,64 @@ async function openPerception() {
   showView(viewPerception);
 }
 
+// ---- 安卓壳：后台保护 / 原生推送 ----
+function shellBridge() {
+  return window.ClearCallNative || null;
+}
+
+function shellState() {
+  const bridge = shellBridge();
+  if (!bridge || typeof bridge.getShellState !== 'function') return {};
+  try { return JSON.parse(bridge.getShellState()) || {}; } catch (_) { return {}; }
+}
+
+function saveTextThroughShell(filename, text) {
+  const bridge = shellBridge();
+  if (!bridge || typeof bridge.saveTextFile !== 'function') return false;
+  try {
+    bridge.saveTextFile(filename, text);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function refreshShellSettings() {
+  const battery = $('chk-shell-battery');
+  const push = $('chk-shell-push');
+  const hint = $('shell-status-hint');
+  if (!battery || !push || !hint) return;
+  if (!shellBridge()) {
+    battery.checked = false;
+    push.checked = false;
+    hint.textContent = '在手机壳里开启。';
+    return;
+  }
+  const state = shellState();
+  battery.checked = !!state.batteryUnrestricted;
+  push.checked = !!state.pushEnabled && state.notificationsGranted !== false;
+  if (!state.notificationsGranted) {
+    hint.textContent = '推送权限还没打开，去系统设置里允许。';
+  } else if (push.checked && battery.checked) {
+    hint.textContent = '后台保护与原生推送都已就绪。';
+  } else {
+    hint.textContent = '开启后，离开网页也能收到消息。';
+  }
+}
+
+function initNativeShell() {
+  const bridge = shellBridge();
+  const entry = $('btn-open-shell');
+  if (!bridge || !entry) return;
+  entry.hidden = false;
+  document.documentElement.classList.add('native-shell');
+  refreshShellSettings();
+  window.__refreshShellState = refreshShellSettings;
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) refreshShellSettings();
+  });
+}
+
 async function refreshWeather(force) {
   const p = await getPerception();
   const fresh = p.weather.updatedAt && Date.now() - p.weather.updatedAt < 30 * 60 * 1000;
@@ -5827,6 +5899,39 @@ $('btn-api-profile-del').addEventListener('click', deleteApiProfile);
 // 感知：真实时间 / 地点 / 天气
 $('btn-open-perception').addEventListener('click', () => { openPerception().catch(() => {}); });
 $('btn-perception-back').addEventListener('click', () => showView(viewSettings));
+
+// 手机壳：后台保护 / 原生推送
+if ($('btn-open-shell')) {
+  $('btn-open-shell').addEventListener('click', () => {
+    refreshShellSettings();
+    showView(viewShell);
+  });
+  $('btn-shell-back').addEventListener('click', () => showView(viewSettings));
+  $('chk-shell-battery').addEventListener('change', (e) => {
+    const bridge = shellBridge();
+    if (!bridge) { e.target.checked = false; toast('在手机壳里可用'); return; }
+    try {
+      if (e.target.checked) bridge.requestIgnoreBatteryOptimizations();
+      else bridge.openBatteryOptimizationSettings();
+    } catch (_) {
+      toast('没能打开系统设置');
+    }
+    setTimeout(refreshShellSettings, 900);
+  });
+  $('chk-shell-push').addEventListener('change', (e) => {
+    const bridge = shellBridge();
+    if (!bridge) { e.target.checked = false; toast('在手机壳里可用'); return; }
+    try {
+      if (e.target.checked) bridge.enableNativePush();
+      else bridge.disableNativePush();
+    } catch (_) {
+      e.target.checked = false;
+      toast('原生推送没能打开');
+      return;
+    }
+    setTimeout(refreshShellSettings, 900);
+  });
+}
 $('chk-perceive-time').addEventListener('change', async (e) => {
   try {
     await setPerception({ timeEnabled: e.target.checked });
@@ -6571,11 +6676,16 @@ $('btn-export').addEventListener('click', async () => {
   try {
     const backup = await buildBackup();
     const json = JSON.stringify(backup, null, 2);
+    const filename = 'clearcall-备份-' + new Date().toISOString().slice(0, 10) + '.json';
+    if (saveTextThroughShell(filename, json)) {
+      toast('备份已导出');
+      return;
+    }
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'clearcall-备份-' + new Date().toISOString().slice(0, 10) + '.json';
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -7502,6 +7612,7 @@ $('chk-keepalive').addEventListener('change', async () => {
   }
   loadSaved();
   initNavIcons();
+  initNativeShell();
   initHomeGestures();
   loadTriggerSettings();
   try { await refreshAppearance(); } catch (_) {}
