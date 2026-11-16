@@ -134,6 +134,67 @@ function setSettings(s) {
   localStorage.setItem(KEYS.modelMode, (s && s.modelMode) || 'select');
 }
 
+// ---------- 多套 AI 接口配置（localStorage） ----------
+const API_PROFILE_KEY = 'clearcall.apiProfiles';
+const API_ACTIVE_KEY = 'clearcall.apiProfileActive';
+
+function getApiProfiles() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(API_PROFILE_KEY) || '[]');
+    if (!Array.isArray(raw)) return [];
+    return raw.map((p) => ({
+      id: String((p && p.id) || ''),
+      name: String((p && p.name) || '').trim(),
+      baseUrl: String((p && p.baseUrl) || ''),
+      apiKey: String((p && p.apiKey) || ''),
+      model: String((p && p.model) || ''),
+      modelMode: (p && p.modelMode) === 'manual' ? 'manual' : 'select',
+    })).filter((p) => p.id && p.name);
+  } catch (_) {
+    return [];
+  }
+}
+
+function setApiProfiles(list) {
+  localStorage.setItem(API_PROFILE_KEY, JSON.stringify(Array.isArray(list) ? list : []));
+}
+
+function getActiveApiProfileId() {
+  return localStorage.getItem(API_ACTIVE_KEY) || '';
+}
+
+function setActiveApiProfileId(id) {
+  localStorage.setItem(API_ACTIVE_KEY, id || '');
+}
+
+// ---------- 网易云音乐（用户自建 API 地址 + 登录 cookie） ----------
+const MUSIC_KEYS = {
+  apiBase: 'clearcall.musicApiBase',
+  cookie: 'clearcall.musicNeteaseCookie',
+  nickname: 'clearcall.musicNeteaseName',
+};
+
+function getMusicApiBase() {
+  return localStorage.getItem(MUSIC_KEYS.apiBase) || '';
+}
+
+function setMusicApiBase(url) {
+  localStorage.setItem(MUSIC_KEYS.apiBase, String(url || '').trim().replace(/\/+$/, ''));
+}
+
+function getNeteaseCookie() {
+  return localStorage.getItem(MUSIC_KEYS.cookie) || '';
+}
+
+function setNeteaseCookie(cookie, nickname) {
+  localStorage.setItem(MUSIC_KEYS.cookie, String(cookie || ''));
+  if (nickname !== undefined) localStorage.setItem(MUSIC_KEYS.nickname, String(nickname || ''));
+}
+
+function getNeteaseNickname() {
+  return localStorage.getItem(MUSIC_KEYS.nickname) || '';
+}
+
 // ---------- 主动消息推送设置（localStorage） ----------
 function getCfSettings() {
   return {
@@ -276,6 +337,7 @@ const DOC_SCHEDULE_PREFIX = 'schedule:'; // 角色日程：按角色分仓
 const DEFAULT_SCHEDULE_TIME = '07:00';   // 默认每天刷新日程的时间
 const DOC_SHOP = 'shop';               // 商城：按角色分仓的购物车 + 订单记录
 const DOC_FOOD = 'food';               // 外卖：按角色分仓的购物车 + 订单记录
+const DOC_MUSIC = 'music';             // 音乐：本地歌曲 + 网易云导入曲目
 const LEGACY_CHARACTER_ID = 'character';
 
 let _dbPromise = null;
@@ -1898,6 +1960,101 @@ async function createFoodOrder(payload) {
   return order;
 }
 
+// ===== 音乐 =====
+function normalizeMusicTrack(raw) {
+  const t = raw || {};
+  const name = String(t.name || '').trim();
+  if (!name) return null;
+  return {
+    id: String(t.id || genId()),
+    name,
+    artist: String(t.artist || '').trim(),
+    album: String(t.album || '').trim(),
+    source: t.source === 'netease' ? 'netease' : 'local',
+    fileId: t.fileId ? String(t.fileId) : null,
+    neteaseId: t.neteaseId != null ? String(t.neteaseId) : null,
+    cover: String(t.cover || ''),
+    lyrics: String(t.lyrics || ''),
+    playlistName: String(t.playlistName || ''),
+    addedAt: Number(t.addedAt) || Date.now(),
+  };
+}
+
+function normalizeMusic(doc) {
+  const d = doc || {};
+  return {
+    tracks: (Array.isArray(d.tracks) ? d.tracks : [])
+      .map(normalizeMusicTrack)
+      .filter(Boolean),
+  };
+}
+
+async function getMusicLibrary() {
+  return normalizeMusic(await getDoc(DOC_MUSIC));
+}
+
+async function addMusicTracks(list) {
+  const incoming = (Array.isArray(list) ? list : []).map(normalizeMusicTrack).filter(Boolean);
+  if (!incoming.length) return [];
+  await mutateDoc(DOC_MUSIC, (doc) => {
+    const base = normalizeMusic(doc);
+    const known = new Set(base.tracks.map((t) => (t.source === 'netease' && t.neteaseId) ? 'n' + t.neteaseId : 'l' + t.name + '|' + t.artist));
+    incoming.forEach((t) => {
+      const key = (t.source === 'netease' && t.neteaseId) ? 'n' + t.neteaseId : 'l' + t.name + '|' + t.artist;
+      if (!known.has(key)) {
+        known.add(key);
+        base.tracks.unshift(t);
+      }
+    });
+    doc.tracks = base.tracks;
+  });
+  return getMusicLibrary();
+}
+
+// 本地歌曲：音频 Blob 存 files，曲目只留 fileId
+async function addLocalMusicTrack({ name, artist, blob, type, lyrics }) {
+  if (!blob) throw new Error('没有读到歌曲文件');
+  const fileId = genId();
+  await putFile({ id: fileId, name: name || 'music', type: type || blob.type || 'audio/mpeg', blob });
+  const track = normalizeMusicTrack({
+    id: 'track-' + fileId,
+    name: name || '未命名歌曲',
+    artist: artist || '本地歌曲',
+    source: 'local',
+    fileId,
+    lyrics: lyrics || '',
+  });
+  await mutateDoc(DOC_MUSIC, (doc) => {
+    const base = normalizeMusic(doc);
+    base.tracks.unshift(track);
+    doc.tracks = base.tracks;
+  });
+  return track;
+}
+
+async function updateMusicTrack(id, patch) {
+  await mutateDoc(DOC_MUSIC, (doc) => {
+    const base = normalizeMusic(doc);
+    const track = base.tracks.find((t) => t.id === id);
+    if (track) Object.assign(track, patch || {});
+    doc.tracks = base.tracks;
+  });
+}
+
+async function removeMusicTrack(id) {
+  let fileId = null;
+  await mutateDoc(DOC_MUSIC, (doc) => {
+    const base = normalizeMusic(doc);
+    const track = base.tracks.find((t) => t.id === id);
+    fileId = track && track.fileId;
+    doc.tracks = base.tracks.filter((t) => t.id !== id);
+  });
+  if (fileId) {
+    try { await deleteFile(fileId); } catch (_) {}
+    revokeFileUrl(fileId);
+  }
+}
+
 // 在一个事务里完成「读-改-写」，避免并发写丢字段
 function mutateDoc(id, mutator) {
   return new Promise((resolve, reject) => {
@@ -2687,6 +2844,7 @@ async function buildBackup() {
   const moments = await getMoments();
   const email = await getEmail();
   const books = await getBooksBackup();
+  const music = await getMusicLibrary();
   const appearanceFileIds = [
     appearance.wallpaperId,
     appearance.fontFileId,
@@ -2695,6 +2853,7 @@ async function buildBackup() {
     forum.profile.avatarId,
     forum.profile.coverId,
     ...moments.posts.map((p) => p.imageId),
+    ...music.tracks.map((t) => t.fileId),
   ].filter(Boolean);
   for (const fileId of appearanceFileIds) {
     const f = await getFile(fileId);
@@ -2719,6 +2878,7 @@ async function buildBackup() {
     moments,
     email,
     books,
+    music,
     characters,
     activeId,
     userProfiles,
@@ -2840,6 +3000,8 @@ async function applyBackup(data) {
     pending: email.pending,
   });
   await applyBooksBackup(data.books);
+  const music = normalizeMusic(data.music);
+  await putDoc({ id: DOC_MUSIC, tracks: music.tracks });
   for (const c of characters) {
     const chat = chats[c.id];
     await putDoc({

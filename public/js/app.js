@@ -141,6 +141,7 @@ function loadSaved() {
   $('input-cf-account').value = cf.accountId;
   $('input-cf-worker-url').value = cf.workerUrl;
   refreshCfStatus();
+  renderApiProfileSelect();
 }
 
 function save() {
@@ -173,6 +174,84 @@ function save() {
     workerUrl: $('input-cf-worker-url').value.trim().replace(/\/+$/, ''),
     workerName: getCfSettings().workerName || 'clearcall-autopush',
   });
+}
+
+// ---- 多套 API 配置：保存 / 切换 / 删除 ----
+function renderApiProfileSelect() {
+  const sel = $('select-api-profile');
+  if (!sel) return;
+  const profiles = getApiProfiles();
+  sel.innerHTML = '';
+  const empty = document.createElement('option');
+  empty.value = '';
+  empty.textContent = profiles.length ? '选择要切换的 API' : '还没有保存的配置';
+  sel.appendChild(empty);
+  profiles.forEach((p) => {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = p.name + (p.model ? ' · ' + p.model : '');
+    sel.appendChild(opt);
+  });
+  const activeId = getActiveApiProfileId();
+  if (activeId && profiles.some((p) => p.id === activeId)) sel.value = activeId;
+}
+
+function applyApiProfile(id) {
+  const profile = getApiProfiles().find((p) => p.id === id);
+  if (!profile) { toast('这套配置已经不存在了'); return; }
+  $('input-baseurl').value = profile.baseUrl;
+  $('input-apikey').value = profile.apiKey;
+  $('input-model').value = profile.model;
+  setModelMode(profile.modelMode);
+  ensureSelectOption(profile.model);
+  save();
+  setActiveApiProfileId(profile.id);
+  renderApiProfileSelect();
+  toast('已切换到「' + profile.name + '」');
+}
+
+function saveApiProfile() {
+  const baseUrl = $('input-baseurl').value.trim();
+  const apiKey = $('input-apikey').value.trim();
+  const model = getCurrentModel();
+  if (!baseUrl || !apiKey || !model) {
+    toast('先把接口地址、API Key 和模型填完整再保存');
+    return;
+  }
+  const profiles = getApiProfiles();
+  const nameInput = $('input-api-profile-name').value.trim();
+  const activeId = getActiveApiProfileId();
+  let profile = nameInput ? profiles.find((p) => p.name === nameInput) : profiles.find((p) => p.id === activeId);
+  if (!profile) {
+    const name = nameInput || '接口 ' + (profiles.length + 1);
+    profile = { id: 'api-' + Date.now().toString(36), name, baseUrl, apiKey, model, modelMode: getModelMode() };
+    profiles.unshift(profile);
+  } else {
+    profile.baseUrl = baseUrl;
+    profile.apiKey = apiKey;
+    profile.model = model;
+    profile.modelMode = getModelMode();
+    if (nameInput) profile.name = nameInput;
+  }
+  setApiProfiles(profiles);
+  setActiveApiProfileId(profile.id);
+  save();
+  $('input-api-profile-name').value = '';
+  renderApiProfileSelect();
+  toast('已保存「' + profile.name + '」');
+}
+
+function deleteApiProfile() {
+  const sel = $('select-api-profile');
+  const id = (sel && sel.value) || getActiveApiProfileId();
+  if (!id) { toast('先在下拉里选一套配置'); return; }
+  const profiles = getApiProfiles();
+  const profile = profiles.find((p) => p.id === id);
+  if (!profile) { toast('这套配置已经不存在了'); return; }
+  setApiProfiles(profiles.filter((p) => p.id !== id));
+  if (getActiveApiProfileId() === id) setActiveApiProfileId('');
+  renderApiProfileSelect();
+  toast('已删除「' + profile.name + '」，当前填写的接口不会变');
 }
 
 // ---- 美化：应用壁纸、单个图标与状态栏开关 ----
@@ -4198,6 +4277,361 @@ async function checkoutFood() {
   }
 }
 
+// ---------------- 音乐 ----------------
+let musicTracksCache = [];
+let musicNowId = null;
+let musicQrTimer = null;
+let musicQrKey = '';
+let musicShareTrackId = null;
+let musicLyricsTrackId = null;
+
+function musicApiBase() {
+  return getMusicApiBase().replace(/\/+$/, '');
+}
+
+async function neteaseGet(path) {
+  const base = musicApiBase();
+  if (!base) throw new Error('请先填写网易云 API 地址');
+  let res;
+  try {
+    res = await fetch(base + path);
+  } catch (_) {
+    throw new Error('连不上网易云 API，检查地址、跨域和部署状态');
+  }
+  if (!res.ok) throw new Error('网易云 API 返回 ' + res.status);
+  try {
+    return await res.json();
+  } catch (_) {
+    throw new Error('网易云 API 返回的不是 JSON');
+  }
+}
+
+function neteaseCookieQuery() {
+  const cookie = getNeteaseCookie();
+  return cookie ? '&cookie=' + encodeURIComponent(cookie) : '';
+}
+
+function isMusicPlaying() {
+  const audio = $('music-audio');
+  return !!(audio && audio.src && !audio.paused);
+}
+
+async function refreshMusicUI() {
+  const lib = await getMusicLibrary();
+  musicTracksCache = lib.tracks;
+  if (musicNowId && !musicTracksCache.some((t) => t.id === musicNowId)) {
+    musicNowId = null;
+    const audio = $('music-audio');
+    if (audio) { audio.pause(); audio.removeAttribute('src'); }
+  }
+  renderMusicList(musicTracksCache, musicNowId);
+  renderMusicNow(musicTracksCache.find((t) => t.id === musicNowId), isMusicPlaying());
+}
+
+async function openMusic() {
+  $('input-music-api').value = getMusicApiBase();
+  await refreshMusicUI();
+  showView(viewMusic);
+}
+
+async function openNeteaseSheet() {
+  $('input-music-api').value = getMusicApiBase();
+  $('music-netease-sheet').hidden = false;
+  if (getNeteaseCookie()) {
+    const name = getNeteaseNickname();
+    $('music-qr-status').textContent = name ? '已登录：' + name : '已登录，正在读取歌单…';
+    try { await loadNeteasePlaylists(); } catch (_) { /* 没网或地址变了就等重新扫码 */ }
+  }
+}
+
+async function importLocalMusicFiles(files) {
+  const list = Array.from(files || []);
+  if (!list.length) return;
+  let ok = 0;
+  for (const file of list) {
+    if (!(file.type.startsWith('audio/') || /\.(mp3|m4a|aac|wav|flac|ogg|opus)$/i.test(file.name))) continue;
+    try {
+      await addLocalMusicTrack({
+        name: file.name.replace(/\.[^.]+$/, ''),
+        artist: '本地歌曲',
+        blob: file,
+        type: file.type,
+      });
+      ok += 1;
+    } catch (err) {
+      toast('导入失败：' + file.name + '（' + (err && err.message ? err.message : err) + '）');
+    }
+  }
+  await refreshMusicUI();
+  if (ok) toast('已导入 ' + ok + ' 首本地歌曲');
+}
+
+async function musicTrackSrc(track) {
+  if (!track) return '';
+  if (track.source === 'local' && track.fileId) return (await getFileUrl(track.fileId)) || '';
+  if (track.neteaseId) return 'https://music.163.com/song/media/outer/url?id=' + encodeURIComponent(track.neteaseId) + '.mp3';
+  return '';
+}
+
+async function playMusicTrack(id) {
+  const audio = $('music-audio');
+  const track = musicTracksCache.find((t) => t.id === id);
+  if (!audio || !track) return;
+  if (musicNowId === id && audio.src && !audio.paused) {
+    audio.pause();
+    renderMusicNow(track, false);
+    renderMusicList(musicTracksCache, musicNowId);
+    return;
+  }
+  const src = await musicTrackSrc(track);
+  if (!src) { toast('这首歌暂时没有可播放的地址'); return; }
+  musicNowId = id;
+  audio.src = src;
+  try {
+    await audio.play();
+  } catch (_) {
+    toast('浏览器拦截了播放，再点一次试试');
+  }
+  renderMusicNow(track, !audio.paused);
+  renderMusicList(musicTracksCache, musicNowId);
+}
+
+function toggleMusicNow() {
+  const audio = $('music-audio');
+  const track = musicTracksCache.find((t) => t.id === musicNowId);
+  if (!audio || !track) return;
+  if (audio.paused) audio.play().catch(() => toast('播放失败，稍后再试'));
+  else audio.pause();
+  renderMusicNow(track, !audio.paused);
+  renderMusicList(musicTracksCache, musicNowId);
+}
+
+function openMusicLyrics(id) {
+  const track = musicTracksCache.find((t) => t.id === id);
+  if (!track) return;
+  musicLyricsTrackId = id;
+  $('input-music-lyrics').value = track.lyrics || '';
+  $('music-lyrics-sheet').hidden = false;
+}
+
+async function saveMusicLyrics() {
+  if (!musicLyricsTrackId) return;
+  await updateMusicTrack(musicLyricsTrackId, { lyrics: $('input-music-lyrics').value.trim() });
+  $('music-lyrics-sheet').hidden = true;
+  await refreshMusicUI();
+  toast('歌词已保存，分享时角色会读它');
+}
+
+async function openMusicShare(id) {
+  const track = musicTracksCache.find((t) => t.id === id);
+  if (!track) return;
+  musicShareTrackId = id;
+  $('music-share-track').textContent = '《' + track.name + '》' + (track.artist ? ' — ' + track.artist : '');
+  const { list, activeId } = await getCharacters();
+  if (!list.length) { toast('先在「通讯录」里创建一个角色'); return; }
+  fillShopCartCharacters(list, activeId || list[0].id, 'select-music-share-char');
+  $('music-share-sheet').hidden = false;
+}
+
+function parseLrcText(lrc) {
+  return String(lrc || '')
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\[[^\]]*\]/g, '').trim())
+    .filter(Boolean)
+    .slice(0, 40)
+    .join('\n');
+}
+
+async function fetchNeteaseLyrics(track) {
+  if (!track || !musicApiBase()) return '';
+  let id = track.neteaseId;
+  if (!id) {
+    const search = await neteaseGet('/search?keywords=' + encodeURIComponent([track.name, track.artist].filter(Boolean).join(' ')) + '&limit=1');
+    const song = search && search.result && search.result.songs && search.result.songs[0];
+    id = song && song.id;
+  }
+  if (!id) return '';
+  const data = await neteaseGet('/lyric?id=' + encodeURIComponent(id) + neteaseCookieQuery());
+  const lrc = data && data.lrc && data.lrc.lyric;
+  return lrc ? parseLrcText(lrc) : '';
+}
+
+async function resolveTrackLyrics(track) {
+  if (!track) return '';
+  if (track.lyrics) return track.lyrics;
+  try {
+    const lyrics = await fetchNeteaseLyrics(track);
+    if (lyrics) {
+      await updateMusicTrack(track.id, { lyrics });
+      track.lyrics = lyrics;
+      return lyrics;
+    }
+  } catch (_) { /* 没有配置网易云 API 时静默跳过 */ }
+  return '';
+}
+
+// 分享后让角色立即根据歌词说感受；失败不影响分享本身
+async function generateReplyForCharacter(characterId) {
+  if (chatSending) return;
+  if (!ensureConfigured()) return;
+  const history = await getHistory(characterId);
+  let i = history.length - 1;
+  while (i >= 0 && history[i].role === 'user') i--;
+  const pending = history.slice(i + 1);
+  if (!pending.length) return;
+  const combined = pending.map((m) => m.content).join('\n');
+  const payload = await currentChatPayload(combined, history.slice(0, history.length - pending.length), characterId);
+  const inChat = (await getActiveCharacterId()) === characterId && viewChat.classList.contains('active');
+  setChatSending(true);
+  if (inChat) await appendTyping();
+  let result;
+  try {
+    result = await requestReply(payload);
+  } catch (err) {
+    result = { ok: false, reason: '无法连接本地服务：' + (err && err.message ? err.message : err), hints: ['确认本地服务已启动'] };
+  }
+  if (inChat) removeTyping();
+  const replyMsg = (result && result.ok)
+    ? { role: 'assistant', content: result.reply }
+    : { role: 'assistant', content: '', error: true, errorReason: (result && result.reason) || '请求没有成功', errorHints: (result && result.hints) || [] };
+  if (await getCharacter(characterId)) {
+    await mutateHistory((arr) => arr.push(replyMsg), characterId);
+    if (inChat) {
+      await renderChat();
+      if (result && result.ok) autoPlayChatReply(result.reply).catch(() => {});
+    }
+    if (result && result.ok) notifyCharacterReply(characterId, result.reply).catch(() => {});
+  }
+  setChatSending(false);
+}
+
+async function sendMusicToCharacter() {
+  const track = musicTracksCache.find((t) => t.id === musicShareTrackId);
+  const characterId = $('select-music-share-char').value;
+  if (!track) { toast('这首歌已经不在音乐库里了'); return; }
+  if (!characterId) { toast('先选择一个角色'); return; }
+  const character = await getCharacter(characterId);
+  if (!character) { toast('这个角色已经被删除了'); return; }
+  const btn = $('btn-music-share-send');
+  if (btn) btn.disabled = true;
+  try {
+    const lyrics = await resolveTrackLyrics(track);
+    const snippet = lyrics ? lyrics.slice(0, 600) : '';
+    const content = '我给你分享了一首歌《' + track.name + '》' +
+      (track.artist ? '，' + track.artist : '') + '。' +
+      (snippet ? '\n歌词：\n' + snippet : '\n（这首暂时没有歌词，就凭歌名和歌手聊聊你的感受吧。）');
+    await mutateHistory((arr) => arr.push({
+      role: 'user',
+      content,
+      kind: 'music',
+      music: {
+        name: track.name,
+        artist: track.artist,
+        cover: track.cover,
+        lyrics: snippet,
+        source: track.source,
+      },
+      createdAt: Date.now(),
+    }), characterId);
+    await addMemoryEntry({
+      category: 'event',
+      text: '对方给你分享了歌曲《' + track.name + '》' + (track.artist ? '（' + track.artist + '）' : '') +
+        (snippet ? '，歌词里提到：' + snippet.slice(0, 100) : '，没有歌词文本') + '。',
+    }, characterId);
+    $('music-share-sheet').hidden = true;
+    toast('已分享给「' + character.name + '」');
+    generateReplyForCharacter(characterId).catch(() => {});
+  } catch (err) {
+    toast('分享失败：' + (err && err.message ? err.message : err));
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function stopMusicQrPolling() {
+  if (musicQrTimer) { clearInterval(musicQrTimer); musicQrTimer = null; }
+}
+
+async function startNeteaseQr() {
+  setMusicApiBase($('input-music-api').value);
+  if (!musicApiBase()) { toast('先填写网易云 API 地址'); return; }
+  stopMusicQrPolling();
+  $('music-qr-wrap').hidden = true;
+  $('music-playlists').innerHTML = '';
+  try {
+    const keyData = await neteaseGet('/login/qr/key?timestamp=' + Date.now());
+    const key = keyData && keyData.data && (keyData.data.unikey || keyData.data.key);
+    if (!key) throw new Error('接口没有返回二维码 key');
+    musicQrKey = key;
+    const qr = await neteaseGet('/login/qr/create?key=' + encodeURIComponent(key) + '&qrimg=true&timestamp=' + Date.now());
+    const qrimg = qr && qr.data && qr.data.qrimg;
+    if (!qrimg) throw new Error('二维码生成失败');
+    $('music-qr-img').src = String(qrimg).startsWith('data:') ? qrimg : 'data:image/png;base64,' + qrimg;
+    $('music-qr-wrap').hidden = false;
+    $('music-qr-status').textContent = '打开网易云 App 扫码，并在手机上确认登录';
+    musicQrTimer = setInterval(() => { checkNeteaseQr().catch(() => {}); }, 2500);
+  } catch (err) {
+    toast('二维码生成失败：' + (err && err.message ? err.message : err));
+  }
+}
+
+async function checkNeteaseQr() {
+  if (!musicQrKey) return;
+  try {
+    const data = await neteaseGet('/login/qr/check?key=' + encodeURIComponent(musicQrKey) + '&timestamp=' + Date.now());
+    const code = Number(data && data.code);
+    if (code === 800) {
+      stopMusicQrPolling();
+      $('music-qr-status').textContent = '二维码已过期，重新生成';
+    } else if (code === 801) {
+      $('music-qr-status').textContent = '等待扫码…';
+    } else if (code === 802) {
+      $('music-qr-status').textContent = '已扫码，请在手机上确认登录';
+    } else if (code === 803) {
+      stopMusicQrPolling();
+      $('music-qr-status').textContent = '登录成功，正在读取歌单…';
+      if (data.cookie) setNeteaseCookie(data.cookie, getNeteaseNickname());
+      await loadNeteasePlaylists();
+    }
+  } catch (_) {}
+}
+
+async function loadNeteasePlaylists() {
+  const account = await neteaseGet('/user/account?timestamp=' + Date.now() + neteaseCookieQuery());
+  const profile = account && account.profile;
+  if (!profile) throw new Error('登录状态无效，重新扫码');
+  setNeteaseCookie(getNeteaseCookie(), profile.nickname || '');
+  const data = await neteaseGet('/user/playlist?uid=' + encodeURIComponent(profile.userId) + '&timestamp=' + Date.now() + neteaseCookieQuery());
+  renderMusicPlaylists((data && data.playlist) || [], profile.nickname || '');
+  $('music-playlists').scrollIntoView({ block: 'nearest' });
+  toast('登录成功，选择要导入的歌单');
+}
+
+async function importNeteasePlaylist(playlistId, playlistName) {
+  if (!playlistId) return;
+  toast('正在导入「' + (playlistName || '歌单') + '」…');
+  try {
+    const data = await neteaseGet('/playlist/detail?id=' + encodeURIComponent(playlistId) + '&timestamp=' + Date.now() + neteaseCookieQuery());
+    const playlist = data && data.playlist;
+    const songs = (playlist && playlist.tracks) || [];
+    if (!songs.length) throw new Error('歌单里没有可导入的歌曲');
+    const tracks = songs.slice(0, 100).map((s) => ({
+      name: s.name,
+      artist: (s.ar || []).map((a) => a.name).filter(Boolean).join('/'),
+      album: s.al && s.al.name,
+      cover: s.al && s.al.picUrl,
+      neteaseId: s.id,
+      source: 'netease',
+      playlistName: (playlist && playlist.name) || playlistName,
+    }));
+    await addMusicTracks(tracks);
+    await refreshMusicUI();
+    toast('已导入 ' + tracks.length + ' 首到音乐库');
+  } catch (err) {
+    toast('导入失败：' + (err && err.message ? err.message : err));
+  }
+}
+
 $('tab-select').addEventListener('click', () => setModelMode('select'));
 $('tab-manual').addEventListener('click', () => setModelMode('manual'));
 
@@ -4813,6 +5247,8 @@ document.querySelectorAll('.app-icon, .dock-icon').forEach((btn) => {
       openShop();
     } else if (app === 'food') {
       openFood();
+    } else if (app === 'music') {
+      openMusic().catch(() => {});
     } else if (app === 'settings') {
       loadSaved();
       loadTriggerSettings();
@@ -5183,6 +5619,18 @@ $('btn-test').addEventListener('click', async () => {
   }
 });
 
+// 多套 API 配置：切换 / 保存 / 删除
+$('select-api-profile').addEventListener('change', (e) => {
+  if (e.target.value) applyApiProfile(e.target.value);
+});
+$('btn-api-profile-use').addEventListener('click', () => {
+  const id = $('select-api-profile').value;
+  if (!id) { toast('先在下拉里选一套配置'); return; }
+  applyApiProfile(id);
+});
+$('btn-api-profile-save').addEventListener('click', saveApiProfile);
+$('btn-api-profile-del').addEventListener('click', deleteApiProfile);
+
 // 角色聊天导航
 $('btn-chat-back').addEventListener('click', () => { closeChatCharMenu(); closeChatSheet(); closeChatMsgMenu(); exitChatSelectMode(); showView(viewHome); });
 $('btn-chat-switch').addEventListener('click', (e) => {
@@ -5315,6 +5763,68 @@ $('select-food-cart-char').addEventListener('change', (e) => {
   refreshFoodCart().catch(() => {});
 });
 $('btn-food-checkout').addEventListener('click', () => { checkoutFood().catch(() => {}); });
+
+// 音乐事件
+$('btn-music-back').addEventListener('click', () => showView(viewHome));
+$('btn-music-settings').addEventListener('click', () => { openNeteaseSheet().catch(() => {}); });
+$('btn-music-netease').addEventListener('click', () => { openNeteaseSheet().catch(() => {}); });
+$('btn-music-import').addEventListener('click', () => $('file-music').click());
+$('file-music').addEventListener('change', (e) => {
+  const files = Array.from(e.target.files || []);
+  e.target.value = '';
+  importLocalMusicFiles(files).catch(() => {});
+});
+$('music-list').addEventListener('click', (e) => {
+  const playBtn = e.target.closest('[data-music-play]');
+  if (playBtn) { playMusicTrack(playBtn.dataset.musicPlay).catch(() => {}); return; }
+  const lyricsBtn = e.target.closest('[data-music-lyrics]');
+  if (lyricsBtn) { openMusicLyrics(lyricsBtn.dataset.musicLyrics); return; }
+  const shareBtn = e.target.closest('[data-music-share]');
+  if (shareBtn) { openMusicShare(shareBtn.dataset.musicShare).catch(() => {}); return; }
+  const delBtn = e.target.closest('[data-music-delete]');
+  if (delBtn) {
+    const track = musicTracksCache.find((t) => t.id === delBtn.dataset.musicDelete);
+    if (!track) return;
+    if (!window.confirm('删除《' + track.name + '》？本地音频文件也会一起清除。')) return;
+    removeMusicTrack(track.id)
+      .then(refreshMusicUI)
+      .catch((err) => toast('删除失败：' + (err && err.message ? err.message : err)));
+  }
+});
+$('btn-music-now-toggle').addEventListener('click', toggleMusicNow);
+$('btn-music-now-share').addEventListener('click', () => {
+  if (!musicNowId) { toast('先播放一首歌'); return; }
+  openMusicShare(musicNowId).catch(() => {});
+});
+$('music-audio').addEventListener('play', () => {
+  renderMusicNow(musicTracksCache.find((t) => t.id === musicNowId), true);
+  renderMusicList(musicTracksCache, musicNowId);
+});
+$('music-audio').addEventListener('pause', () => {
+  renderMusicNow(musicTracksCache.find((t) => t.id === musicNowId), false);
+  renderMusicList(musicTracksCache, musicNowId);
+});
+$('music-audio').addEventListener('ended', () => {
+  renderMusicNow(musicTracksCache.find((t) => t.id === musicNowId), false);
+  renderMusicList(musicTracksCache, musicNowId);
+});
+$('music-audio').addEventListener('error', () => {
+  if (musicNowId) toast('这首歌播放失败，可能是版权或网络问题');
+});
+$('btn-music-netease-close').addEventListener('click', () => {
+  stopMusicQrPolling();
+  $('music-netease-sheet').hidden = true;
+});
+$('btn-music-qr').addEventListener('click', () => { startNeteaseQr().catch(() => {}); });
+$('music-playlists').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-music-playlist]');
+  if (!btn) return;
+  importNeteasePlaylist(btn.dataset.musicPlaylist, btn.dataset.musicPlaylistName).catch(() => {});
+});
+$('btn-music-share-close').addEventListener('click', () => { $('music-share-sheet').hidden = true; });
+$('btn-music-share-send').addEventListener('click', () => { sendMusicToCharacter().catch(() => {}); });
+$('btn-music-lyrics-close').addEventListener('click', () => { $('music-lyrics-sheet').hidden = true; });
+$('btn-music-lyrics-save').addEventListener('click', () => { saveMusicLyrics().catch(() => {}); });
 
 $('btn-diary-write').addEventListener('click', () => writeDiaryNow(diaryCharacterId).catch(() => {}));
 $('chat-style-grid').addEventListener('change', (e) => {

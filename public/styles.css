@@ -281,6 +281,8 @@ body.statusbar-off .statusbar { visibility: hidden; }
 .app-glyph.glyph-books:not(.custom-icon), .icon-manager-glyph.glyph-books:not(.custom-icon) { --glyph-cutout: var(--color-surface); background: var(--color-surface); }
 .app-glyph.glyph-schedule:not(.custom-icon), .icon-manager-glyph.glyph-schedule:not(.custom-icon) { --glyph-cutout: var(--color-accent-light); background: var(--color-accent-light); }
 .app-glyph.glyph-shop:not(.custom-icon), .icon-manager-glyph.glyph-shop:not(.custom-icon) { --glyph-cutout: var(--color-accent-light); background: var(--color-accent-light); }
+.app-glyph.glyph-food:not(.custom-icon), .icon-manager-glyph.glyph-food:not(.custom-icon) { --glyph-cutout: var(--color-surface); background: var(--color-surface); }
+.app-glyph.glyph-music:not(.custom-icon), .icon-manager-glyph.glyph-music:not(.custom-icon) { --glyph-cutout: var(--color-accent-light); background: var(--color-accent-light); }
 .app-glyph.glyph-phone:not(.custom-icon), .icon-manager-glyph.glyph-phone:not(.custom-icon) { --glyph-cutout: var(--color-accent); background: var(--color-accent); }
 .app-glyph.glyph-chat:not(.custom-icon), .icon-manager-glyph.glyph-chat:not(.custom-icon) { --glyph-cutout: var(--color-accent-light); background: var(--color-accent-light); }
 .app-glyph.glyph-characters:not(.custom-icon), .icon-manager-glyph.glyph-characters:not(.custom-icon) { --glyph-cutout: var(--color-surface); background: var(--color-surface); }
@@ -4592,4 +4594,366 @@ body.statusbar-off .statusbar { visibility: hidden; }
   font-size: var(--font-body-sm);
   font-weight: 600;
   color: var(--color-accent);
+}
+
+/* ===== 多套 API 配置 ===== */
+.api-profile-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-1);
+}
+.api-profile-row select,
+.api-profile-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  font-family: inherit;
+  font-size: var(--font-body-sm);
+  color: var(--color-text-primary);
+}
+.api-profile-row select:focus,
+.api-profile-row input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+.api-profile-row .fetch-btn { flex: 0 0 auto; }
+
+/* ===== 音乐 ===== */
+#music-audio { display: none; }
+.music-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-2) var(--space-1);
+}
+.music-tool-btn {
+  flex: 1 1 0;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font-family: inherit;
+  font-size: var(--font-body-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+.music-tool-btn:active { background: var(--color-accent-light); }
+
+.music-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: var(--space-1) var(--space-2);
+}
+.music-list { display: flex; flex-direction: column; gap: var(--space-1); }
+.music-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.music-row.playing {
+  border-color: var(--color-accent);
+  background: var(--color-accent-light);
+}
+.music-play-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--color-text-primary);
+  color: var(--color-surface);
+  cursor: pointer;
+}
+.music-play-btn svg { width: 18px; height: 18px; }
+.music-meta { flex: 1 1 120px; min-width: 0; }
+.music-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-body-sm);
+  font-weight: 600;
+}
+.music-artist {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-caption);
+  color: var(--color-text-secondary);
+}
+.music-source {
+  flex: 0 0 auto;
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 var(--space-1);
+  border-radius: 999px;
+  background: var(--color-accent-light);
+  color: var(--color-text-secondary);
+  font-size: var(--font-caption);
+}
+.music-mini-btn {
+  flex: 0 0 auto;
+  padding: 2px var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-family: inherit;
+  font-size: var(--font-caption);
+  cursor: pointer;
+}
+.music-mini-btn.accent {
+  border-color: var(--color-accent);
+  background: var(--color-accent-light);
+  color: var(--color-text-primary);
+}
+.music-mini-btn.danger { color: var(--red); }
+.music-empty {
+  padding: var(--space-4) var(--space-2);
+  text-align: center;
+  font-size: var(--font-body-sm);
+  color: var(--color-text-secondary);
+  line-height: var(--leading-body);
+}
+
+.music-now {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2) calc(var(--space-2) + var(--safe-bottom, 0px));
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+.music-now[hidden] { display: none; }
+.music-now-info { flex: 1 1 auto; min-width: 0; }
+.music-now-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-body-sm);
+  font-weight: 600;
+}
+.music-now-artist {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-caption);
+  color: var(--color-text-secondary);
+}
+.music-now-btn {
+  flex: 0 0 auto;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font-family: inherit;
+  font-size: var(--font-caption);
+  font-weight: 600;
+  cursor: pointer;
+}
+.music-now-btn.accent {
+  border-color: var(--color-accent);
+  background: var(--color-accent-light);
+}
+
+.music-sheet {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2);
+  background: rgba(58, 58, 64, 0.28);
+}
+.music-sheet[hidden] { display: none; }
+.music-sheet-card {
+  width: 100%;
+  max-width: 420px;
+  max-height: 84%;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-float);
+  overflow: hidden;
+}
+.music-sheet-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--color-divider-soft);
+  font-size: var(--font-body);
+  font-weight: 600;
+}
+.music-sheet-close {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: var(--color-accent-light);
+  color: var(--color-text-primary);
+  font-size: var(--font-h3);
+  line-height: 1;
+  cursor: pointer;
+}
+.music-sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: var(--space-2);
+}
+.music-qr-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  margin: var(--space-2) 0;
+}
+.music-qr-wrap[hidden] { display: none; }
+.music-qr-img {
+  width: 200px;
+  height: 200px;
+  object-fit: contain;
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.music-qr-status {
+  font-size: var(--font-caption);
+  color: var(--color-text-secondary);
+  text-align: center;
+}
+.music-playlists {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+.music-playlists-hint {
+  font-size: var(--font-caption);
+  color: var(--color-text-secondary);
+  line-height: var(--leading-body);
+}
+.music-playlist-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.music-playlist-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-body-sm);
+}
+.music-playlist-count {
+  flex: 0 0 auto;
+  font-size: var(--font-caption);
+  color: var(--color-text-secondary);
+}
+.music-playlist-import {
+  flex: 0 0 auto;
+  padding: 2px var(--space-1);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-light);
+  color: var(--color-text-primary);
+  font-family: inherit;
+  font-size: var(--font-caption);
+  cursor: pointer;
+}
+.music-share-track {
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-light);
+  font-size: var(--font-body-sm);
+  word-break: break-word;
+}
+.music-lyrics-input {
+  width: 100%;
+  min-height: 200px;
+  margin-bottom: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  font-family: inherit;
+  font-size: var(--font-body-sm);
+  line-height: var(--leading-body);
+  color: var(--color-text-primary);
+  resize: vertical;
+}
+.music-lyrics-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+/* 聊天里的音乐分享卡片 */
+.chat-music-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 240px;
+  max-width: 100%;
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-light);
+}
+.chat-music-glyph {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--color-text-primary);
+  color: var(--color-surface);
+}
+.chat-music-glyph svg { width: 22px; height: 22px; }
+.chat-music-info { flex: 1 1 auto; min-width: 0; }
+.chat-music-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-body-sm);
+  font-weight: 600;
+}
+.chat-music-artist {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-caption);
+  color: var(--color-text-secondary);
+}
+.chat-music-label {
+  margin-top: 2px;
+  font-size: var(--font-caption);
+  color: var(--color-text-secondary);
 }

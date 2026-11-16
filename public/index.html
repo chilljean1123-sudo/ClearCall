@@ -77,6 +77,10 @@
             <span class="app-glyph glyph-food"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M2.5 11h19a9.5 9.5 0 0 1-19 0Z"/><path d="M2 11h20" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><path d="M9 3c0 2-2 2.4-2 4.4M13 2.4c0 2.3-2 2.7-2 5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg></span>
             <span class="app-name">外卖</span>
           </button>
+          <button class="app-icon" data-app="music">
+            <span class="app-glyph glyph-music"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M9 18.2a3.2 3.2 0 1 1-2-3V6.6a1.4 1.4 0 0 1 1.1-1.37l8.2-1.8A1.4 1.4 0 0 1 18 4.8v10.9a3.2 3.2 0 1 1-2-2.97V7.3l-7 1.54Z"/></svg></span>
+            <span class="app-name">音乐</span>
+          </button>
         </div>
 
         <!-- iOS 风格胶囊 Dock：电话 / 聊天 / 通讯录 / 设置 -->
@@ -511,6 +515,22 @@
               <span class="drawer-arrow"></span>
             </summary>
             <div class="drawer-body">
+              <div class="field">
+                <span class="field-label">已保存的 API</span>
+                <div class="api-profile-row">
+                  <select id="select-api-profile">
+                    <option value="">还没有保存的配置</option>
+                  </select>
+                  <button type="button" class="fetch-btn" id="btn-api-profile-use">切换</button>
+                </div>
+                <div class="api-profile-row">
+                  <input id="input-api-profile-name" type="text" placeholder="配置名称，例如 DeepSeek" autocomplete="off" />
+                  <button type="button" class="fetch-btn" id="btn-api-profile-save">保存</button>
+                  <button type="button" class="fetch-btn" id="btn-api-profile-del">删除</button>
+                </div>
+                <span class="field-hint">保存多套地址 / Key / 模型，点「切换」随时换用；同名配置会覆盖保存。</span>
+              </div>
+
               <label class="field">
                 <span class="field-label">接口地址（Base URL）</span>
                 <input id="input-baseurl" type="text" placeholder="例如 https://api.deepseek.com 或 https://api.openai.com/v1" autocomplete="off" />
@@ -1038,6 +1058,91 @@
           </label>
           <button class="shop-checkout-btn" id="btn-food-checkout" type="button">结算并告诉角色</button>
         </section>
+      </div>
+
+      <!-- 音乐 -->
+      <div class="app-view" id="view-music">
+        <header class="app-header">
+          <button class="back-btn" id="btn-music-back" type="button">返回</button>
+          <span class="app-title">音乐</span>
+          <button class="forum-icon-btn" id="btn-music-settings" type="button">网易云</button>
+        </header>
+
+        <div class="music-toolbar">
+          <button class="music-tool-btn" id="btn-music-import" type="button">导入本地歌曲</button>
+          <button class="music-tool-btn" id="btn-music-netease" type="button">扫码导入歌单</button>
+        </div>
+
+        <div class="music-scroll">
+          <div class="music-list" id="music-list"></div>
+        </div>
+
+        <div class="music-now" id="music-now" hidden>
+          <div class="music-now-info">
+            <div class="music-now-name" id="music-now-name"></div>
+            <div class="music-now-artist" id="music-now-artist"></div>
+          </div>
+          <button class="music-now-btn" id="btn-music-now-toggle" type="button">暂停</button>
+          <button class="music-now-btn accent" id="btn-music-now-share" type="button">分享</button>
+        </div>
+
+        <input type="file" id="file-music" accept="audio/*,.mp3,.m4a,.aac,.wav,.flac,.ogg" multiple hidden />
+        <audio id="music-audio" preload="metadata"></audio>
+
+        <!-- 网易云扫码登录 -->
+        <div class="music-sheet" id="music-netease-sheet" hidden>
+          <div class="music-sheet-card">
+            <header class="music-sheet-head">
+              <span>网易云音乐</span>
+              <button class="music-sheet-close" id="btn-music-netease-close" type="button" aria-label="关闭">×</button>
+            </header>
+            <div class="music-sheet-body">
+              <label class="field">
+                <span class="field-label">网易云 API 地址</span>
+                <input id="input-music-api" type="text" placeholder="例如 https://你的网易云API域名" autocomplete="off" />
+                <span class="field-hint">需自行部署 NeteaseCloudMusicApi 并允许跨域；登录 cookie 只保存在本机。</span>
+              </label>
+              <button class="test-btn" id="btn-music-qr" type="button">生成登录二维码</button>
+              <div class="music-qr-wrap" id="music-qr-wrap" hidden>
+                <img class="music-qr-img" id="music-qr-img" alt="网易云登录二维码" />
+                <p class="music-qr-status" id="music-qr-status">等待扫码…</p>
+              </div>
+              <div class="music-playlists" id="music-playlists"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 分享给角色 -->
+        <div class="music-sheet" id="music-share-sheet" hidden>
+          <div class="music-sheet-card">
+            <header class="music-sheet-head">
+              <span>分享给角色</span>
+              <button class="music-sheet-close" id="btn-music-share-close" type="button" aria-label="关闭">×</button>
+            </header>
+            <div class="music-sheet-body">
+              <p class="music-share-track" id="music-share-track"></p>
+              <label class="field">
+                <span class="field-label">分享给谁</span>
+                <select id="select-music-share-char"></select>
+              </label>
+              <button class="test-btn" id="btn-music-share-send" type="button">发送到聊天室</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 歌词编辑 -->
+        <div class="music-sheet" id="music-lyrics-sheet" hidden>
+          <div class="music-sheet-card">
+            <header class="music-sheet-head">
+              <span>编辑歌词</span>
+              <button class="music-sheet-close" id="btn-music-lyrics-close" type="button" aria-label="关闭">×</button>
+            </header>
+            <div class="music-sheet-body">
+              <textarea id="input-music-lyrics" class="music-lyrics-input" placeholder="粘贴歌词，角色会据此说自己的感受"></textarea>
+              <button class="test-btn" id="btn-music-lyrics-save" type="button">保存歌词</button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- 日记 -->

@@ -22,6 +22,7 @@ const viewIconManager = $('view-icon-manager');
 const viewMoments = $('view-moments');
 const viewShop = $('view-shop');
 const viewFood = $('view-food');
+const viewMusic = $('view-music');
 
 function showView(view) {
   document.querySelectorAll('.app-view').forEach((el) => el.classList.remove('active'));
@@ -316,6 +317,19 @@ function renderUserAttachment(m, ctx) {
     if (s.address) card.appendChild(uiEl('div', 'chat-shop-meta', (isFood ? '送达地址：' : '收货地址：') + s.address));
     if (isFood) card.appendChild(uiEl('div', 'chat-shop-meta', '预计 ' + (Number(s.minutes) || 30) + ' 分钟后送达'));
     else card.appendChild(uiEl('div', 'chat-shop-meta', '预计 ' + (Number(s.days) || 3) + ' 天后送达'));
+    bubble.appendChild(card);
+  } else if (m.kind === 'music') {
+    const s = m.music || {};
+    bubble.className += ' music-bubble';
+    const card = uiEl('div', 'chat-music-card');
+    const glyph = uiEl('div', 'chat-music-glyph');
+    glyph.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M9 18.2a3.2 3.2 0 1 1-2-3V6.6a1.4 1.4 0 0 1 1.1-1.37l8.2-1.8A1.4 1.4 0 0 1 18 4.8v10.9a3.2 3.2 0 1 1-2-2.97V7.3l-7 1.54Z"/></svg>';
+    card.appendChild(glyph);
+    const info = uiEl('div', 'chat-music-info');
+    info.appendChild(uiEl('div', 'chat-music-name', s.name || '歌曲'));
+    info.appendChild(uiEl('div', 'chat-music-artist', s.artist || '未知歌手'));
+    info.appendChild(uiEl('div', 'chat-music-label', '分享了一首歌'));
+    card.appendChild(info);
     bubble.appendChild(card);
   } else {
     bubble.textContent = m.content;
@@ -3447,7 +3461,7 @@ async function buildMomentCard(post, identity, charMap, avatarMap) {
   commentBtn.dataset.momentCommentToggle = post.id;
   actions.appendChild(commentBtn);
 
-  if (isUser) {
+  if (post.authorType === 'user' || post.authorType === 'character') {
     const delBtn = uiEl('button', 'moment-action-btn danger', '删除');
     delBtn.type = 'button';
     delBtn.dataset.momentDelete = post.id;
@@ -3470,7 +3484,7 @@ async function buildMomentCard(post, identity, charMap, avatarMap) {
       const name = uiEl('span', 'moment-comment-name', c.name + '：');
       row.appendChild(name);
       row.appendChild(document.createTextNode(c.content));
-      if (c.authorType === 'user') {
+      if (c.authorType === 'user' || c.authorType === 'character' || c.authorType === 'npc') {
         const del = uiEl('button', 'moment-comment-del', '删除');
         del.type = 'button';
         del.dataset.momentCommentDelete = c.id;
@@ -3623,6 +3637,87 @@ const FOOD_PRODUCTS = [
 function foodProductsByCategory(key) {
   if (key === 'recommend') return FOOD_PRODUCTS.slice();
   return FOOD_PRODUCTS.filter((p) => p.category === key);
+}
+
+// ===== 音乐 =====
+const MUSIC_PLAY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 5.5v13l11-6.5Z"/></svg>';
+const MUSIC_PAUSE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>';
+
+function renderMusicList(tracks, nowId) {
+  const box = $('music-list');
+  if (!box) return;
+  box.innerHTML = '';
+  if (!tracks.length) {
+    box.appendChild(uiEl('div', 'music-empty', '还没有歌曲。先导入本地歌曲，或扫码导入网易云歌单。'));
+    return;
+  }
+  tracks.forEach((t) => {
+    const playing = nowId === t.id;
+    const row = uiEl('div', 'music-row' + (playing ? ' playing' : ''));
+    const play = uiEl('button', 'music-play-btn');
+    play.type = 'button';
+    play.dataset.musicPlay = t.id;
+    play.innerHTML = playing ? MUSIC_PAUSE_ICON : MUSIC_PLAY_ICON;
+    play.setAttribute('aria-label', playing ? '暂停' : '播放');
+    row.appendChild(play);
+
+    const meta = uiEl('div', 'music-meta');
+    meta.appendChild(uiEl('div', 'music-name', t.name || '未命名歌曲'));
+    meta.appendChild(uiEl('div', 'music-artist', t.artist || '未知歌手'));
+    row.appendChild(meta);
+
+    const source = uiEl('span', 'music-source', t.source === 'netease' ? (t.playlistName || '网易云') : '本地');
+    row.appendChild(source);
+
+    const lyricsBtn = uiEl('button', 'music-mini-btn', t.lyrics ? '改歌词' : '加歌词');
+    lyricsBtn.type = 'button';
+    lyricsBtn.dataset.musicLyrics = t.id;
+    row.appendChild(lyricsBtn);
+
+    const shareBtn = uiEl('button', 'music-mini-btn accent', '分享');
+    shareBtn.type = 'button';
+    shareBtn.dataset.musicShare = t.id;
+    row.appendChild(shareBtn);
+
+    const delBtn = uiEl('button', 'music-mini-btn danger', '删除');
+    delBtn.type = 'button';
+    delBtn.dataset.musicDelete = t.id;
+    row.appendChild(delBtn);
+
+    box.appendChild(row);
+  });
+}
+
+function renderMusicNow(track, playing) {
+  const bar = $('music-now');
+  if (!bar) return;
+  if (!track) { bar.hidden = true; return; }
+  bar.hidden = false;
+  $('music-now-name').textContent = track.name || '未知歌曲';
+  $('music-now-artist').textContent = track.artist || '';
+  $('btn-music-now-toggle').textContent = playing ? '暂停' : '播放';
+}
+
+function renderMusicPlaylists(playlists, nickname) {
+  const box = $('music-playlists');
+  if (!box) return;
+  box.innerHTML = '';
+  if (nickname) box.appendChild(uiEl('p', 'music-playlists-hint', '已登录：' + nickname));
+  if (!playlists.length) {
+    box.appendChild(uiEl('p', 'music-playlists-hint', '没有读到歌单，确认账号里有公开或自建歌单。'));
+    return;
+  }
+  playlists.forEach((p) => {
+    const row = uiEl('div', 'music-playlist-row');
+    row.appendChild(uiEl('div', 'music-playlist-name', p.name || '未命名歌单'));
+    row.appendChild(uiEl('span', 'music-playlist-count', (Number(p.trackCount) || 0) + ' 首'));
+    const btn = uiEl('button', 'music-playlist-import', '导入');
+    btn.type = 'button';
+    btn.dataset.musicPlaylist = String(p.id);
+    btn.dataset.musicPlaylistName = p.name || '';
+    row.appendChild(btn);
+    box.appendChild(row);
+  });
 }
 
 function renderShopTabs(activeKey, showSearch, boxId, categories) {

@@ -16,6 +16,7 @@
 
 - **记忆优先**：任何应用产生的可记忆内容（聊天、通话、语音、生图等），在会话结束或阶段完成时，都必须通过记忆摘要写入对应角色的记忆；不能只留在聊天记录或该应用自己的存档里。新应用沿用「摘要服务 + 本地兜底」的写入方式，保证没配置记忆服务时也不丢内容。
 - 新增「用户可以创建的内容」时，同时考虑它的**编辑**和**删除**。
+- **内容可删除**：所有应用产生并展示的内容（朋友圈动态与评论、订单、邮件、歌曲、日记、帖子、记忆、角色内容等）都必须提供删除入口；删除时同步清理关联 Blob（`files`）、索引、绑定关系和定时任务，不留孤儿文件或幽灵数据。
 - 新增「可以开启的功能」时，同时考虑它的**关闭方式**。
 - 改任何东西前，先读相关现有代码，不要凭空假设结构。
 - 按职责分层：界面（DOM）、存取数据、调用模型（请求）各归各的文件，新功能沿用已有层，别把多种职责堆进一个文件。
@@ -62,6 +63,8 @@
 - 定时动态在页面启动、打开动态、回到前台时检查，60 秒节流、每次最多 2 条，按 `intervalHours` 与各角色 `lastPostAt` 判断是否到期；删除角色时从 `settings.characterIds` 和 `lastPostAt` 清理，历史动态保留作者名快照。
 - 聊天外观变量（`--user-bubble-bg` / `--chat-font-family` / `--chat-font-color`）只写在 `#view-chat` 与 `#view-call` 上，不写 `documentElement`，避免影响其它页面。
 - 论坛生成走后端 `/api/forum`（Vercel 为 `api/forum.js`，共享 `lib/ai.js` 的 `forumChat()`），未部署后端时直连 OpenAI 兼容接口；论坛 API 留空则复用主 AI 配置。刷新生成的帖子要写入绑定角色的记忆；分享帖子到聊天室时写入 `kind: 'forum'` 卡片消息，并写一条记忆。
+- 多套 AI 接口配置存 localStorage（`clearcall.apiProfiles` / `clearcall.apiProfileActive`），设置页可保存、切换、删除；切换时把 `baseUrl` / `apiKey` / `model` / `modelMode` 写回主接口设置并调用 `save()`，名称留空时自动命名。
+- 音乐数据存 `music` 文档：`tracks` 含 `source: local | netease`、本地曲目 `fileId` 指向 `files` 里的音频 Blob、网易云曲目 `neteaseId`、`lyrics`、`playlistName`。网易云 API 地址与登录 cookie 存 localStorage（`clearcall.musicApiBase` / `clearcall.musicNeteaseCookie` / `clearcall.musicNeteaseName`），前端直连用户自部署的 `NeteaseCloudMusicApi`。扫码流程 `/login/qr/key` → `/login/qr/create?qrimg=true` → 轮询 `/login/qr/check`（800 过期 / 801 等待 / 802 已扫 / 803 成功）→ `/user/account` → `/user/playlist` → `/playlist/detail`；歌词用 `/lyric` 取 LRC 并剥离时间轴。分享歌曲给角色时写入 `kind:'music'` 消息，把歌词注入 content，让角色基于歌词谈感受，同时写一条记忆。删除本地曲目要同时删除音频 Blob。
 
 ## 风格约束
 
@@ -105,6 +108,8 @@
 - 无标签思维链（如 “Wait, the user says… I should confirm…”）不能只靠提示词：`api.js` 的 `sanitizeAssistantReply` 按行过滤英文元推理，`requestReply` 两条通道都清洗；旧消息在 `ui.js` 渲染时再用 `looksLikeMetaReasoning` 过滤一次。
 - 聊天消息长按菜单依赖 `renderMessagesInto` 给每行写 `data-msg-index`；多选圆圈挂在 `.msg-row` 首个子元素（角色在头像前、用户在气泡后），删除按索引从大到小 `splice`，避免索引错位。
 - 商城与外卖共用「搜索 → 购物车 → 选角色 → 结算发卡片」模式：`renderShopTabs/Products/Cart` 通过 `boxId`/`prefix` 复用；订单统一存 `kind:'shop'`，用 `shop.type` 区分 `shop`/`food`，卡片必须写 `toName`（送给谁）。
+- 音乐播放：本地曲目用 `getFileUrl(fileId)` 的对象 URL，网易云曲目用外链 `https://music.163.com/song/media/outer/url?id=xxx.mp3`；版权或网络问题会触发 `<audio>` 的 `error`，必须提示「播放失败，可能是版权或网络问题」，不能静默。
+- 网易云扫码登录依赖用户自部署的 NeteaseCloudMusicApi 且需允许跨域；沙箱里无法实测，只能做代码级校验，界面必须把「填 API 地址」这一步说明清楚。
 
 ## 待补充
 
