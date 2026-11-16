@@ -9,11 +9,11 @@ on:
         default: ""
   push:
     branches: [main]
+    tags:
+      - "v*"
     paths:
       - "android/**"
       - ".github/workflows/android.yml"
-  tags:
-    - "v*"
 
 permissions:
   contents: write
