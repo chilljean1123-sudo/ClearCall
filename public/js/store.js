@@ -2299,7 +2299,7 @@ async function buildBackup() {
   for (const c of list) {
     const chatDoc = (await getDoc(chatDocId(c.id))) || {};
     const messages = Array.isArray(chatDoc.messages) ? chatDoc.messages : [];
-    const fileIds = [c.avatarId, c.image && c.image.referenceImageId].filter(Boolean);
+    const fileIds = [c.avatarId, c.personaImageId, c.image && c.image.referenceImageId].filter(Boolean);
     messages.forEach((m) => { if (m && m.imageId) fileIds.push(m.imageId); });
     for (const fileId of fileIds) {
       const f = await getFile(fileId);
@@ -2313,6 +2313,7 @@ async function buildBackup() {
       remark: c.remark,
       persona: c.persona,
       avatarId: c.avatarId || null,
+      personaImageId: c.personaImageId || null,
       voice: c.voice,
       image: c.image,
       chatStyle: c.chatStyle,
