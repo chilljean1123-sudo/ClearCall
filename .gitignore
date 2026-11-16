@@ -3,9 +3,12 @@ node_modules/
 .env.*
 *.log
 .DS_Store
+
+# Android
+*.jks
+*.keystore
+*.apk
 android/.gradle/
 android/build/
 android/app/build/
 android/local.properties
-*.apk
-*.keystore

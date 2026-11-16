@@ -8,6 +8,30 @@ def appUrl = (project.findProperty('clearcallAppUrl')
         .replace('\\', '\\\\')
         .replace('"', '\\"')
 
+def rawVersionCode = (System.getenv('CLEARCALL_VERSION_CODE')
+        ?: project.findProperty('clearcallVersionCode')
+        ?: '1').toString()
+def versionCodeValue = rawVersionCode.isInteger() ? rawVersionCode.toInteger() : 1
+def versionNameValue = (System.getenv('CLEARCALL_VERSION_NAME')
+        ?: project.findProperty('clearcallVersionName')
+        ?: '1.0').toString()
+
+def keystorePath = (System.getenv('CLEARCALL_KEYSTORE')
+        ?: project.findProperty('clearcallKeystore')
+        ?: '').toString()
+def keystorePassword = (System.getenv('CLEARCALL_KEYSTORE_PASSWORD')
+        ?: project.findProperty('clearcallKeystorePassword')
+        ?: '').toString()
+def keyAliasValue = (System.getenv('CLEARCALL_KEY_ALIAS')
+        ?: project.findProperty('clearcallKeyAlias')
+        ?: '').toString()
+def keyPasswordValue = (System.getenv('CLEARCALL_KEY_PASSWORD')
+        ?: project.findProperty('clearcallKeyPassword')
+        ?: '').toString()
+def releaseKeystore = keystorePath ? rootProject.file(keystorePath) : null
+def hasReleaseSigning = releaseKeystore != null && releaseKeystore.exists()
+        && keystorePassword && keyAliasValue && keyPasswordValue
+
 android {
     namespace 'com.clearcall.app'
     compileSdk 35
@@ -16,8 +40,8 @@ android {
         applicationId 'com.clearcall.app'
         minSdk 26
         targetSdk 35
-        versionCode 1
-        versionName '1.0'
+        versionCode versionCodeValue
+        versionName versionNameValue
         buildConfigField 'String', 'APP_URL', "\"${appUrl}\""
     }
 
@@ -30,8 +54,20 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                storeFile releaseKeystore
+                storePassword keystorePassword
+                keyAlias keyAliasValue
+                keyPassword keyPasswordValue
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (hasReleaseSigning) signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }

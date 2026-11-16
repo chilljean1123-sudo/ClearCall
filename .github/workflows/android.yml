@@ -36,19 +36,53 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build debug APK
+      - name: Prepare signing key
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > android/clearcall-release.jks
+            echo "HAS_KEYSTORE=true" >> "$GITHUB_ENV"
+            echo "has=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "HAS_KEYSTORE=false" >> "$GITHUB_ENV"
+            echo "has=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build APK
         working-directory: android
-        run: ./gradlew assembleDebug --no-daemon
+        env:
+          CLEARCALL_VERSION_CODE: ${{ github.run_number }}
+          CLEARCALL_VERSION_NAME: 1.0.${{ github.run_number }}
+          CLEARCALL_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          CLEARCALL_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          CLEARCALL_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ "$HAS_KEYSTORE" = "true" ]; then
+            export CLEARCALL_KEYSTORE=clearcall-release.jks
+            ./gradlew assembleRelease --no-daemon
+          else
+            echo "::warning::未配置签名密钥，本次输出 debug APK，签名每次都会变，无法覆盖安装。"
+            ./gradlew assembleDebug --no-daemon
+          fi
+
+      - name: Show APK signature
+        if: steps.signing.outputs.has == 'true'
+        run: |
+          APK=$(find android/app/build/outputs/apk/release -name '*.apk' | head -n 1)
+          BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          "$BUILD_TOOLS/apksigner" verify --print-certs "$APK" | grep -E "Signer|SHA-256"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: clearcall-android-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: android/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
 
       - name: Attach APK to release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: android/app/build/outputs/apk/debug/app-debug.apk
+          files: android/app/build/outputs/apk/**/*.apk

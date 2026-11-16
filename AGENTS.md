@@ -78,7 +78,9 @@
 - 原生能力由 `ClearCallNative` 注入：`getDeviceInfo / getShellState / notify / scheduleNotification / enableNativePush / disableNativePush / requestIgnoreBatteryOptimizations / openBatteryOptimizationSettings / saveTextFile`；网页端「设置 → 手机壳」按桥是否存在显示。备份与世界书导出在壳内走 `saveTextFile`（系统文件选择器），浏览器仍用 Blob 下载。
 - 壳内 `Notification` 可能不存在：通知开关先判断 `ClearCallNative.notify`，走 `enableNativePush` 并把 `getShellState().pushEnabled / notificationsGranted` 当作权限状态；`onPause / onResume` 注入 `window.__shellHidden`，让后台回复通知可靠触发。不要用「浏览器不支持通知」直接拦住原生推送。
 - 推送走 WorkManager（`PushWorker`）+ 通知渠道，网页 `sendBrowserNotification()` 在壳内优先走原生。
-- GitHub Actions `.github/workflows/android.yml` 构建 debug APK 并上传 artifact；打 `v*` tag 时附加到 Release。
+- 覆盖安装三条件：`applicationId` 不变、`versionCode` 递增、签名证书相同。CI 用 `CLEARCALL_VERSION_CODE = github.run_number`，并从 Secrets 读取 `ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD` 构建 `assembleRelease`；未配置密钥时退回 debug，只能卸载安装。
+- 从旧的 debug 包切换到固定 release 签名必须卸载一次（签名不同）；卸载前先导出备份。之后同一密钥、递增 versionCode 的 APK 可直接覆盖安装并保留数据。
+- GitHub Actions `.github/workflows/android.yml` 构建 APK 并上传 artifact；打 `v*` tag 时附加到 Release。
 
 ## 风格约束
 
