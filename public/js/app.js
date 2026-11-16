@@ -272,7 +272,15 @@ async function refreshAppearance() {
   } catch (_) {
     wallpaperUrl = null;
   }
-  applyAppearance(cfg, wallpaperUrl, iconUrls);
+  const widgetUrls = {};
+  await Promise.all(HOME_WIDGET_KEYS.map(async (key) => {
+    try {
+      widgetUrls[key] = await getFileUrl(cfg.widgets[key] || null);
+    } catch (_) {
+      widgetUrls[key] = null;
+    }
+  }));
+  applyAppearance(cfg, wallpaperUrl, iconUrls, widgetUrls);
   refreshIconManagerIfOpen();
 }
 
@@ -289,7 +297,7 @@ function updateNotifyHint() {
     return;
   }
   if (Notification.permission === 'granted') {
-    el.textContent = '她可以在后台轻轻叫醒你。';
+    el.textContent = '那个人可以在后台轻轻叫醒你。';
   } else if (Notification.permission === 'denied') {
     el.textContent = '通知被关上了，去网站设置里重新允许。';
   } else {
@@ -1041,7 +1049,10 @@ async function redialCall() {
 function callSpeechText(content) {
   return String(content || '')
     .replace(/\[\[sticker:[^\]]+\]\]/gi, '')
-    .replace(/<split>/gi, '\n')
+    .replace(/\[语音(?:消息)?[^\]]*\]/gi, '')
+    .replace(/\[(?:图片消息|发送图片|图片|照片)[^\]]*\]/gi, '')
+    .replace(/\[转账\][^\n]*/gi, '')
+    .replace(/<\s*split\s*\/?\s*>/gi, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
@@ -5455,6 +5466,7 @@ document.querySelectorAll('.app-icon, .dock-icon').forEach((btn) => {
 });
 
 $('btn-back').addEventListener('click', () => { save(); showView(viewHome); });
+$('btn-settings-sub-back').addEventListener('click', () => showView(viewSettings));
 
 // ===== 主动消息（Cloudflare Worker 云推送） =====
 let autopushTimer = null;
@@ -5818,7 +5830,7 @@ $('btn-perception-back').addEventListener('click', () => showView(viewSettings))
 $('chk-perceive-time').addEventListener('change', async (e) => {
   try {
     await setPerception({ timeEnabled: e.target.checked });
-    toast(e.target.checked ? '她开始感知时间的流逝' : '已收起时间感知');
+    toast(e.target.checked ? '那个人开始感知时间的流逝' : '已收起时间感知');
   } catch (err) {
     e.target.checked = !e.target.checked;
     toast('保存失败：' + (err && err.message ? err.message : err));
@@ -6244,6 +6256,236 @@ $('chk-statusbar').addEventListener('change', async () => {
     toast('状态栏设置失败：' + (err && err.message ? err.message : err));
   }
 });
+
+// ---- 桌面小组件：放上桌面 / 取下 / 轻点换图 ----
+let pendingWidgetKey = '';
+let homePressTimer = null;
+let homePressOrigin = null;
+let homeDragState = null;
+let homeDropTargetEl = null;
+let suppressHomeClick = false;
+
+function cancelHomePress() {
+  if (homePressTimer) { clearTimeout(homePressTimer); homePressTimer = null; }
+  homePressOrigin = null;
+}
+
+async function addWidgetToHome(key) {
+  if (HOME_WIDGET_KEYS.indexOf(key) < 0) return;
+  try {
+    const cfg = await getAppearance();
+    const items = homeLayoutItems(cfg);
+    if (items.some((it) => it.type === 'widget' && it.widget === key)) {
+      toast('已经在桌面上了');
+      return;
+    }
+    const before = homePageCount(items);
+    items.push({ type: 'widget', widget: key });
+    await setAppearance({ homeItems: items });
+    await refreshAppearance();
+    toast(homePageCount(items) > before ? '这一页满了，已经放到下一页' : '小组件已放上桌面');
+  } catch (err) {
+    toast('小组件没放上：' + (err && err.message ? err.message : err));
+  }
+}
+
+async function removeWidgetFromHome(key) {
+  try {
+    await removeHomeWidget(key);
+    await refreshAppearance();
+    toast('已取下小组件');
+  } catch (err) {
+    toast('取下失败：' + (err && err.message ? err.message : err));
+  }
+}
+
+document.addEventListener('click', (e) => {
+  const add = e.target.closest('[data-widget-add]');
+  if (add) { addWidgetToHome(add.dataset.widgetAdd); return; }
+  const remove = e.target.closest('[data-widget-remove]');
+  if (remove) removeWidgetFromHome(remove.dataset.widgetRemove);
+});
+
+$('file-widget-image').addEventListener('change', async (e) => {
+  const file = e.target.files && e.target.files[0];
+  const key = pendingWidgetKey;
+  pendingWidgetKey = '';
+  e.target.value = '';
+  if (!file || !key) return;
+  try {
+    const blob = await fileToWallpaper(file);
+    await setAppearanceWidgetBlob(key, blob, blob.type, file.name);
+    await refreshAppearance();
+    toast('图片放好了');
+  } catch (err) {
+    toast('图片没放上：' + (err && err.message ? err.message : err));
+  }
+});
+
+function homeItemSizeOf(item) {
+  return (item && item.type === 'widget' && HOME_WIDGET_META[item.widget]) ? HOME_WIDGET_META[item.widget].size : 1;
+}
+
+function setHomeDropHighlight(el) {
+  if (homeDropTargetEl === el) return;
+  if (homeDropTargetEl) homeDropTargetEl.classList.remove('home-drop-target');
+  homeDropTargetEl = el;
+  if (el) el.classList.add('home-drop-target');
+}
+
+function startHomeDrag(item, x, y, pointerId) {
+  cancelHomePress();
+  if (!item || !item.dataset.homeKey) return;
+  const rect = item.getBoundingClientRect();
+  const ghost = item.cloneNode(true);
+  ghost.classList.add('home-drag-ghost');
+  ghost.style.width = rect.width + 'px';
+  ghost.style.height = rect.height + 'px';
+  ghost.style.left = rect.left + 'px';
+  ghost.style.top = rect.top + 'px';
+  document.body.appendChild(ghost);
+  item.classList.add('is-dragging');
+  if (pointerId !== undefined && item.setPointerCapture) {
+    try { item.setPointerCapture(pointerId); } catch (_) {}
+  }
+  homeDragState = {
+    key: item.dataset.homeKey,
+    item,
+    ghost,
+    pointerId,
+    moved: false,
+    offsetX: x - rect.left,
+    offsetY: y - rect.top,
+  };
+  suppressHomeClick = true;
+  document.body.classList.add('home-dragging');
+  const pagesEl = $('home-pages');
+  if (pagesEl) pagesEl.classList.add('home-arranging');
+}
+
+function onHomePointerDown(e) {
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  const item = e.target.closest('.app-icon, .home-widget');
+  if (!item || !item.dataset.homeKey) return;
+  cancelHomePress();
+  homePressOrigin = { x: e.clientX, y: e.clientY, pointerId: e.pointerId };
+  homePressTimer = setTimeout(() => {
+    homePressTimer = null;
+    const origin = homePressOrigin;
+    homePressOrigin = null;
+    if (origin) startHomeDrag(item, origin.x, origin.y, origin.pointerId);
+  }, 320);
+}
+
+function onHomePointerMove(e) {
+  if (homeDragState) {
+    if (homeDragState.pointerId !== undefined && e.pointerId !== homeDragState.pointerId) return;
+    e.preventDefault();
+    const drag = homeDragState;
+    drag.moved = true;
+    drag.ghost.style.left = (e.clientX - drag.offsetX) + 'px';
+    drag.ghost.style.top = (e.clientY - drag.offsetY) + 'px';
+    const under = document.elementFromPoint(e.clientX, e.clientY);
+    const target = under && under.closest('.app-icon, .home-widget');
+    if (target && target.dataset.homeKey && target.dataset.homeKey !== drag.key) setHomeDropHighlight(target);
+    else setHomeDropHighlight(null);
+    const pagesEl = $('home-pages');
+    if (pagesEl) {
+      if (e.clientX > window.innerWidth - 36) pagesEl.scrollBy({ left: pagesEl.clientWidth * 0.4, behavior: 'auto' });
+      else if (e.clientX < 36) pagesEl.scrollBy({ left: -pagesEl.clientWidth * 0.4, behavior: 'auto' });
+    }
+    return;
+  }
+  if (!homePressTimer || !homePressOrigin) return;
+  const dx = e.clientX - homePressOrigin.x;
+  const dy = e.clientY - homePressOrigin.y;
+  if (dx * dx + dy * dy > 100) cancelHomePress();
+}
+
+async function finishHomeDrag(e) {
+  const drag = homeDragState;
+  if (!drag) return;
+  homeDragState = null;
+  document.body.classList.remove('home-dragging');
+  const pagesEl = $('home-pages');
+  if (pagesEl) pagesEl.classList.remove('home-arranging');
+  if (drag.ghost && drag.ghost.parentNode) drag.ghost.parentNode.removeChild(drag.ghost);
+  drag.item.classList.remove('is-dragging');
+  setHomeDropHighlight(null);
+  const under = document.elementFromPoint(e.clientX, e.clientY);
+  let targetItem = under && under.closest('.app-icon, .home-widget');
+  const targetPage = under && under.closest('.home-page');
+  setTimeout(() => { suppressHomeClick = false; }, 400);
+  if (!drag.moved) return;
+  if (targetItem && targetItem.dataset.homeKey === drag.key) targetItem = null;
+  if (!targetItem && !targetPage) return;
+
+  const items = getHomeItemsSnapshot();
+  const fromIndex = items.findIndex((it) => homeItemKey(it) === drag.key);
+  if (fromIndex < 0) return;
+  const moved = items.splice(fromIndex, 1)[0];
+  let insertIndex = items.length;
+  if (targetItem && targetItem.dataset.homeKey && targetItem.dataset.homeKey !== drag.key) {
+    const idx = items.findIndex((it) => homeItemKey(it) === targetItem.dataset.homeKey);
+    if (idx >= 0) insertIndex = idx;
+  } else if (targetPage) {
+    const pageIndex = Number(targetPage.dataset.page) || 0;
+    const pages = [];
+    let used = 0;
+    items.forEach((item) => {
+      const size = homeItemSizeOf(item);
+      if (used + size > HOME_PAGE_CAPACITY && pages.length) { pages.push([]); used = 0; }
+      if (!pages.length) pages.push([]);
+      pages[pages.length - 1].push(item);
+      used += size;
+    });
+    const targetItems = pages[Math.min(pageIndex, pages.length - 1)] || [];
+    if (targetItems.length) {
+      const lastKey = homeItemKey(targetItems[targetItems.length - 1]);
+      const idx = items.findIndex((it) => homeItemKey(it) === lastKey);
+      insertIndex = idx >= 0 ? idx + 1 : items.length;
+    }
+  }
+  items.splice(insertIndex, 0, moved);
+  const unchanged = items.every((it, i) => homeItemKey(it) === homeItemKey(getHomeItemsSnapshot()[i]));
+  if (unchanged) return;
+  try {
+    await setAppearance({ homeItems: items });
+    await refreshAppearance();
+    toast('换了个位置');
+  } catch (err) {
+    toast('移动失败：' + (err && err.message ? err.message : err));
+  }
+}
+
+function onHomePointerUp(e) {
+  cancelHomePress();
+  if (homeDragState) finishHomeDrag(e);
+}
+
+function initHomeGestures() {
+  const pagesEl = $('home-pages');
+  if (!pagesEl || pagesEl.dataset.gestureBound) return;
+  pagesEl.dataset.gestureBound = '1';
+  pagesEl.addEventListener('pointerdown', onHomePointerDown);
+  pagesEl.addEventListener('click', (e) => {
+    if (suppressHomeClick) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    const widget = e.target.closest('.home-widget');
+    if (!widget) return;
+    pendingWidgetKey = widget.dataset.widgetKey || '';
+    if (pendingWidgetKey) $('file-widget-image').click();
+  }, true);
+  document.addEventListener('pointermove', onHomePointerMove, { passive: false });
+  document.addEventListener('touchmove', (e) => {
+    if (homeDragState) e.preventDefault();
+  }, { passive: false });
+  document.addEventListener('pointerup', onHomePointerUp);
+  document.addEventListener('pointercancel', onHomePointerUp);
+}
 
 // 聊天气泡颜色 / 字体 / 字体颜色
 $('input-bubble-color').addEventListener('change', async () => {
@@ -7260,6 +7502,7 @@ $('chk-keepalive').addEventListener('change', async () => {
   }
   loadSaved();
   initNavIcons();
+  initHomeGestures();
   loadTriggerSettings();
   try { await refreshAppearance(); } catch (_) {}
   renderPerception().catch(() => {});

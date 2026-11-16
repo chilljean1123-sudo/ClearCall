@@ -6,6 +6,7 @@ const $ = (id) => document.getElementById(id);
 
 const viewHome = $('view-home');
 const viewSettings = $('view-settings');
+const viewSettingsSub = $('view-settings-sub');
 const viewChat = $('view-chat');
 const viewMemory = $('view-memory');
 const viewWorldbook = $('view-worldbook');
@@ -59,6 +60,89 @@ function initNavIcons() {
   });
   const chatBack = $('btn-chat-back');
   if (chatBack) chatBack.classList.add('nav-icon-btn');
+  initSettingsPages();
+}
+
+// ===== 设置项：抽屉改成独立子页 =====
+const SETTINGS_SECTION_META = {
+  'AI 接口': {
+    sub: '多套接口，随心切换',
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z"/></svg>',
+  },
+  '记忆服务': {
+    sub: '让旧话有回声',
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v18H6.5A2.5 2.5 0 0 1 4 18.5v-13Z"/><path d="M8 7h7M8 11h7"/></svg>',
+  },
+  '语音服务': {
+    sub: '让文字有声音',
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2.5" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3.5"/></svg>',
+  },
+  '生图服务': {
+    sub: '把想象画下来',
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="8.5" cy="9.5" r="1.8"/><path d="m5 18 5-5 3 3 2-2 4 4"/></svg>',
+  },
+  '美化': {
+    sub: '壁纸、图标与小组件',
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 4.6L18.5 9.4l-4.7 1.8L12 16l-1.8-4.8L5.5 9.4l4.7-1.8L12 3Z"/><path d="M19 15l1 2.5L22.5 18.5 20 19.5 19 22l-1-2.5L15.5 18.5 18 17.5 19 15Z"/></svg>',
+  },
+  '回复触发模式': {
+    sub: '决定何时开口',
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4v-4.5A2 2 0 0 1 2 15V6a2 2 0 0 1 2-2Z"/><path d="M7 10h.01M12 10h.01M17 10h.01"/></svg>',
+  },
+  '通知': {
+    sub: '在后台也叫醒你',
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18 9a6 6 0 1 0-12 0c0 5-2 6-2 6h16s-2-1-2-6Z"/><path d="M10 20a2.2 2.2 0 0 0 4 0"/></svg>',
+  },
+  '主动消息推送': {
+    sub: '让想念先抵达',
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4 20-7Z"/><path d="M22 2 11 13"/></svg>',
+  },
+  '备份与恢复': {
+    sub: '收好设定与回忆',
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h16v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8Z"/><path d="M7 8V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v3M9 13h6"/></svg>',
+  },
+};
+
+function initSettingsPages() {
+  const body = $('view-settings') && $('view-settings').querySelector('.settings-body');
+  if (!body || body.dataset.entriesReady) return;
+  body.dataset.entriesReady = '1';
+  body.querySelectorAll('details.drawer').forEach((details) => {
+    const titleEl = details.querySelector('.drawer-title');
+    const title = titleEl ? titleEl.textContent.trim() : '设置';
+    const meta = SETTINGS_SECTION_META[title] || { sub: '', icon: SETTINGS_SECTION_META['AI 接口'].icon };
+    const entry = document.createElement('button');
+    entry.type = 'button';
+    entry.className = 'settings-entry';
+    entry.innerHTML = '<span class="settings-entry-icon" aria-hidden="true">' + meta.icon + '</span>' +
+      '<span class="settings-entry-main"><span class="settings-entry-title">' + escapeHtml(title) + '</span>' +
+      '<span class="settings-entry-sub">' + escapeHtml(meta.sub) + '</span></span>' +
+      '<span class="settings-entry-arrow" aria-hidden="true"></span>';
+    entry.addEventListener('click', () => openSettingsSection(title, details));
+    details.parentNode.insertBefore(entry, details);
+    details.hidden = true;
+  });
+}
+
+function openSettingsSection(title, details) {
+  const holder = $('settings-sub-body');
+  if (!holder) return;
+  if (holder._currentDetails === details && holder._currentBody) {
+    $('settings-sub-title').textContent = title;
+    showView(viewSettingsSub);
+    return;
+  }
+  // 切到另一项前，把上一段内容还回它原来的抽屉，避免丢节点
+  if (holder._currentDetails && holder._currentBody) {
+    holder._currentDetails.appendChild(holder._currentBody);
+  }
+  holder.innerHTML = '';
+  const bodyEl = details.querySelector('.drawer-body');
+  if (bodyEl) holder.appendChild(bodyEl);
+  holder._currentBody = bodyEl || null;
+  holder._currentDetails = details;
+  $('settings-sub-title').textContent = title;
+  showView(viewSettingsSub);
 }
 
 // 状态栏与主屏幕时钟
@@ -200,13 +284,9 @@ async function updateChatTitle() {
 }
 
 function splitReplyIntoBubbles(content) {
-  const s = String(content || '');
-  // 兼容 <split> / <split/> / <split />，标记本身不进入气泡
-  const splitMark = /<\s*split\s*\/?\s*>/i;
-  if (splitMark.test(s)) {
-    return s.split(new RegExp(splitMark.source, 'gi')).map((p) => p.trim()).filter(Boolean);
-  }
-  return s.split('\n').map((p) => p.trim()).filter(Boolean);
+  // <split> 是显式分段；模型写下的换行也一律拆成独立气泡，避免一个气泡里堆多段话
+  const s = String(content || '').replace(/<\s*split\s*\/?\s*>/gi, '\n');
+  return s.split(/\n+/).map((p) => p.trim()).filter(Boolean);
 }
 
 function findSticker(stickers, key) {
@@ -391,10 +471,45 @@ function appendAssistantTransfer(stack, amount, note) {
   stack.appendChild(bubble);
 }
 
-// 表情包 / 转账标记可能和正文混在同一回复里，不能按整段文本匹配。
+// 语音消息：模型可能直接写 [语音消息：0:05]，必须渲染成可点的语音条，不能把标记露出来
+function appendAssistantVoiceNote(stack, duration, ctx) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'chat-voice-note';
+  const glyph = uiEl('span', 'chat-voice-note-glyph');
+  glyph.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M9 18.2a3.2 3.2 0 1 1-2-3V6.6a1.4 1.4 0 0 1 1.1-1.37l8.2-1.8A1.4 1.4 0 0 1 18 4.8v10.9a3.2 3.2 0 1 1-2-2.97V7.3l-7 1.54Z"/></svg>';
+  btn.appendChild(glyph);
+  btn.appendChild(uiEl('span', 'chat-voice-note-label', '语音'));
+  let durationText = String(duration || '0:01').replace('：', ':');
+  if (/^\d+$/.test(durationText)) durationText = '0:' + durationText.padStart(2, '0');
+  btn.appendChild(uiEl('span', 'chat-voice-note-time', durationText));
+  btn.addEventListener('click', () => {
+    if (ctx && ctx.voiceEnabled && typeof ctx.messageIndex === 'number' && typeof speakChatMessage === 'function') {
+      speakChatMessage(ctx.messageIndex);
+    } else {
+      toast('语音已送达');
+    }
+  });
+  stack.appendChild(btn);
+}
+
+// 图片消息：模型写 [图片] / [图片：描述] 时给一张友好的图片占位卡，不显示任何标记
+function appendAssistantImageCard(stack, desc) {
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble image-bubble assistant-image-card';
+  const ph = uiEl('div', 'image-placeholder assistant-image-placeholder');
+  ph.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="8.5" cy="9.5" r="1.8" fill="currentColor"/><path d="m5 18 5-5 3 3 2-2 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  ph.appendChild(uiEl('span', '', '图片'));
+  bubble.appendChild(ph);
+  const text = String(desc || '').trim();
+  if (text) bubble.appendChild(uiEl('div', 'image-desc', text));
+  stack.appendChild(bubble);
+}
+
+// 表情包 / 转账 / 语音 / 图片标记可能和正文混在同一回复里，不能按整段文本匹配。
 function renderAssistantPart(stack, part, ctx) {
   const source = String(part || '');
-  const marker = /\[\[sticker:([^\]\r\n]*)\]\]|\[转账\]\s*(?:[¥￥]\s*)?(\d+(?:\.\d{1,2})?)([^\r\n]*)/gi;
+  const marker = /\[\[sticker:([^\]\r\n]*)\]\]|\[转账\]\s*(?:[¥￥]\s*)?(\d+(?:\.\d{1,2})?)([^\r\n]*)|\[语音(?:消息)?\s*[：:]\s*([0-9]{1,3}(?::[0-9]{1,2})?)\s*(?:秒)?\]|\[(?:图片消息|发送图片|图片|照片)\s*(?:[：:]\s*)?([^\]\r\n]*)\]|\[\[(?:image|img)\s*:\s*([^\]\r\n]*)\]\]/gi;
   let cursor = 0;
   let match;
   while ((match = marker.exec(source))) {
@@ -402,7 +517,11 @@ function renderAssistantPart(stack, part, ctx) {
     if (match[1] !== undefined) {
       const sticker = findSticker(ctx && ctx.stickers, match[1]);
       if (sticker) appendAssistantSticker(stack, sticker);
-      else appendAssistantBubble(stack, '[表情包]');
+      else appendAssistantBubble(stack, '表情包');
+    } else if (match[4] !== undefined) {
+      appendAssistantVoiceNote(stack, match[4], ctx);
+    } else if (match[5] !== undefined || match[6] !== undefined) {
+      appendAssistantImageCard(stack, match[5] || match[6] || '');
     } else {
       appendAssistantTransfer(stack, parseFloat(match[2]), match[3]);
     }
@@ -439,7 +558,8 @@ function renderMessage(m, index, avatar, name, ctx) {
   // 兼容旧记录：历史消息里已经存下的无标签思维链，渲染时同样过滤掉
   const parts = rawParts.filter((part) => !(typeof looksLikeMetaReasoning === 'function' && looksLikeMetaReasoning(part)));
   if (!parts.length && rawParts.length) parts.push('……');
-  parts.forEach((part) => renderAssistantPart(stack, part, ctx));
+  const partCtx = Object.assign({}, ctx || {}, { messageIndex: index });
+  parts.forEach((part) => renderAssistantPart(stack, part, partCtx));
 
   if (ctx && ctx.voiceEnabled && !m.error) {
     const voice = document.createElement('button');
@@ -891,7 +1011,7 @@ async function renderStickerTool(body) {
   const grid = uiEl('div', 'sticker-grid');
   grid.id = 'sticker-grid';
   if (!stickers.length) {
-    grid.appendChild(uiEl('div', 'sticker-empty', '表情还空着，等她收藏。'));
+    grid.appendChild(uiEl('div', 'sticker-empty', '表情还空着，等那个人收藏。'));
   } else {
     stickers.forEach((s) => {
       const tile = uiEl('div', 'sticker-tile');
@@ -1889,7 +2009,7 @@ function renderUserProfileList(profiles, activeId) {
   if (!profiles.length) {
     const empty = document.createElement('div');
     empty.className = 'memory-empty';
-    empty.textContent = '写下你的名字，让她认识你。';
+    empty.textContent = '写下你的名字，让那个人认识你。';
     box.appendChild(empty);
     return;
   }
@@ -2079,7 +2199,7 @@ function fileToCustomIcon(file) {
 }
 
 // ===== 美化：壁纸 / 单个应用图标 / 状态栏 =====
-function applyAppearance(cfg, wallpaperUrl, iconUrls) {
+function applyAppearance(cfg, wallpaperUrl, iconUrls, widgetUrls) {
   const home = $('view-home');
   if (wallpaperUrl) {
     home.style.backgroundImage = 'url("' + wallpaperUrl + '")';
@@ -2108,8 +2228,233 @@ function applyAppearance(cfg, wallpaperUrl, iconUrls) {
   if (chk) chk.checked = !(cfg && cfg.statusBar === false);
 
   applyChatAppearance(cfg);
-
+  renderHomeLayout(cfg, widgetUrls || {});
+  renderWidgetManager(cfg);
   renderAppearancePreview(wallpaperUrl, urls);
+}
+
+// ===== 主屏分页 / 小组件 / 图标整理 =====
+const HOME_PAGE_CAPACITY = 20;
+const HOME_WIDGET_META = {
+  small1: { size: 4, title: '小号 · 一', sub: '2×2' },
+  small2: { size: 4, title: '小号 · 二', sub: '2×2' },
+  large: { size: 8, title: '大号', sub: '4×2' },
+};
+let homeAppNodeMap = null;
+let homeCurrentItems = [];
+
+function captureHomeAppNodes() {
+  if (homeAppNodeMap) return;
+  homeAppNodeMap = {};
+  document.querySelectorAll('#app-grid .app-icon').forEach((btn) => {
+    if (btn.dataset.app) homeAppNodeMap[btn.dataset.app] = btn;
+  });
+}
+
+function homeDefaultItems() {
+  captureHomeAppNodes();
+  return Object.keys(homeAppNodeMap || {}).map((app) => ({ type: 'app', app }));
+}
+
+function homeLayoutItems(cfg) {
+  captureHomeAppNodes();
+  const items = (cfg && cfg.homeItems ? cfg.homeItems : []).filter((item) => {
+    if (!item) return false;
+    if (item.type === 'app') return !!(homeAppNodeMap && homeAppNodeMap[item.app]);
+    return item.type === 'widget' && !!HOME_WIDGET_META[item.widget];
+  });
+  const missing = homeDefaultItems().filter((item) => !items.some((x) => x.type === 'app' && x.app === item.app));
+  return items.concat(missing);
+}
+
+function homeItemSize(item) {
+  if (item && item.type === 'widget' && HOME_WIDGET_META[item.widget]) return HOME_WIDGET_META[item.widget].size;
+  return 1;
+}
+
+function homeItemKey(item) {
+  if (!item) return '';
+  return item.type === 'widget' ? 'widget:' + item.widget : 'app:' + item.app;
+}
+
+function homePageCount(items) {
+  const list = Array.isArray(items) ? items : [];
+  let pages = 1;
+  let used = 0;
+  list.forEach((item) => {
+    const size = homeItemSize(item);
+    if (used + size > HOME_PAGE_CAPACITY && used > 0) {
+      pages += 1;
+      used = 0;
+    }
+    used += size;
+  });
+  return pages;
+}
+
+function paginateHomeItems(items) {
+  const pages = [[]];
+  let used = 0;
+  (items || []).forEach((item) => {
+    const size = homeItemSize(item);
+    if (used + size > HOME_PAGE_CAPACITY && pages[pages.length - 1].length) {
+      pages.push([]);
+      used = 0;
+    }
+    pages[pages.length - 1].push(item);
+    used += size;
+  });
+  return pages;
+}
+
+function getHomeItemsSnapshot() {
+  return homeCurrentItems.map((item) => Object.assign({}, item));
+}
+
+function createHomeWidget(key, url) {
+  const meta = HOME_WIDGET_META[key] || { title: '小组件' };
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'home-widget ' + (key === 'large' ? 'widget-large' : 'widget-small');
+  btn.dataset.homeKey = 'widget:' + key;
+  btn.dataset.widgetKey = key;
+  if (url) {
+    btn.classList.add('has-image');
+    btn.style.backgroundImage = 'url("' + url + '")';
+    btn.setAttribute('aria-label', meta.title);
+  } else {
+    const icon = document.createElement('span');
+    icon.className = 'widget-empty-glyph';
+    icon.textContent = '+';
+    const label = document.createElement('span');
+    label.className = 'widget-empty-label';
+    label.textContent = '轻点放一张图';
+    btn.appendChild(icon);
+    btn.appendChild(label);
+    btn.setAttribute('aria-label', meta.title + '，轻点上传图片');
+  }
+  return btn;
+}
+
+function renderHomeLayout(cfg, widgetUrls) {
+  captureHomeAppNodes();
+  const pagesEl = $('home-pages');
+  if (!pagesEl || !homeAppNodeMap) return;
+  const urls = widgetUrls || {};
+  const activePage = pagesEl.clientWidth ? Math.round(pagesEl.scrollLeft / pagesEl.clientWidth) : 0;
+  const items = homeLayoutItems(cfg);
+  homeCurrentItems = items;
+  const pages = paginateHomeItems(items);
+
+  pagesEl.innerHTML = '';
+  pages.forEach((pageItems, pageIndex) => {
+    const page = document.createElement('div');
+    page.className = 'home-page';
+    page.dataset.page = String(pageIndex);
+    const grid = document.createElement('div');
+    grid.className = 'app-grid';
+    pageItems.forEach((item) => {
+      if (item.type === 'app') {
+        const node = homeAppNodeMap[item.app];
+        if (!node) return;
+        node.dataset.homeKey = 'app:' + item.app;
+        grid.appendChild(node);
+      } else {
+        grid.appendChild(createHomeWidget(item.widget, urls[item.widget]));
+      }
+    });
+    page.appendChild(grid);
+    pagesEl.appendChild(page);
+  });
+
+  renderHomeDots(pages.length);
+  pagesEl.onscroll = syncHomeDots;
+  requestAnimationFrame(() => {
+    const maxPage = Math.max(0, pages.length - 1);
+    pagesEl.scrollLeft = Math.min(activePage, maxPage) * pagesEl.clientWidth;
+    syncHomeDots();
+  });
+}
+
+function renderHomeDots(count) {
+  const dots = $('home-dots');
+  if (!dots) return;
+  dots.hidden = count <= 1;
+  dots.innerHTML = '';
+  for (let i = 0; i < count; i += 1) {
+    const dot = document.createElement('button');
+    dot.type = 'button';
+    dot.className = 'home-dot' + (i === 0 ? ' active' : '');
+    dot.dataset.page = String(i);
+    dot.setAttribute('aria-label', '第 ' + (i + 1) + ' 页');
+    dot.addEventListener('click', () => scrollToHomePage(i));
+    dots.appendChild(dot);
+  }
+}
+
+function scrollToHomePage(index) {
+  const pagesEl = $('home-pages');
+  if (!pagesEl) return;
+  pagesEl.scrollTo({ left: pagesEl.clientWidth * index, behavior: 'smooth' });
+}
+
+function syncHomeDots() {
+  const pagesEl = $('home-pages');
+  const dots = $('home-dots');
+  if (!pagesEl || !dots) return;
+  const index = pagesEl.clientWidth ? Math.round(pagesEl.scrollLeft / pagesEl.clientWidth) : 0;
+  dots.querySelectorAll('.home-dot').forEach((dot, i) => {
+    dot.classList.toggle('active', i === index);
+  });
+}
+
+function renderWidgetManager(cfg) {
+  const box = $('widget-manager');
+  if (!box) return;
+  const placed = new Set((cfg && cfg.homeItems ? cfg.homeItems : [])
+    .filter((item) => item && item.type === 'widget')
+    .map((item) => item.widget));
+  box.innerHTML = '';
+  HOME_WIDGET_KEYS.forEach((key) => {
+    const meta = HOME_WIDGET_META[key];
+    if (!meta) return;
+    const row = document.createElement('div');
+    row.className = 'widget-row';
+    const text = document.createElement('div');
+    text.className = 'widget-row-text';
+    const title = document.createElement('div');
+    title.className = 'widget-row-title';
+    title.textContent = meta.title;
+    const sub = document.createElement('div');
+    sub.className = 'widget-row-sub';
+    sub.textContent = meta.sub + ' · 图片小组件';
+    text.appendChild(title);
+    text.appendChild(sub);
+    row.appendChild(text);
+    const actions = document.createElement('div');
+    actions.className = 'widget-row-actions';
+    if (placed.has(key)) {
+      const done = document.createElement('span');
+      done.className = 'widget-row-done';
+      done.textContent = '已在桌面';
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'fetch-btn';
+      remove.dataset.widgetRemove = key;
+      remove.textContent = '取下';
+      actions.appendChild(done);
+      actions.appendChild(remove);
+    } else {
+      const add = document.createElement('button');
+      add.type = 'button';
+      add.className = 'fetch-btn';
+      add.dataset.widgetAdd = key;
+      add.textContent = '放到桌面';
+      actions.appendChild(add);
+    }
+    row.appendChild(actions);
+    box.appendChild(row);
+  });
 }
 
 // 气泡颜色 / 聊天字体 / 字体颜色：只写到聊天与通话窗口，不影响其它页面
@@ -2286,7 +2631,7 @@ async function renderMemory() {
   if (!entries.length) {
     const empty = document.createElement('div');
     empty.className = 'memory-empty';
-    empty.textContent = '还没有短期记忆，等她慢慢记住你。';
+    empty.textContent = '还没有短期记忆，等那个人慢慢记住你。';
     list.appendChild(empty);
   } else {
     entries.forEach((e) => list.appendChild(memoryEntryRow(e)));

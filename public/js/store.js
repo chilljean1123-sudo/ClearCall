@@ -471,6 +471,8 @@ function genId() {
 
 // ---------- 美化（IndexedDB） ----------
 // 壁纸与各应用图标图片存 files，appearance 只存引用 id；状态栏开关是轻量设置。
+const HOME_WIDGET_KEYS = ['small1', 'small2', 'large'];
+
 function normalizeIconIds(raw) {
   const src = raw && typeof raw === 'object' ? raw : {};
   const out = {};
@@ -481,12 +483,45 @@ function normalizeIconIds(raw) {
   return out;
 }
 
+function normalizeWidgetIds(raw) {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const out = {};
+  HOME_WIDGET_KEYS.forEach((key) => {
+    if (src[key]) out[key] = src[key];
+  });
+  return out;
+}
+
+// 桌面顺序：应用与小组件混排；页面按容量自动分页
+function normalizeHomeItems(raw) {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set();
+  const out = [];
+  raw.forEach((item) => {
+    const src = item || {};
+    if (src.type === 'app' && src.app) {
+      const key = 'app:' + src.app;
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push({ type: 'app', app: String(src.app) });
+    } else if (src.type === 'widget' && HOME_WIDGET_KEYS.indexOf(src.widget) >= 0) {
+      const key = 'widget:' + src.widget;
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push({ type: 'widget', widget: src.widget });
+    }
+  });
+  return out;
+}
+
 function normalizeAppearance(doc) {
   const d = doc || {};
   const color = (v) => (/^#[0-9a-f]{6}$/i.test(String(v || '')) ? String(v).toLowerCase() : '');
   return {
     wallpaperId: d.wallpaperId || null,
     icons: normalizeIconIds(d.icons),
+    widgets: normalizeWidgetIds(d.widgets),
+    homeItems: normalizeHomeItems(d.homeItems),
     statusBar: d.statusBar !== false,
     bubbleColor: color(d.bubbleColor),
     fontColor: color(d.fontColor),
@@ -505,6 +540,8 @@ function setAppearance(patch) {
     const next = Object.assign(normalizeAppearance(doc), patch || {});
     doc.wallpaperId = next.wallpaperId || null;
     doc.icons = normalizeIconIds(next.icons);
+    doc.widgets = normalizeWidgetIds(next.widgets);
+    doc.homeItems = normalizeHomeItems(next.homeItems);
     doc.statusBar = next.statusBar !== false;
     doc.bubbleColor = next.bubbleColor || '';
     doc.fontColor = next.fontColor || '';
@@ -562,6 +599,50 @@ async function clearAppearanceImage(kind) {
   const cfg = await getAppearance();
   const oldId = cfg.wallpaperId;
   await setAppearance({ wallpaperId: null });
+  if (oldId) {
+    try { await deleteFile(oldId); } catch (_) {}
+    revokeFileUrl(oldId);
+  }
+}
+
+// 桌面小组件：图片存 files，widgets 只留引用；换图或移除时清理旧 Blob
+async function setAppearanceWidgetBlob(key, blob, type, name) {
+  if (HOME_WIDGET_KEYS.indexOf(key) < 0) throw new Error('未知的小组件');
+  const cfg = await getAppearance();
+  const oldId = cfg.widgets[key];
+  const id = genId();
+  await putFile({ id, name: name || ('widget-' + key), type: type || (blob && blob.type) || 'image/jpeg', blob });
+  const widgets = Object.assign({}, cfg.widgets);
+  widgets[key] = id;
+  await setAppearance({ widgets });
+  if (oldId) {
+    try { await deleteFile(oldId); } catch (_) {}
+    revokeFileUrl(oldId);
+  }
+  return id;
+}
+
+async function clearAppearanceWidgetImage(key) {
+  if (HOME_WIDGET_KEYS.indexOf(key) < 0) return;
+  const cfg = await getAppearance();
+  const oldId = cfg.widgets[key];
+  if (!oldId) return;
+  const widgets = Object.assign({}, cfg.widgets);
+  delete widgets[key];
+  await setAppearance({ widgets });
+  try { await deleteFile(oldId); } catch (_) {}
+  revokeFileUrl(oldId);
+}
+
+// 从桌面移除小组件，同时清掉图片
+async function removeHomeWidget(key) {
+  if (HOME_WIDGET_KEYS.indexOf(key) < 0) return;
+  const cfg = await getAppearance();
+  const oldId = cfg.widgets[key];
+  const homeItems = cfg.homeItems.filter((it) => !(it.type === 'widget' && it.widget === key));
+  const widgets = Object.assign({}, cfg.widgets);
+  delete widgets[key];
+  await setAppearance({ homeItems, widgets });
   if (oldId) {
     try { await deleteFile(oldId); } catch (_) {}
     revokeFileUrl(oldId);
@@ -2897,6 +2978,7 @@ async function buildBackup() {
     appearance.wallpaperId,
     appearance.fontFileId,
     ...Object.values(appearance.icons),
+    ...Object.values(appearance.widgets),
     notification.soundId,
     forum.profile.avatarId,
     forum.profile.coverId,
