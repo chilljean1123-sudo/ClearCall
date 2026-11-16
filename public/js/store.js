@@ -274,6 +274,7 @@ const DOC_DIARY_PREFIX = 'diary:';     // 角色日记：按角色分仓
 const DEFAULT_DIARY_TIME = '22:00';    // 默认每天写日记的时间
 const DOC_SCHEDULE_PREFIX = 'schedule:'; // 角色日程：按角色分仓
 const DEFAULT_SCHEDULE_TIME = '07:00';   // 默认每天刷新日程的时间
+const DOC_SHOP = 'shop';               // 商城：按角色分仓的购物车 + 订单记录
 const LEGACY_CHARACTER_ID = 'character';
 
 let _dbPromise = null;
@@ -1650,6 +1651,144 @@ async function saveSchedule(characterId, payload) {
     doc.lastRunDate = date;
   });
   return { date, items };
+}
+
+// ===== 商城 =====
+// 购物车按角色分仓，订单集中保存并保留角色名快照（删除角色不影响历史订单）。
+function normalizeShopItem(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const name = String(raw.name || '').trim();
+  const price = Number(String(raw.price === undefined || raw.price === null ? '' : raw.price).replace(/[^\d.]/g, ''));
+  if (!name || !isFinite(price) || price < 0) return null;
+  return {
+    id: String(raw.id || genId()),
+    name: name.slice(0, 60),
+    price: Math.round(price * 100) / 100,
+    desc: String(raw.desc || '').trim().slice(0, 200),
+    tag: String(raw.tag || '').trim().slice(0, 20),
+    qty: Math.max(1, Math.min(99, parseInt(raw.qty, 10) || 1)),
+  };
+}
+
+function normalizeShopOrder(raw) {
+  const d = raw || {};
+  const items = (Array.isArray(d.items) ? d.items : []).map(normalizeShopItem).filter(Boolean);
+  const total = items.reduce((sum, it) => sum + it.price * it.qty, 0);
+  return {
+    id: String(d.id || genId()),
+    characterId: String(d.characterId || ''),
+    characterName: String(d.characterName || '角色').slice(0, 40),
+    items,
+    total: Math.round(total * 100) / 100,
+    address: String(d.address || '').trim().slice(0, 200),
+    days: Math.max(1, Math.min(30, parseInt(d.days, 10) || 3)),
+    createdAt: Number(d.createdAt) || Date.now(),
+  };
+}
+
+function normalizeShop(doc) {
+  const d = doc || {};
+  const carts = {};
+  if (d.carts && typeof d.carts === 'object') {
+    Object.keys(d.carts).forEach((cid) => {
+      const items = (Array.isArray(d.carts[cid]) ? d.carts[cid] : []).map(normalizeShopItem).filter(Boolean);
+      if (items.length) carts[cid] = items;
+    });
+  }
+  return {
+    carts,
+    orders: (Array.isArray(d.orders) ? d.orders : [])
+      .map(normalizeShopOrder)
+      .filter((o) => o.items.length),
+  };
+}
+
+async function getShop() {
+  return normalizeShop(await getDoc(DOC_SHOP));
+}
+
+function mutateShop(mutator) {
+  return mutateDoc(DOC_SHOP, (doc) => {
+    const base = normalizeShop(doc);
+    doc.carts = base.carts;
+    doc.orders = base.orders;
+    mutator(doc);
+    const next = normalizeShop(doc);
+    doc.carts = next.carts;
+    doc.orders = next.orders;
+  });
+}
+
+async function getShopCart(characterId) {
+  const id = characterId || await getActiveCharacterId();
+  if (!id) return [];
+  const shop = await getShop();
+  return shop.carts[id] || [];
+}
+
+// 同名同价视为同一件商品，只累加数量
+async function addShopCartItem(characterId, product) {
+  const id = characterId || await getActiveCharacterId();
+  if (!id) throw new Error('请先选择一个联系人');
+  const item = normalizeShopItem(product);
+  if (!item) throw new Error('商品信息不完整，暂时不能加入购物车');
+  await mutateShop((doc) => {
+    if (!Array.isArray(doc.carts[id])) doc.carts[id] = [];
+    const existing = doc.carts[id].find((x) => x.name === item.name && x.price === item.price);
+    if (existing) existing.qty = Math.min(99, existing.qty + 1);
+    else doc.carts[id].push({ ...item, qty: 1 });
+  });
+  return getShopCart(id);
+}
+
+async function updateShopCartQty(characterId, itemId, qty) {
+  const id = characterId || await getActiveCharacterId();
+  if (!id) throw new Error('请先选择一个联系人');
+  const next = Math.max(1, Math.min(99, parseInt(qty, 10) || 1));
+  await mutateShop((doc) => {
+    const items = doc.carts[id] || [];
+    const item = items.find((x) => x.id === itemId);
+    if (item) item.qty = next;
+  });
+  return getShopCart(id);
+}
+
+async function removeShopCartItem(characterId, itemId) {
+  const id = characterId || await getActiveCharacterId();
+  if (!id) throw new Error('请先选择一个联系人');
+  await mutateShop((doc) => {
+    if (Array.isArray(doc.carts[id])) doc.carts[id] = doc.carts[id].filter((x) => x.id !== itemId);
+  });
+  return getShopCart(id);
+}
+
+async function clearShopCart(characterId) {
+  const id = characterId || await getActiveCharacterId();
+  if (!id) return [];
+  await mutateShop((doc) => { delete doc.carts[id]; });
+  return [];
+}
+
+// 结算：把该角色购物车转成订单，并清空购物车
+async function createShopOrder(payload) {
+  const p = payload || {};
+  const id = p.characterId || await getActiveCharacterId();
+  if (!id) throw new Error('请先选择一个联系人');
+  const shop = await getShop();
+  const items = shop.carts[id] || [];
+  if (!items.length) throw new Error('购物车还是空的');
+  const order = normalizeShopOrder({
+    characterId: id,
+    characterName: p.characterName,
+    items,
+    address: p.address,
+    days: p.days,
+  });
+  await mutateShop((doc) => {
+    doc.orders.unshift(order);
+    delete doc.carts[id];
+  });
+  return order;
 }
 
 // 在一个事务里完成「读-改-写」，避免并发写丢字段

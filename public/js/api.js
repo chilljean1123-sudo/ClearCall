@@ -481,6 +481,56 @@ async function requestScheduleChat({ baseUrl, apiKey, model, system, user, maxTo
   return directScheduleChat(baseUrl, apiKey, model, system, user, maxTokens);
 }
 
+// 商城搜索（走后端 /api/shop，无后端则直连）
+async function directShopChat(baseUrl, apiKey, model, system, user, maxTokens) {
+  const url = directChatUrl(baseUrl);
+  if (!url) return { ok: false, reason: '商城接口地址不能为空', hints: ['先在设置里填写 AI 接口地址'] };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DIRECT_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'system', content: String(system || '') }, { role: 'user', content: String(user || '') }],
+        max_tokens: maxTokens || 1600,
+        temperature: 0.9,
+        stream: false,
+      }),
+      signal: controller.signal,
+    });
+    const text = await res.text();
+    let data = null; try { data = text ? JSON.parse(text) : null; } catch (_) { data = null; }
+    if (res.ok) {
+      const reply = (data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+      return { ok: true, status: res.status, reply: directStripThinkBlocks(reply) };
+    }
+    const errMsg = (data && (data.error && (data.error.message || data.error.code))) || (data && data.message) || text || ('HTTP ' + res.status);
+    return { ok: false, status: res.status, reason: '商城接口返回错误（HTTP ' + res.status + '）', message: String(errMsg).slice(0, 500), hints: ['检查 AI 接口地址、Key、模型名'] };
+  } catch (err) {
+    if (err && err.name === 'AbortError') return { ok: false, reason: '商城请求超时', hints: ['稍后重试或换模型'] };
+    return { ok: false, reason: '商城直连失败（可能被跨域拦截）：' + (err && err.message ? err.message : err), hints: ['建议使用 Vercel 部署，或允许服务商 CORS'] };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function requestShopChat({ baseUrl, apiKey, model, system, user, maxTokens }) {
+  try {
+    const res = await fetch('/api/shop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ baseUrl, apiKey, model, system, user, maxTokens }),
+    });
+    const text = await res.text();
+    if (isBackendResponse(res, text)) {
+      try { return JSON.parse(text); } catch (_) {}
+    }
+  } catch (_) { /* 无后端 */ }
+  return directShopChat(baseUrl, apiKey, model, system, user, maxTokens);
+}
+
 // 动态（朋友圈）内容生成（走后端 /api/moment，无后端则直连）
 async function directMomentChat(baseUrl, apiKey, model, system, user, maxTokens) {
   const url = directChatUrl(baseUrl);

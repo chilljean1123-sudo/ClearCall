@@ -54,6 +54,14 @@ let forumEditingPostId = null;
 let forumSharePostId = null;
 let forumGenerating = false;
 
+// 商城
+let shopCategory = 'recommend';
+let shopVisibleProducts = [];
+let shopSearchResults = null;
+let shopCartCharId = null;
+let shopSearching = false;
+let shopCheckingOut = false;
+
 // 小说阅读
 let currentBookId = null;
 let readerChapterIndex = 0;
@@ -3573,6 +3581,216 @@ function buildScheduleContextPrompt(schedule) {
   return lines.join('\n');
 }
 
+// ---------------- 商城 ----------------
+function buildShopSearchSystemPrompt(keyword) {
+  return [
+    '你在帮用户逛一个生活类商城，用户想找：' + keyword + '。',
+    '请模拟一次商品搜索，返回 5-8 件符合关键词、风格真实可买的商品。',
+    '要求：',
+    '1. 商品名具体、口语化，不要出现真实品牌或店铺信息。',
+    '2. 价格用数字（人民币元），符合商品定位，不要出现 0 或离谱高价。',
+    '3. 每件商品配一句 15-40 字的描述，以及一个 2-4 字的标签（如「热卖」「新品」）。',
+    '4. 不要输出解释、广告语或 Markdown，只输出 JSON 数组。',
+    '5. 格式：[{"name":"商品名","price":99,"desc":"一句话描述","tag":"标签"}]',
+  ].join('\n');
+}
+
+// 容错解析：去掉 ```json 包裹，取第一个 [ ... ] 片段
+function parseShopJson(text) {
+  let s = String(text || '').trim();
+  s = s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  const start = s.indexOf('[');
+  const end = s.lastIndexOf(']');
+  if (start < 0 || end <= start) return null;
+  try {
+    const arr = JSON.parse(s.slice(start, end + 1));
+    if (!Array.isArray(arr)) return null;
+    const items = arr
+      .map((raw, i) => normalizeShopItem({
+        id: 'search-' + Date.now() + '-' + i,
+        name: raw && (raw.name || raw.title),
+        price: raw && (raw.price !== undefined ? raw.price : raw.amount),
+        desc: raw && (raw.desc || raw.description),
+        tag: raw && (raw.tag || raw.label),
+      }))
+      .filter(Boolean)
+      .slice(0, 8);
+    return items.length ? items : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function renderShopPage() {
+  const isSearch = shopCategory === 'search';
+  renderShopTabs(shopCategory, !!shopSearchResults);
+  if (isSearch && shopSearchResults) shopVisibleProducts = shopSearchResults;
+  else shopVisibleProducts = shopProductsByCategory(shopCategory);
+  renderShopProducts(shopVisibleProducts);
+}
+
+async function openShop() {
+  const { list } = await getCharacters();
+  if (shopCartCharId && !list.some((c) => c.id === shopCartCharId)) shopCartCharId = null;
+  renderShopPage();
+  showView(viewShop);
+  const cart = shopCartCharId ? await getShopCart(shopCartCharId) : [];
+  renderShopCart(cart);
+}
+
+function switchShopCategory(key) {
+  if (key === 'search' && !shopSearchResults) return;
+  shopCategory = key;
+  renderShopPage();
+  const scroll = $('shop-scroll');
+  if (scroll) scroll.scrollTop = 0;
+}
+
+async function addShopProductToCart(product) {
+  if (!product) return;
+  const { list, activeId } = await getCharacters();
+  if (!list.length) { toast('先在「通讯录」里创建一个角色'); return; }
+  if (!shopCartCharId || !list.some((c) => c.id === shopCartCharId)) {
+    if (list.length === 1) {
+      shopCartCharId = list[0].id;
+    } else {
+      await openShopCart(activeId || list[0].id);
+      toast('先在下拉里选一个联系人，再点一次「加入购物车」');
+      return;
+    }
+  }
+  try {
+    await addShopCartItem(shopCartCharId, product);
+    await refreshShopCart();
+    toast('已加入购物车');
+  } catch (err) {
+    toast('加入购物车失败：' + (err && err.message ? err.message : err));
+  }
+}
+
+async function openShopCart(preferId) {
+  const { list, activeId } = await getCharacters();
+  if (!list.length) { toast('先在「通讯录」里创建一个角色'); return; }
+  const wanted = preferId || shopCartCharId || activeId || list[0].id;
+  shopCartCharId = list.some((c) => c.id === wanted) ? wanted : list[0].id;
+  fillShopCartCharacters(list, shopCartCharId);
+  const cart = await getShopCart(shopCartCharId);
+  renderShopCart(cart);
+  $('shop-cart-mask').hidden = false;
+  $('shop-cart-panel').hidden = false;
+}
+
+function closeShopCart() {
+  $('shop-cart-mask').hidden = true;
+  $('shop-cart-panel').hidden = true;
+}
+
+async function refreshShopCart() {
+  if (!shopCartCharId) { renderShopCart([]); return; }
+  const cart = await getShopCart(shopCartCharId);
+  renderShopCart(cart);
+  if (!$('shop-cart-panel').hidden) {
+    const { list } = await getCharacters();
+    fillShopCartCharacters(list, shopCartCharId);
+  }
+}
+
+async function searchShopProducts() {
+  const keyword = $('input-shop-search').value.trim();
+  if (!keyword) { toast('先输入想搜的关键词'); return; }
+  if (shopSearching) return;
+  const api = emailApiConfig();
+  if (!api.baseUrl || !api.apiKey || !api.model) {
+    toast('请先到「设置」填好接口地址、API Key 和模型名');
+    return;
+  }
+  shopSearching = true;
+  const btn = $('btn-shop-search');
+  if (btn) btn.disabled = true;
+  toast('正在搜「' + keyword + '」…');
+  try {
+    const data = await requestShopChat({
+      baseUrl: api.baseUrl,
+      apiKey: api.apiKey,
+      model: api.model,
+      system: buildShopSearchSystemPrompt(keyword),
+      user: '请搜索「' + keyword + '」相关的商品，按格式返回 JSON 数组。',
+      maxTokens: 1600,
+    });
+    if (!data || !data.ok) throw new Error((data && (data.reason || data.message)) || '搜索失败');
+    const items = parseShopJson(data.reply);
+    if (!items) throw new Error('模型没有返回可用的商品，稍后重试或换模型');
+    shopSearchResults = items;
+    shopCategory = 'search';
+    renderShopPage();
+    const scroll = $('shop-scroll');
+    if (scroll) scroll.scrollTop = 0;
+    toast('找到 ' + items.length + ' 件商品');
+  } catch (err) {
+    // 失败时保留原来的商品列表
+    toast('搜索失败：' + (err && err.message ? err.message : err));
+  } finally {
+    shopSearching = false;
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function checkoutShop() {
+  if (shopCheckingOut) return;
+  if (!shopCartCharId) { toast('先在下拉里选一个联系人'); return; }
+  const address = $('input-shop-address').value.trim();
+  if (!address) { toast('请先填写收货地址'); return; }
+  const days = parseInt($('input-shop-days').value, 10);
+  if (!(days >= 1 && days <= 30)) { toast('送达天数请填 1 到 30 之间的整数'); return; }
+  const character = await getCharacter(shopCartCharId);
+  if (!character) { toast('这个角色已经被删除了，换一个联系人吧'); return; }
+  const cart = await getShopCart(shopCartCharId);
+  if (!cart.length) { toast('购物车是空的'); return; }
+
+  shopCheckingOut = true;
+  const btn = $('btn-shop-checkout');
+  if (btn) btn.disabled = true;
+  try {
+    const order = await createShopOrder({
+      characterId: shopCartCharId,
+      characterName: character.name,
+      address,
+      days,
+    });
+    await mutateHistory((arr) => arr.push({
+      role: 'user',
+      content: '我在商城买了些东西，已经下单了，预计 ' + order.days + ' 天后送到。',
+      kind: 'shop',
+      shop: {
+        orderId: order.id,
+        items: order.items,
+        total: order.total,
+        address: order.address,
+        days: order.days,
+      },
+      createdAt: Date.now(),
+    }), shopCartCharId);
+    await addMemoryEntry({
+      category: 'event',
+      text: '你在商城下单了：' + order.items.map((it) => it.name + '×' + it.qty).join('、') +
+        '，合计 ¥' + order.total.toFixed(2) + '，收货地址 ' + order.address +
+        '，预计 ' + order.days + ' 天后送达。',
+    }, shopCartCharId);
+    // 聊天室正停在该角色时立即重绘，让订单卡片马上出现
+    const { activeId } = await getCharacters();
+    if (viewChat.classList.contains('active') && activeId === shopCartCharId) {
+      await renderChat();
+    }
+    await refreshShopCart();
+    closeShopCart();
+    toast('下单成功，订单卡片已发到 ' + (character.name || '角色') + ' 的聊天室');
+  } catch (err) {
+    toast('结算失败：' + (err && err.message ? err.message : err));
+  } finally {
+    shopCheckingOut = false;
+    if (btn) btn.disabled = false;
+  }
+}
 
 $('tab-select').addEventListener('click', () => setModelMode('select'));
 $('tab-manual').addEventListener('click', () => setModelMode('manual'));
@@ -4185,6 +4403,8 @@ document.querySelectorAll('.app-icon, .dock-icon').forEach((btn) => {
       openBooks();
     } else if (app === 'schedule') {
       openSchedule();
+    } else if (app === 'shop') {
+      openShop();
     } else if (app === 'settings') {
       loadSaved();
       loadTriggerSettings();
@@ -4587,6 +4807,57 @@ $('select-schedule-char').addEventListener('change', async (e) => {
 $('schedule-body').addEventListener('click', (e) => {
   if (e.target.closest('#btn-schedule-save')) saveScheduleSettingsFromPage().catch(() => {});
 });
+
+// 商城事件
+$('btn-shop-back').addEventListener('click', () => { closeShopCart(); showView(viewHome); });
+$('btn-shop-cart').addEventListener('click', () => { openShopCart().catch(() => {}); });
+$('btn-shop-cart-close').addEventListener('click', closeShopCart);
+$('shop-cart-mask').addEventListener('click', closeShopCart);
+$('btn-shop-search').addEventListener('click', () => { searchShopProducts().catch(() => {}); });
+$('input-shop-search').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.isComposing) {
+    e.preventDefault();
+    searchShopProducts().catch(() => {});
+  }
+});
+$('shop-tabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-shop-cat]');
+  if (btn) switchShopCategory(btn.dataset.shopCat);
+});
+$('shop-products').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-shop-add]');
+  if (!btn) return;
+  const index = Number(btn.dataset.shopAdd);
+  addShopProductToCart(shopVisibleProducts[index]).catch((err) => {
+    toast('加入购物车失败：' + (err && err.message ? err.message : err));
+  });
+});
+$('shop-cart-items').addEventListener('click', async (e) => {
+  if (!shopCartCharId) return;
+  const qtyBtn = e.target.closest('[data-shop-qty]');
+  if (qtyBtn) {
+    const cart = await getShopCart(shopCartCharId);
+    const item = cart.find((x) => x.id === qtyBtn.dataset.shopQty);
+    if (!item) return;
+    const delta = Number(qtyBtn.dataset.shopQtyDelta) || 0;
+    const next = item.qty + delta;
+    if (next < 1) await removeShopCartItem(shopCartCharId, item.id);
+    else await updateShopCartQty(shopCartCharId, item.id, next);
+    await refreshShopCart();
+    return;
+  }
+  const delBtn = e.target.closest('[data-shop-del]');
+  if (delBtn) {
+    await removeShopCartItem(shopCartCharId, delBtn.dataset.shopDel);
+    await refreshShopCart();
+  }
+});
+$('select-shop-cart-char').addEventListener('change', (e) => {
+  shopCartCharId = e.target.value || null;
+  refreshShopCart().catch(() => {});
+});
+$('btn-shop-checkout').addEventListener('click', () => { checkoutShop().catch(() => {}); });
+
 $('btn-diary-write').addEventListener('click', () => writeDiaryNow(diaryCharacterId).catch(() => {}));
 $('chat-style-grid').addEventListener('change', (e) => {
   const input = e.target.closest('input[type="checkbox"]');

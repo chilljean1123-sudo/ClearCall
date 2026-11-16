@@ -20,6 +20,7 @@ const viewDiary = $('view-diary');
 const viewSchedule = $('view-schedule');
 const viewIconManager = $('view-icon-manager');
 const viewMoments = $('view-moments');
+const viewShop = $('view-shop');
 
 function showView(view) {
   document.querySelectorAll('.app-view').forEach((el) => el.classList.remove('active'));
@@ -289,6 +290,26 @@ function renderUserAttachment(m, ctx) {
     card.appendChild(label);
     card.appendChild(title);
     card.appendChild(excerpt);
+    bubble.appendChild(card);
+  } else if (m.kind === 'shop') {
+    const s = m.shop || {};
+    bubble.className += ' shop-bubble';
+    const card = document.createElement('div');
+    card.className = 'chat-shop-card';
+    card.appendChild(uiEl('div', 'chat-shop-card-label', '商城订单'));
+    (Array.isArray(s.items) ? s.items : []).forEach((it) => {
+      const qty = Number(it.qty) || 1;
+      const row = uiEl('div', 'chat-shop-item');
+      row.appendChild(uiEl('span', 'chat-shop-item-name', (it.name || '商品') + ' ×' + qty));
+      row.appendChild(uiEl('span', 'chat-shop-item-price', '¥' + (Number(it.price || 0) * qty).toFixed(2)));
+      card.appendChild(row);
+    });
+    const total = uiEl('div', 'chat-shop-total');
+    total.appendChild(uiEl('span', '', '合计'));
+    total.appendChild(uiEl('strong', '', '¥' + Number(s.total || 0).toFixed(2)));
+    card.appendChild(total);
+    if (s.address) card.appendChild(uiEl('div', 'chat-shop-meta', '收货地址：' + s.address));
+    card.appendChild(uiEl('div', 'chat-shop-meta', '预计 ' + (Number(s.days) || 3) + ' 天后送达'));
     bubble.appendChild(card);
   } else {
     bubble.textContent = m.content;
@@ -3516,4 +3537,134 @@ function renderReaderChat(messages, characterName, typing) {
     box.appendChild(row);
   }
   box.scrollTop = box.scrollHeight;
+}
+
+// ===== 商城 =====
+// 首批内置示例商品，模型搜索结果也复用同一套卡片渲染。
+const SHOP_CATEGORIES = [
+  { key: 'recommend', label: '为你推荐' },
+  { key: 'digital', label: '数码' },
+  { key: 'home', label: '家居' },
+  { key: 'snack', label: '零食' },
+  { key: 'wear', label: '穿搭' },
+];
+
+const SHOP_PRODUCTS = [
+  { id: 'shop-1', name: '降噪蓝牙耳机', price: 399, desc: '入耳轻巧，通勤路上也能安静听歌。', tag: '热卖', category: 'digital' },
+  { id: 'shop-2', name: '复古机械键盘', price: 329, desc: '段落手感清脆，桌面颜值也照顾到了。', tag: '手感', category: 'digital' },
+  { id: 'shop-3', name: '迷你拍立得相机', price: 499, desc: '随手拍立等可取，送人自留都合适。', tag: '礼物', category: 'digital' },
+  { id: 'shop-4', name: '桌面氛围小夜灯', price: 79, desc: '三档暖光，睡前留一点柔和的光。', tag: '氛围', category: 'home' },
+  { id: 'shop-5', name: '便携榨汁杯', price: 89, desc: '一杯刚好一人份，清洗也省事。', tag: '新品', category: 'home' },
+  { id: 'shop-6', name: '香薰蜡烛三件套', price: 99, desc: '雪松、白茶、无花果，慢慢烧完一整个晚上。', tag: '治愈', category: 'home' },
+  { id: 'shop-7', name: '海盐芝士饼干', price: 36, desc: '咸甜口，配咖啡刚好。', tag: '回购', category: 'snack' },
+  { id: 'shop-8', name: '手冲咖啡礼盒', price: 128, desc: '挂耳与豆子各一半，周末慢慢喝。', tag: '人气', category: 'snack' },
+  { id: 'shop-9', name: '宽松针织开衫', price: 199, desc: '软糯垂顺，早晚温差大的时候很实用。', tag: '百搭', category: 'wear' },
+  { id: 'shop-10', name: '云朵软底拖鞋', price: 59, desc: '踩上去像踩在云上，居家必备。', tag: '舒适', category: 'wear' },
+];
+
+function shopProductsByCategory(key) {
+  if (key === 'recommend') return SHOP_PRODUCTS.slice();
+  return SHOP_PRODUCTS.filter((p) => p.category === key);
+}
+
+function renderShopTabs(activeKey, showSearch) {
+  const box = $('shop-tabs');
+  if (!box) return;
+  box.innerHTML = '';
+  const list = showSearch ? [{ key: 'search', label: '搜索结果' }].concat(SHOP_CATEGORIES) : SHOP_CATEGORIES;
+  list.forEach((cat) => {
+    const btn = uiEl('button', 'shop-tab' + (cat.key === activeKey ? ' active' : ''), cat.label);
+    btn.type = 'button';
+    btn.dataset.shopCat = cat.key;
+    box.appendChild(btn);
+  });
+}
+
+function renderShopProducts(products) {
+  const box = $('shop-products');
+  if (!box) return;
+  box.innerHTML = '';
+  const list = Array.isArray(products) ? products : [];
+  if (!list.length) {
+    box.appendChild(uiEl('div', 'shop-empty', '这个分类还没有商品，换个分类看看。'));
+    return;
+  }
+  list.forEach((p, index) => {
+    const card = uiEl('article', 'shop-card');
+    const thumb = uiEl('div', 'shop-card-thumb');
+    thumb.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 7h16a2 2 0 0 1 2 2v10a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V9a2 2 0 0 1 2-2Z"/><path d="M8 11V6a4 4 0 0 1 8 0v5" fill="none" stroke="var(--glyph-cutout)" stroke-width="2.4" stroke-linecap="round"/></svg>';
+    card.appendChild(thumb);
+    if (p.tag) card.appendChild(uiEl('span', 'shop-card-tag', p.tag));
+    const body = uiEl('div', 'shop-card-body');
+    body.appendChild(uiEl('div', 'shop-card-name', p.name));
+    if (p.desc) body.appendChild(uiEl('div', 'shop-card-desc', p.desc));
+    const foot = uiEl('div', 'shop-card-foot');
+    foot.appendChild(uiEl('span', 'shop-card-price', '¥' + Number(p.price || 0).toFixed(2)));
+    const add = uiEl('button', 'shop-card-add', '加入购物车');
+    add.type = 'button';
+    add.dataset.shopAdd = String(index);
+    foot.appendChild(add);
+    body.appendChild(foot);
+    card.appendChild(body);
+    box.appendChild(card);
+  });
+}
+
+function renderShopCart(cart) {
+  const box = $('shop-cart-items');
+  if (!box) return;
+  box.innerHTML = '';
+  const items = Array.isArray(cart) ? cart : [];
+  let total = 0;
+  let count = 0;
+  if (!items.length) {
+    box.appendChild(uiEl('div', 'shop-cart-empty', '购物车还是空的，先去挑几件吧。'));
+  }
+  items.forEach((it) => {
+    const qty = Number(it.qty) || 1;
+    total += Number(it.price || 0) * qty;
+    count += qty;
+    const row = uiEl('div', 'shop-cart-item');
+    const info = uiEl('div', 'shop-cart-item-info');
+    info.appendChild(uiEl('div', 'shop-cart-item-name', it.name));
+    info.appendChild(uiEl('div', 'shop-cart-item-price', '¥' + Number(it.price || 0).toFixed(2)));
+    row.appendChild(info);
+    const ctrl = uiEl('div', 'shop-cart-qty');
+    const minus = uiEl('button', 'shop-qty-btn', '−');
+    minus.type = 'button';
+    minus.dataset.shopQty = it.id;
+    minus.dataset.shopQtyDelta = '-1';
+    ctrl.appendChild(minus);
+    ctrl.appendChild(uiEl('span', 'shop-qty-num', String(qty)));
+    const plus = uiEl('button', 'shop-qty-btn', '+');
+    plus.type = 'button';
+    plus.dataset.shopQty = it.id;
+    plus.dataset.shopQtyDelta = '1';
+    ctrl.appendChild(plus);
+    row.appendChild(ctrl);
+    const del = uiEl('button', 'shop-cart-del', '删除');
+    del.type = 'button';
+    del.dataset.shopDel = it.id;
+    row.appendChild(del);
+    box.appendChild(row);
+  });
+  const totalEl = $('shop-cart-total');
+  if (totalEl) totalEl.textContent = '¥' + total.toFixed(2);
+  const countEl = $('shop-cart-count');
+  if (countEl) countEl.textContent = String(count);
+}
+
+function fillShopCartCharacters(characters, selectedId) {
+  const select = $('select-shop-cart-char');
+  if (!select) return;
+  select.innerHTML = '';
+  const list = Array.isArray(characters) ? characters : [];
+  list.forEach((c) => {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = c.name || '未命名角色';
+    select.appendChild(opt);
+  });
+  if (selectedId && list.some((c) => c.id === selectedId)) select.value = selectedId;
+  select.disabled = list.length <= 1;
 }
