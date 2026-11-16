@@ -23,6 +23,7 @@ const viewMoments = $('view-moments');
 const viewShop = $('view-shop');
 const viewFood = $('view-food');
 const viewMusic = $('view-music');
+const viewPerception = $('view-perception');
 
 function showView(view) {
   document.querySelectorAll('.app-view').forEach((el) => el.classList.remove('active'));
@@ -35,6 +36,29 @@ function toast(msg) {
   t.hidden = false;
   clearTimeout(t._timer);
   t._timer = setTimeout(() => { t.hidden = true; }, 2200);
+}
+
+// 顶栏导航图标：返回统一左箭头，设置统一齿轮；透明底、无圆框、无阴影
+const NAV_ARROW_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>';
+const NAV_GEAR_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>';
+
+function initNavIcons() {
+  document.querySelectorAll('.back-btn').forEach((btn) => {
+    if (btn.querySelector('svg')) return;
+    const label = (btn.textContent || '').trim() || '返回';
+    btn.classList.add('nav-icon-btn');
+    btn.setAttribute('aria-label', label);
+    btn.innerHTML = NAV_ARROW_SVG;
+  });
+  ['btn-forum-settings', 'btn-moments-settings', 'btn-mail-settings', 'btn-music-settings'].forEach((id) => {
+    const btn = $(id);
+    if (!btn) return;
+    btn.classList.add('nav-icon-btn');
+    btn.setAttribute('aria-label', '设置');
+    btn.innerHTML = NAV_GEAR_SVG;
+  });
+  const chatBack = $('btn-chat-back');
+  if (chatBack) chatBack.classList.add('nav-icon-btn');
 }
 
 // 状态栏与主屏幕时钟
@@ -616,7 +640,7 @@ async function renderCallPicker() {
   if (!list.length) {
     const empty = document.createElement('div');
     empty.className = 'call-picker-empty';
-    empty.textContent = '还没有角色，先去「角色」应用创建一个吧';
+    empty.textContent = '还没有人住进来。';
     box.appendChild(empty);
     return;
   }
@@ -867,7 +891,7 @@ async function renderStickerTool(body) {
   const grid = uiEl('div', 'sticker-grid');
   grid.id = 'sticker-grid';
   if (!stickers.length) {
-    grid.appendChild(uiEl('div', 'sticker-empty', '当前角色还没有表情包，先导入一批吧'));
+    grid.appendChild(uiEl('div', 'sticker-empty', '表情还空着，等她收藏。'));
   } else {
     stickers.forEach((s) => {
       const tile = uiEl('div', 'sticker-tile');
@@ -940,7 +964,7 @@ async function renderDirectiveTool(body) {
 async function renderMailTool(body) {
   const { list, activeId } = await getCharacters();
   if (!list.length) {
-    body.appendChild(uiEl('div', 'tool-hint', '还没有角色。先到角色应用创建一个人设，才能让他给你写信。'));
+    body.appendChild(uiEl('div', 'tool-hint', '先有一个角色，才能收到信。'));
     return;
   }
 
@@ -979,7 +1003,7 @@ async function renderMailTool(body) {
 async function renderDiaryTool(body) {
   const characterId = await getActiveCharacterId();
   if (!characterId) {
-    body.appendChild(uiEl('div', 'tool-hint', '还没有角色。先到角色应用创建一个人设，才能让他写日记。'));
+    body.appendChild(uiEl('div', 'tool-hint', '先有一个角色，日记才会落笔。'));
     return;
   }
   const character = await getCharacter(characterId);
@@ -1253,7 +1277,7 @@ function renderSchedulePage(character, schedule) {
   agenda.appendChild(agendaHead);
 
   if (!items.length) {
-    agenda.appendChild(uiEl('div', 'schedule-empty', '今天还没有日程。点右上角「刷新」，让 ' + name + ' 按人设和世界书安排今天。'));
+    agenda.appendChild(uiEl('div', 'schedule-empty', '今天还空着，点右上角让 ' + name + ' 来安排。'));
   } else {
     const clock = scheduleNowClock();
     items.forEach((item) => {
@@ -1369,7 +1393,7 @@ function renderCharacterList(characters, activeId) {
   if (!characters.length) {
     const empty = document.createElement('div');
     empty.className = 'memory-empty';
-    empty.textContent = '还没有联系人。点「新建联系人」创建人设；聊天和记忆会按联系人分开保存。';
+    empty.textContent = '还没有联系人。新建一个，故事就开始。';
     box.appendChild(empty);
     return;
   }
@@ -1865,7 +1889,7 @@ function renderUserProfileList(profiles, activeId) {
   if (!profiles.length) {
     const empty = document.createElement('div');
     empty.className = 'memory-empty';
-    empty.textContent = '还没有人设。点「新建人设」写下你的名字和自我介绍，聊天时会作为「我」注入。';
+    empty.textContent = '写下你的名字，让她认识你。';
     box.appendChild(empty);
     return;
   }
@@ -2004,7 +2028,11 @@ function playCharacterSwitchAnimation(character, avatarUrl) {
 // ===== 头像 / 参考图处理（返回 Blob，交给 store.js 存入 IndexedDB） =====
 function fileToImage(file, max) {
   return new Promise((resolve, reject) => {
-    if (!file || !file.type.startsWith('image/')) { reject(new Error('请选择图片文件')); return; }
+    const looksImage = file && (
+      (file.type && file.type.startsWith('image/')) ||
+      /\.(jpe?g|png|webp|gif|bmp|heic|heif|avif)$/i.test(file.name || '')
+    );
+    if (!looksImage) { reject(new Error('请选择图片文件')); return; }
     const reader = new FileReader();
     reader.onload = () => {
       const img = new Image();
@@ -2117,8 +2145,8 @@ function applyChatAppearance(cfg) {
   if (clearBtn) clearBtn.hidden = !(cfg && cfg.fontFileId);
   if (status) {
     status.textContent = (cfg && cfg.fontFileId)
-      ? ('已导入：' + (cfg.fontFileName || '自定义字体') + '（优先于上方字体名）')
-      : '支持 .ttf / .otf / .woff / .woff2，导入后优先于上面的字体名。';
+      ? ('笔迹：' + (cfg.fontFileName || '自定义字体'))
+      : '字体文件，也可以轻轻放下。';
   }
 }
 
@@ -2258,13 +2286,13 @@ async function renderMemory() {
   if (!entries.length) {
     const empty = document.createElement('div');
     empty.className = 'memory-empty';
-    empty.textContent = '还没有短期记忆。点「整理」从聊天里总结，或点「添加」手动写一条。';
+    empty.textContent = '还没有短期记忆，等她慢慢记住你。';
     list.appendChild(empty);
   } else {
     entries.forEach((e) => list.appendChild(memoryEntryRow(e)));
   }
-  renderMemoryTierList('memory-long-list', longTerm, '还没有长期记忆。短期记忆每满 30 条会自动总结一条。', 'longTerm');
-  renderMemoryTierList('memory-core-list', core, '还没有核心记忆。长期记忆每满 5 条会自动总结一条。', 'core');
+  renderMemoryTierList('memory-long-list', longTerm, '还没有长期记忆，时间会替你们收好。', 'longTerm');
+  renderMemoryTierList('memory-core-list', core, '还没有核心记忆，等故事慢慢沉下来。', 'core');
 }
 
 // 长期 / 核心记忆：系统自动总结，可删除不准确的一条
@@ -2465,7 +2493,7 @@ function renderWorldbookList(entries) {
   if (!entries.length) {
     const empty = document.createElement('div');
     empty.className = 'wb-empty';
-    empty.textContent = '这个列表还没有条目。点「添加条目」新建，或「导入」JSON 文件。';
+    empty.textContent = '这里还空着，可以新建或导入。';
     list.appendChild(empty);
     return;
   }
@@ -2738,8 +2766,8 @@ async function renderForumFeed(forum, tab) {
     strong.textContent = tab === 'following' ? '还没有角色发帖' : '论坛还很安静';
     const p = document.createElement('div');
     p.textContent = tab === 'following'
-      ? '去设置里绑定角色，点刷新就会生成角色帖子。'
-      : '展开模块下方的「刷新帖子」生成路人帖子，或点「＋」自己发一帖。';
+      ? '绑定角色后，点刷新就好。'
+      : '点下方「刷新帖子」，或自己发一帖。';
     empty.appendChild(strong);
     empty.appendChild(p);
     feed.appendChild(empty);
@@ -2811,7 +2839,7 @@ async function buildForumProfileView(forum) {
   if (!myPosts.length) {
     const empty = document.createElement('div');
     empty.className = 'forum-empty';
-    empty.textContent = '还没发过帖子，回首页点「＋」发第一帖。';
+    empty.textContent = '还没发过帖子，第一帖留给你。';
     wrap.appendChild(empty);
   } else {
     for (const post of myPosts) {
@@ -2897,7 +2925,7 @@ async function renderForumDetail(forum, post) {
     const empty = document.createElement('div');
     empty.className = 'forum-empty';
     empty.style.padding = '18px 0';
-    empty.textContent = '还没有评论，点「生成评论」看看网友怎么说。';
+    empty.textContent = '评论区还空着。';
     comments.appendChild(empty);
   } else {
     post.comments.forEach((c) => {
@@ -3648,7 +3676,7 @@ function renderMusicList(tracks, nowId) {
   if (!box) return;
   box.innerHTML = '';
   if (!tracks.length) {
-    box.appendChild(uiEl('div', 'music-empty', '还没有歌曲。先导入本地歌曲，或扫码导入网易云歌单。'));
+    box.appendChild(uiEl('div', 'music-empty', '还没有歌。导入一首，让今天有声音。'));
     return;
   }
   tracks.forEach((t) => {
@@ -3740,7 +3768,7 @@ function renderShopProducts(products, boxId) {
   box.innerHTML = '';
   const list = Array.isArray(products) ? products : [];
   if (!list.length) {
-    box.appendChild(uiEl('div', 'shop-empty', '这个分类还没有商品，换个分类看看。'));
+    box.appendChild(uiEl('div', 'shop-empty', '这里暂时空着，去别处看看。'));
     return;
   }
   list.forEach((p, index) => {

@@ -65,10 +65,14 @@
 - 论坛生成走后端 `/api/forum`（Vercel 为 `api/forum.js`，共享 `lib/ai.js` 的 `forumChat()`），未部署后端时直连 OpenAI 兼容接口；论坛 API 留空则复用主 AI 配置。刷新生成的帖子要写入绑定角色的记忆；分享帖子到聊天室时写入 `kind: 'forum'` 卡片消息，并写一条记忆。
 - 多套 AI 接口配置存 localStorage（`clearcall.apiProfiles` / `clearcall.apiProfileActive`），设置页可保存、切换、删除；切换时把 `baseUrl` / `apiKey` / `model` / `modelMode` 写回主接口设置并调用 `save()`，名称留空时自动命名。
 - 音乐数据存 `music` 文档：`tracks` 含 `source: local | netease`、本地曲目 `fileId` 指向 `files` 里的音频 Blob、网易云曲目 `neteaseId`、`lyrics`、`playlistName`。网易云 API 地址与登录 cookie 存 localStorage（`clearcall.musicApiBase` / `clearcall.musicNeteaseCookie` / `clearcall.musicNeteaseName`），前端直连用户自部署的 `NeteaseCloudMusicApi`。扫码流程 `/login/qr/key` → `/login/qr/create?qrimg=true` → 轮询 `/login/qr/check`（800 过期 / 801 等待 / 802 已扫 / 803 成功）→ `/user/account` → `/user/playlist` → `/playlist/detail`；歌词用 `/lyric` 取 LRC 并剥离时间轴。分享歌曲给角色时写入 `kind:'music'` 消息，把歌词注入 content，让角色基于歌词谈感受，同时写一条记忆。删除本地曲目要同时删除音频 Blob。
+- 感知数据存 `perception` 文档：`{ timeEnabled, locationEnabled, location:{lat,lng,label,at}, weather:{address,text,temp,code,updatedAt}, lastActiveAt }`。设置 → 感知进入独立页；开启真实时间后在聊天/通话 system 注入当前日期、时段与「距上次说话多久」；开启真实地点用 `navigator.geolocation` 取坐标并反查城市；天气用 Open-Meteo 地理编码 + 预报接口，结果落在主屏时间下方，30 分钟内复用缓存。感知提示词只影响语气，禁止复述系统信息。
+- 备份导出/导入要覆盖所有新增结构化数据（`music` 已接入；`perception` 属于本机感知偏好，可不跨设备迁移）。
 
 ## 风格约束
 
 - 界面是「虚拟手机」全屏布局，铺满视口，不做居中手机模型、模拟边框或灵动岛；桌面端也按整屏处理。
+- **顶栏导航图标统一**：所有应用顶栏的返回按钮一律用左箭头 SVG，设置按钮一律用齿轮 SVG；透明底、无圆框、无阴影，点按有颜色与缩放动画（默认柔粉，按下转白并轻微缩小）。由 `ui.js` 的 `initNavIcons()` 统一注入，新增页面只要给返回按钮加 `.back-btn`、设置按钮 id 以 `-settings` 结尾即可自动套用。
+- **文案轻量有诗意**：界面不写冗长说明和实现细节，提示用一句短句（尽量 14 字以内），可带一点文学感；技术必要信息压到最短，状态类提示保留。
 - 严格区分「设置页」「聊天页」「角色页」「记忆页」「世界书页」等独立页面，用状态切换显示/隐藏，不要混排挤压。
 - 设置项和角色里的扩展绑定统一用抽屉（`<details class="drawer">`），点标题才展开；不要把所有字段平铺挤在一起。
 - 图标一律用 CSS/SVG 绘制，禁止用「地/图/表/¥/令/邮」等汉字充当功能图标；聊天工具菜单、顶栏入口都遵循这一条。
@@ -110,6 +114,8 @@
 - 商城与外卖共用「搜索 → 购物车 → 选角色 → 结算发卡片」模式：`renderShopTabs/Products/Cart` 通过 `boxId`/`prefix` 复用；订单统一存 `kind:'shop'`，用 `shop.type` 区分 `shop`/`food`，卡片必须写 `toName`（送给谁）。
 - 音乐播放：本地曲目用 `getFileUrl(fileId)` 的对象 URL，网易云曲目用外链 `https://music.163.com/song/media/outer/url?id=xxx.mp3`；版权或网络问题会触发 `<audio>` 的 `error`，必须提示「播放失败，可能是版权或网络问题」，不能静默。
 - 网易云扫码登录依赖用户自部署的 NeteaseCloudMusicApi 且需允许跨域；沙箱里无法实测，只能做代码级校验，界面必须把「填 API 地址」这一步说明清楚。
+- 壁纸必须给 `#view-home` 显式写 `background-size: cover; background-position: center; background-repeat: no-repeat;`，只改 inline `background-image` 会沿用 CSS 简写的 `auto`，大图只露左上角，看起来像「没换壁纸」。选图时同时兼容空 MIME 的手机相册文件（按扩展名判断）。
+- 天气使用免 Key 的 Open-Meteo：`geocoding-api.open-meteo.com/v1/search` 取坐标，`api.open-meteo.com/v1/forecast?current=temperature_2m,weather_code` 取实况；定位坐标反查城市用 `api.bigdatacloud.net/data/reverse-geocode-client`。天气失败时显示「天气暂时迷路了」，不能静默。
 
 ## 待补充
 

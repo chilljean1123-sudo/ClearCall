@@ -31,6 +31,7 @@
         <div class="wallpaper home-clock">
           <div class="home-clock-time" id="home-clock-time">00:00</div>
           <div class="home-clock-date" id="home-clock-date"></div>
+          <div class="home-clock-weather" id="home-weather" hidden></div>
         </div>
         <div class="app-grid">
           <button class="app-icon" data-app="sms">
@@ -159,7 +160,7 @@
             <span class="app-header-spacer"></span>
           </header>
           <div class="forum-panel-body">
-            <p class="settings-note">论坛可以使用独立 API，并绑定世界书与角色，生成的路人帖子和角色帖子会带上板块设定。</p>
+            <p class="settings-note">让论坛有自己的风，和来往的人。</p>
 
             <div class="field">
               <span class="field-label">论坛 API 地址</span>
@@ -176,26 +177,26 @@
             <div class="field">
               <span class="field-label">每次刷新生成帖数</span>
               <input id="input-forum-count" type="number" min="1" max="10" step="1" />
-              <span class="field-hint">默认 3 条，包含路人与角色帖子。</span>
+              <span class="field-hint">三条刚好：路人、角色，和你。</span>
             </div>
 
             <div class="field">
               <span class="field-label">绑定世界书</span>
               <div class="forum-check-list" id="forum-worldbook-list"></div>
-              <span class="field-hint">勾选后，生成帖子时会读取这些世界书条目。</span>
+              <span class="field-hint">让世界书里的人和事，走进帖子。</span>
             </div>
 
             <div class="field">
               <span class="field-label">绑定角色</span>
               <div class="forum-check-list" id="forum-character-list"></div>
-              <span class="field-hint">勾选的角色会以本人身份在论坛发帖，也会出现在分享列表。</span>
+              <span class="field-hint">他们会用自己的名字发帖。</span>
             </div>
 
             <div class="field">
               <span class="field-label">论坛板块</span>
               <div class="forum-board-editor-list" id="forum-board-editor-list"></div>
               <button class="fetch-btn" id="btn-forum-board-add" type="button">＋ 添加板块</button>
-              <span class="field-hint">可以添加多个板块，每个板块有自己的主题、简介和路人提示词。</span>
+              <span class="field-hint">每个板块，都有自己的空气。</span>
             </div>
 
             <button class="test-btn" id="btn-forum-settings-save" type="button">保存论坛设置</button>
@@ -241,7 +242,7 @@
             <span class="app-header-spacer"></span>
           </header>
           <div class="forum-panel-body">
-            <p class="settings-note">选择角色后，帖子会以卡片形式发送到对应聊天室。</p>
+            <p class="settings-note">把这张帖子，递给她。</p>
             <div class="forum-share-list" id="forum-share-list"></div>
           </div>
         </section>
@@ -391,7 +392,7 @@
                 <button class="fetch-btn" id="btn-moments-compose-image" type="button">选择图片</button>
                 <button class="fetch-btn" id="btn-moments-compose-image-clear" type="button" disabled>移除图片</button>
               </div>
-              <span class="field-hint">可以从相册选一张图；不选图也可以只发文字。</span>
+              <span class="field-hint">一张图，或一句话。</span>
               <input type="file" id="file-moment-image" accept="image/*" hidden />
             </div>
           </div>
@@ -404,7 +405,7 @@
             <span class="app-header-spacer"></span>
           </header>
           <div class="forum-panel-body">
-            <p class="field-hint">勾选会定时发动态的角色。每条角色动态都会带图，绑定生图时生成图片，否则用文字画面描述代替。</p>
+            <p class="field-hint">他们会定时更新生活，带图，或带一段画面。</p>
             <div class="field">
               <span class="field-label">发动态的角色</span>
               <div class="forum-check-list" id="moments-character-list"></div>
@@ -412,7 +413,7 @@
             <label class="field">
               <span class="field-label">发布间隔（小时）</span>
               <input id="moments-interval-hours" type="number" min="1" max="720" step="1" value="24" />
-              <span class="field-hint">默认 24 小时；填 1 表示每小时最多一条。</span>
+              <span class="field-hint">二十四小时一条，刚刚好。</span>
             </label>
             <button class="test-btn" id="btn-moments-settings-save" type="button">保存动态设置</button>
             <div class="field-hint" id="moments-settings-hint"></div>
@@ -482,7 +483,7 @@
             <span class="app-header-spacer"></span>
           </header>
           <div class="forum-panel-body">
-            <p class="field-hint">勾选会定时给你写信的角色。每个角色按下面的间隔各写一封，内容会参考人设与记忆。</p>
+            <p class="field-hint">让信，按自己的节奏抵达。</p>
             <div class="field">
               <span class="field-label">写信角色</span>
               <div class="forum-check-list" id="mail-character-list"></div>
@@ -490,7 +491,7 @@
             <label class="field">
               <span class="field-label">来信间隔（小时）</span>
               <input id="mail-interval-hours" type="number" min="1" max="720" step="1" value="24" />
-              <span class="field-hint">默认 24 小时；填 1 表示每小时最多一封。</span>
+              <span class="field-hint">二十四小时一封，慢慢写。</span>
             </label>
             <button class="test-btn" id="btn-mail-settings-save" type="button">保存邮箱设置</button>
             <div class="field-hint" id="mail-settings-hint"></div>
@@ -507,7 +508,18 @@
         </header>
 
         <div class="settings-body">
-          <p class="settings-note">配置只保存在你本机浏览器里，不会上传到服务器，也不会写进日志。点开下面每一项进行设置。</p>
+          <p class="settings-note">所有秘密，只留在这台手机里。</p>
+
+          <button type="button" class="settings-entry" id="btn-open-perception">
+            <span class="settings-entry-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3.1"/></svg>
+            </span>
+            <span class="settings-entry-main">
+              <span class="settings-entry-title">感知</span>
+              <span class="settings-entry-sub">让她感知此刻的风与光</span>
+            </span>
+            <span class="settings-entry-arrow" aria-hidden="true"></span>
+          </button>
 
           <details class="drawer">
             <summary class="drawer-head">
@@ -528,13 +540,13 @@
                   <button type="button" class="fetch-btn" id="btn-api-profile-save">保存</button>
                   <button type="button" class="fetch-btn" id="btn-api-profile-del">删除</button>
                 </div>
-                <span class="field-hint">保存多套地址 / Key / 模型，点「切换」随时换用；同名配置会覆盖保存。</span>
+                <span class="field-hint">多套接口，随心切换。</span>
               </div>
 
               <label class="field">
                 <span class="field-label">接口地址（Base URL）</span>
                 <input id="input-baseurl" type="text" placeholder="例如 https://api.deepseek.com 或 https://api.openai.com/v1" autocomplete="off" />
-                <span class="field-hint">留空会自动补 https://，并追加 /chat/completions</span>
+                <span class="field-hint">留空也会替你补全。</span>
               </label>
 
               <label class="field">
@@ -562,7 +574,7 @@
                 <div class="model-manual-wrap" id="wrap-manual" hidden>
                   <input id="input-model" type="text" placeholder="例如 deepseek-chat / gpt-4o-mini" autocomplete="off" />
                 </div>
-                <span class="field-hint">可先「拉取模型」从列表选择，或切到「手动填写」直接输入</span>
+                <span class="field-hint">拉的回来，也写得下。</span>
               </div>
 
               <button class="test-btn" id="btn-test" type="button">连接测试</button>
@@ -591,7 +603,7 @@
               <div class="field">
                 <span class="field-label">记忆服务模型</span>
                 <input id="input-memory-model" type="text" placeholder="例如 deepseek-chat" autocomplete="off" />
-                <span class="field-hint">留空则复用上面的 AI 接口做记忆整理。</span>
+                <span class="field-hint">留空，就借用同一束光。</span>
               </div>
             </div>
           </details>
@@ -605,7 +617,7 @@
               <div class="field">
                 <span class="field-label">语音接口地址</span>
                 <input id="input-voice-baseurl" type="text" placeholder="例如 https://api.openai.com/v1" autocomplete="off" />
-                <span class="field-hint">用于语音合成（TTS）的服务地址。</span>
+                <span class="field-hint">让文字有声音。</span>
               </div>
               <div class="field">
                 <span class="field-label">语音服务 Key</span>
@@ -621,7 +633,7 @@
               <div class="field">
                 <span class="field-label">默认音色 / Voice ID</span>
                 <input id="input-voice-name" type="text" placeholder="例如 alloy、zh-CN-XiaoxiaoNeural" autocomplete="off" />
-                <span class="field-hint">角色里可以单独绑定音色和模型；留空则使用这里的默认值。</span>
+                <span class="field-hint">专属声线，也可以留白。</span>
               </div>
             </div>
           </details>
@@ -650,7 +662,7 @@
               <div class="field">
                 <span class="field-label">图片尺寸（可选）</span>
                 <input id="input-image-size" type="text" placeholder="例如 1024x1024" autocomplete="off" />
-                <span class="field-hint">角色里可以填写外观提示词并上传参考图，与这里的生图服务配合使用。</span>
+                <span class="field-hint">把想象，画成她的样子。</span>
               </div>
             </div>
           </details>
@@ -670,7 +682,7 @@
                   <button type="button" class="fetch-btn" id="btn-wallpaper-pick">上传壁纸</button>
                   <button type="button" class="fetch-btn" id="btn-wallpaper-clear">恢复默认</button>
                 </div>
-                <span class="field-hint">铺满主屏幕，建议使用竖图；图片只保存在本机。</span>
+                <span class="field-hint">一张竖图，铺满此刻。</span>
               </div>
 
               <div class="field">
@@ -680,7 +692,7 @@
                   <span class="color-value" id="bubble-color-value">#d8b8c4</span>
                   <button type="button" class="memory-link" id="btn-bubble-color-clear">恢复默认</button>
                 </div>
-                <span class="field-hint">只改变「我」发出的气泡背景色。</span>
+                <span class="field-hint">只说「我」的那一边。</span>
               </div>
 
               <div class="field">
@@ -692,12 +704,12 @@
                   <option value="Kaiti SC, KaiTi, STKaiti, serif">楷体</option>
                   <option value="STXingkai, cursive">行楷</option>
                 </datalist>
-                <span class="field-hint">填写本机已安装的字体名，多个用逗号分隔；只作用于聊天窗口。</span>
+                <span class="field-hint">让每个字，换成你的笔迹。</span>
                 <div class="font-import-row">
                   <button type="button" class="fetch-btn" id="btn-font-import">导入本机字体文件</button>
                   <button type="button" class="fetch-btn" id="btn-font-import-clear" hidden>移除字体文件</button>
                 </div>
-                <span class="field-hint" id="font-import-status">支持 .ttf / .otf / .woff / .woff2，导入后优先于上面的字体名。</span>
+                <span class="field-hint" id="font-import-status">字体文件，也可以轻轻放下。</span>
                 <input type="file" id="file-chat-font" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2" hidden />
               </div>
 
@@ -708,13 +720,13 @@
                   <span class="color-value" id="font-color-value">#3a3a40</span>
                   <button type="button" class="memory-link" id="btn-font-color-clear">恢复默认</button>
                 </div>
-                <span class="field-hint">应用于聊天气泡与输入框文字，请选与气泡颜色对比明显的颜色。</span>
+                <span class="field-hint">挑一个读起来舒服的颜色。</span>
               </div>
 
               <div class="field">
                 <span class="field-label">应用图标</span>
                 <button type="button" class="fetch-btn" id="btn-icon-manager">管理应用图标</button>
-                <span class="field-hint">在独立窗口里逐个应用设置图标；设置后会隐藏该应用默认的线条图标与底图，不影响其它应用。</span>
+                <span class="field-hint">每一个图标，都可以换一种心情。</span>
               </div>
 
               <div class="field">
@@ -722,7 +734,7 @@
                   <input type="checkbox" id="chk-statusbar" checked />
                   <span>显示顶部状态栏（时间、信号、电量）</span>
                 </label>
-                <span class="field-hint">关闭后隐藏状态栏内容，但仍保留顶部安全区，聊天和页面内容不会贴到屏幕最上方。</span>
+                <span class="field-hint">藏起时间，留一点呼吸。</span>
               </div>
 
               <input type="file" id="file-wallpaper" accept="image/*" hidden />
@@ -752,7 +764,7 @@
                 <span class="countdown-label">倒计时秒数</span>
                 <input type="number" id="input-countdown-sec" min="1" max="60" value="3" />
               </div>
-              <span class="field-hint">可多选；同时开启时优先级：即时 &gt; 倒计时 &gt; 批量。全关则等同「即时」。</span>
+              <span class="field-hint">可多选；全关，就是即时。</span>
             </div>
           </details>
 
@@ -766,7 +778,7 @@
                 <input type="checkbox" id="chk-notify-enabled" />
                 <span>角色回复通知（页面在后台时用浏览器推送）</span>
               </label>
-              <span class="field-hint" id="notify-status-hint">首次开启会请求浏览器通知权限。</span>
+              <span class="field-hint" id="notify-status-hint">第一次，会向你借一点光。</span>
 
               <div class="notify-actions">
                 <button type="button" class="fetch-btn" id="btn-notify-test">发送测试通知</button>
@@ -779,7 +791,7 @@
                   <button type="button" class="fetch-btn" id="btn-notify-sound-test" disabled>试听</button>
                   <button type="button" class="fetch-btn" id="btn-notify-sound-clear" disabled>清除</button>
                 </div>
-                <span class="field-hint" id="notify-sound-name">未设置，使用系统默认提示音</span>
+                <span class="field-hint" id="notify-sound-name">还没有专属的提示音。</span>
                 <input type="file" id="file-notify-sound" accept="audio/*" hidden />
               </div>
 
@@ -788,7 +800,7 @@
                   <input type="checkbox" id="chk-keepalive" />
                   <span>后台保活（循环播放静音音频）</span>
                 </label>
-                <span class="field-hint">部分手机浏览器会暂停后台页面；开启后尝试用静音音频保持页面运行。仅在浏览器允许后台播放时有效，被拦截时点一下页面重试。</span>
+                <span class="field-hint">让她在你离开时，也轻轻醒着。</span>
               </div>
             </div>
           </details>
@@ -799,7 +811,7 @@
               <span class="drawer-arrow"></span>
             </summary>
             <div class="drawer-body">
-              <p class="settings-note">让角色定时主动发消息。需要你自部署一个 Cloudflare Worker 作为中转：填好 Token 和 Account ID 后点「一键部署」，系统会自动写入 Worker 并填好地址。</p>
+              <p class="settings-note">让她在你看不见的时候，也想起你。</p>
 
               <div class="field">
                 <span class="field-label">Cloudflare API Token</span>
@@ -807,7 +819,7 @@
                   <input id="input-cf-token" type="password" placeholder="Workers Edit + Account Settings Read" autocomplete="off" />
                   <button type="button" class="toggle-key" id="btn-toggle-cf-token">显示</button>
                 </span>
-                <span class="field-hint">到 dash.cloudflare.com → My Profile → API Tokens → Create Token → Custom，权限勾选 Workers:Edit 与 Account Settings:Read。</span>
+                <span class="field-hint">权限：Workers:Edit 与 Account Settings:Read。</span>
               </div>
 
               <div class="field">
@@ -817,13 +829,13 @@
 
               <div class="cf-deploy-row">
                 <button type="button" class="fetch-btn" id="btn-cf-deploy">一键部署 Worker</button>
-                <span class="field-hint" id="cf-deploy-status">尚未部署。部署成功后会自动填好下面的地址。</span>
+                <span class="field-hint" id="cf-deploy-status">还没部署，地址会自己长出来。</span>
               </div>
 
               <div class="field">
                 <span class="field-label">Worker 地址</span>
                 <input id="input-cf-worker-url" type="text" placeholder="https://clearcall-autopush.你的子域.workers.dev" autocomplete="off" />
-                <span class="field-hint">如果你手动在 Cloudflare 建了 Worker，把它的地址填到这里也能用。</span>
+                <span class="field-hint">手动建好的地址，也能放进来。</span>
               </div>
             </div>
           </details>
@@ -839,9 +851,56 @@
                 <button type="button" class="fetch-btn" id="btn-import">导入备份</button>
                 <input type="file" id="file-import" accept="application/json,.json" hidden />
               </div>
-              <span class="field-hint">备份包含 AI / 记忆 / 语音 / 生图设置、触发模式、通知与提示音、壁纸与图标、气泡颜色与聊天字体、所有联系人（含头像与参考图）、各自的聊天记录与三层记忆、「我」的多套人设、世界书；导入会覆盖当前数据。备份文件内含 API Key，请妥善保管。</span>
+              <span class="field-hint">备份藏着所有设定与回忆；内含 API Key，请妥帖收好。</span>
             </div>
           </details>
+        </div>
+      </div>
+
+      <!-- 感知 -->
+      <div class="app-view" id="view-perception">
+        <header class="app-header">
+          <button class="back-btn" id="btn-perception-back" type="button">返回</button>
+          <span class="app-title">感知</span>
+          <span class="app-header-spacer"></span>
+        </header>
+        <div class="settings-body">
+          <p class="settings-note">让她感知此刻的风与光。</p>
+
+          <section class="perception-card">
+            <label class="perception-row">
+              <span class="perception-row-main">
+                <span class="perception-title">真实时间</span>
+                <span class="perception-sub">她知道现在是清晨还是深夜，也记得你们多久没说话。</span>
+              </span>
+              <input type="checkbox" id="chk-perceive-time" class="perception-switch" />
+            </label>
+            <label class="perception-row">
+              <span class="perception-row-main">
+                <span class="perception-title">真实地点</span>
+                <span class="perception-sub">知道你在哪座城市，风从哪个方向来。</span>
+              </span>
+              <input type="checkbox" id="chk-perceive-location" class="perception-switch" />
+            </label>
+          </section>
+
+          <section class="perception-card">
+            <div class="perception-weather-head">
+              <span class="perception-title">当地天气</span>
+              <span class="perception-status" id="perception-weather-status">写下城市，天气会落在主屏。</span>
+            </div>
+            <div class="api-profile-row">
+              <input id="input-weather-address" type="text" placeholder="例如 杭州" autocomplete="off" />
+              <button type="button" class="fetch-btn" id="btn-weather-fetch">获取天气</button>
+            </div>
+          </section>
+
+          <section class="perception-card perception-future">
+            <div class="perception-future-title">更多感知</div>
+            <div class="perception-future-row"><span>步数</span><span>正在路上</span></div>
+            <div class="perception-future-row"><span>电量</span><span>正在路上</span></div>
+            <div class="perception-future-row"><span>音乐</span><span>正在路上</span></div>
+          </section>
         </div>
       </div>
 
@@ -945,7 +1004,7 @@
               <button type="button" class="fetch-btn" id="btn-icon-manager-upload">上传图片</button>
               <button type="button" class="fetch-btn" id="btn-icon-manager-clear">恢复默认</button>
             </div>
-            <span class="field-hint">上传后只替换这个应用的图标，其它应用保持不变。</span>
+            <span class="field-hint">只换这一枚，不动其它。</span>
           </div>
         </div>
       </div>
@@ -1100,7 +1159,7 @@
               <label class="field">
                 <span class="field-label">网易云 API 地址</span>
                 <input id="input-music-api" type="text" placeholder="例如 https://你的网易云API域名" autocomplete="off" />
-                <span class="field-hint">需自行部署 NeteaseCloudMusicApi 并允许跨域；登录 cookie 只保存在本机。</span>
+                <span class="field-hint">自建接口，cookie 只留在本机。</span>
               </label>
               <button class="test-btn" id="btn-music-qr" type="button">生成登录二维码</button>
               <div class="music-qr-wrap" id="music-qr-wrap" hidden>

@@ -338,6 +338,7 @@ const DEFAULT_SCHEDULE_TIME = '07:00';   // 默认每天刷新日程的时间
 const DOC_SHOP = 'shop';               // 商城：按角色分仓的购物车 + 订单记录
 const DOC_FOOD = 'food';               // 外卖：按角色分仓的购物车 + 订单记录
 const DOC_MUSIC = 'music';             // 音乐：本地歌曲 + 网易云导入曲目
+const DOC_PERCEPTION = 'perception';   // 感知：真实时间 / 地点 / 天气
 const LEGACY_CHARACTER_ID = 'character';
 
 let _dbPromise = null;
@@ -2053,6 +2054,53 @@ async function removeMusicTrack(id) {
     try { await deleteFile(fileId); } catch (_) {}
     revokeFileUrl(fileId);
   }
+}
+
+// ---------- 感知：真实时间 / 地点 / 天气（IndexedDB） ----------
+function normalizePerception(doc) {
+  const d = doc || {};
+  const loc = d.location && typeof d.location === 'object' ? d.location : {};
+  const weather = d.weather && typeof d.weather === 'object' ? d.weather : {};
+  const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
+  return {
+    timeEnabled: !!d.timeEnabled,
+    locationEnabled: !!d.locationEnabled,
+    location: {
+      lat: num(loc.lat),
+      lng: num(loc.lng),
+      label: String(loc.label || '').trim(),
+      at: num(loc.at) || 0,
+    },
+    weather: {
+      address: String(weather.address || '').trim(),
+      text: String(weather.text || '').trim(),
+      temp: num(weather.temp),
+      code: num(weather.code),
+      updatedAt: num(weather.updatedAt) || 0,
+    },
+    lastActiveAt: num(d.lastActiveAt) || 0,
+    lastByChar: (d.lastByChar && typeof d.lastByChar === 'object') ? Object.assign({}, d.lastByChar) : {},
+  };
+}
+
+async function getPerception() {
+  return normalizePerception(await getDoc(DOC_PERCEPTION));
+}
+
+function setPerception(patch) {
+  return mutateDoc(DOC_PERCEPTION, (doc) => {
+    const base = normalizePerception(doc);
+    const next = Object.assign({}, base, patch || {});
+    next.location = Object.assign({}, base.location, (patch && patch.location) || {});
+    next.weather = Object.assign({}, base.weather, (patch && patch.weather) || {});
+    next.lastByChar = Object.assign({}, base.lastByChar, (patch && patch.lastByChar) || {});
+    doc.timeEnabled = !!next.timeEnabled;
+    doc.locationEnabled = !!next.locationEnabled;
+    doc.location = next.location;
+    doc.weather = next.weather;
+    doc.lastActiveAt = next.lastActiveAt || 0;
+    doc.lastByChar = next.lastByChar;
+  });
 }
 
 // 在一个事务里完成「读-改-写」，避免并发写丢字段

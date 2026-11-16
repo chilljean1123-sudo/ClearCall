@@ -260,9 +260,19 @@ async function refreshAppearance() {
   const apps = Array.from(new Set(Array.from(document.querySelectorAll('.app-icon, .dock-icon')).map((b) => b.dataset.app))).filter(Boolean);
   const iconUrls = {};
   await Promise.all(apps.map(async (app) => {
-    iconUrls[app] = await getFileUrl(cfg.icons[app] || null);
+    try {
+      iconUrls[app] = await getFileUrl(cfg.icons[app] || null);
+    } catch (_) {
+      iconUrls[app] = null;
+    }
   }));
-  applyAppearance(cfg, await getFileUrl(cfg.wallpaperId), iconUrls);
+  let wallpaperUrl = null;
+  try {
+    wallpaperUrl = await getFileUrl(cfg.wallpaperId);
+  } catch (_) {
+    wallpaperUrl = null;
+  }
+  applyAppearance(cfg, wallpaperUrl, iconUrls);
   refreshIconManagerIfOpen();
 }
 
@@ -275,15 +285,15 @@ function updateNotifyHint() {
   const el = $('notify-status-hint');
   if (!el) return;
   if (!notifySupported()) {
-    el.textContent = '当前浏览器不支持系统通知，请换用 Chrome / Safari 等浏览器。';
+    el.textContent = '这台浏览器还不会通知。';
     return;
   }
   if (Notification.permission === 'granted') {
-    el.textContent = '通知权限已授权；页面切到后台时，角色回复会推送浏览器通知。';
+    el.textContent = '她可以在后台轻轻叫醒你。';
   } else if (Notification.permission === 'denied') {
-    el.textContent = '通知权限被拒绝，请在浏览器地址栏的网站设置里重新允许通知。';
+    el.textContent = '通知被关上了，去网站设置里重新允许。';
   } else {
-    el.textContent = '尚未授权通知，首次开启或发送测试通知时会请求权限。';
+    el.textContent = '第一次，会向你借一点光。';
   }
 }
 
@@ -296,8 +306,8 @@ async function loadNotificationSettings() {
   const nameEl = $('notify-sound-name');
   if (nameEl) {
     nameEl.textContent = cfg.soundId
-      ? '当前提示音：' + (cfg.soundName || '已上传')
-      : '未设置，使用系统默认提示音';
+      ? '提示音：' + (cfg.soundName || '已选好')
+      : '还没有专属的提示音。';
   }
   const hasSound = !!cfg.soundId;
   if ($('btn-notify-sound-test')) $('btn-notify-sound-test').disabled = !hasSound;
@@ -1295,6 +1305,8 @@ async function currentChatPayload(message, priorHistory, characterId) {
   const scheduleDoc = id ? await getSchedule(id) : null;
   const schedulePrompt = buildScheduleContextPrompt(scheduleDoc);
   if (schedulePrompt) persona += '\n\n' + schedulePrompt;
+  const perceptionPrompt = await buildPerceptionPrompt(id);
+  if (perceptionPrompt) persona += '\n\n' + perceptionPrompt;
 
   const memory = formatMemoryLayers(memoryDoc);
   const directive = id ? await getPendingDirective(id) : '';
@@ -4277,6 +4289,175 @@ async function checkoutFood() {
   }
 }
 
+// ---------------- 感知：真实时间 / 地点 / 天气 ----------------
+const WEATHER_CODE_TEXT = {
+  0: '晴', 1: '大致晴朗', 2: '多云', 3: '阴',
+  45: '有雾', 48: '雾凇',
+  51: '毛毛雨', 53: '细雨', 55: '密密细雨',
+  56: '冻雨', 57: '冻雨',
+  61: '小雨', 63: '中雨', 65: '大雨',
+  66: '冻雨', 67: '冻雨',
+  71: '小雪', 73: '中雪', 75: '大雪', 77: '雪粒',
+  80: '阵雨', 81: '阵雨', 82: '强阵雨',
+  85: '阵雪', 86: '强阵雪',
+  95: '雷雨', 96: '雷雨伴冰雹', 99: '强雷雨',
+};
+
+function weatherText(code) {
+  return WEATHER_CODE_TEXT[Number(code)] || '天气微凉';
+}
+
+function perceptionTimeOfDay(hour) {
+  if (hour < 5) return '深夜';
+  if (hour < 8) return '清晨';
+  if (hour < 11) return '上午';
+  if (hour < 13) return '中午';
+  if (hour < 17) return '下午';
+  if (hour < 19) return '傍晚';
+  if (hour < 23) return '夜里';
+  return '深夜';
+}
+
+function formatElapsed(ms) {
+  const min = Math.floor(ms / 60000);
+  if (min < 60) return min + ' 分钟';
+  const hour = Math.floor(min / 60);
+  if (hour < 24) return hour + ' 小时';
+  return Math.floor(hour / 24) + ' 天';
+}
+
+async function fetchWithTimeout(url, ms) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms || 8000);
+  try {
+    return await fetch(url, { signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function geocodeAddress(name) {
+  const url = 'https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(name) + '&count=1&language=zh&format=json';
+  const res = await fetchWithTimeout(url, 8000);
+  if (!res.ok) throw new Error('地址查询失败');
+  const data = await res.json();
+  const hit = data && data.results && data.results[0];
+  if (!hit) throw new Error('没有找到这个地址');
+  const label = [hit.admin1, hit.name].filter(Boolean).join(' · ') || name;
+  return { lat: hit.latitude, lng: hit.longitude, label };
+}
+
+async function reverseGeocodeLabel(lat, lng) {
+  try {
+    const res = await fetchWithTimeout(
+      'https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=' + lat +
+      '&longitude=' + lng + '&localityLanguage=zh',
+      6000
+    );
+    if (!res.ok) return '';
+    const data = await res.json();
+    return data.city || data.locality || data.principalSubdivision || '';
+  } catch (_) {
+    return '';
+  }
+}
+
+async function fetchWeatherAt(lat, lng) {
+  const url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lng +
+    '&current=temperature_2m,weather_code&timezone=auto';
+  const res = await fetchWithTimeout(url, 8000);
+  if (!res.ok) throw new Error('天气服务没有回应');
+  const data = await res.json();
+  const cur = data && data.current;
+  if (!cur) throw new Error('没有取到天气');
+  return {
+    temp: cur.temperature_2m,
+    code: cur.weather_code,
+    text: weatherText(cur.weather_code),
+  };
+}
+
+function renderHomeWeather(perception) {
+  const el = $('home-weather');
+  if (!el) return;
+  const p = perception || {};
+  const weather = p.weather || {};
+  const place = (p.locationEnabled && p.location && p.location.label) ? p.location.label : weather.address;
+  const parts = [];
+  if (place) parts.push(place);
+  if (weather.text) parts.push(weather.text + (weather.temp != null ? ' ' + Math.round(weather.temp) + '°' : ''));
+  el.textContent = parts.join(' · ');
+  el.hidden = !parts.length;
+}
+
+async function renderPerception() {
+  const p = await getPerception();
+  $('chk-perceive-time').checked = p.timeEnabled;
+  $('chk-perceive-location').checked = p.locationEnabled;
+  $('input-weather-address').value = p.weather.address;
+  $('perception-weather-status').textContent = p.weather.text
+    ? p.weather.text + (p.weather.temp != null ? ' · ' + Math.round(p.weather.temp) + '°C' : '') + ' · 已落在主屏'
+    : '写下城市，天气会落在主屏。';
+  renderHomeWeather(p);
+}
+
+async function openPerception() {
+  await renderPerception();
+  showView(viewPerception);
+}
+
+async function refreshWeather(force) {
+  const p = await getPerception();
+  const fresh = p.weather.updatedAt && Date.now() - p.weather.updatedAt < 30 * 60 * 1000;
+  if (!force && fresh) { renderHomeWeather(p); return p; }
+  let lat = p.locationEnabled ? p.location.lat : null;
+  let lng = p.locationEnabled ? p.location.lng : null;
+  if (lat == null || lng == null) {
+    if (!p.weather.address) { renderHomeWeather(p); return p; }
+    const geo = await geocodeAddress(p.weather.address);
+    lat = geo.lat;
+    lng = geo.lng;
+  }
+  const w = await fetchWeatherAt(lat, lng);
+  await setPerception({
+    weather: { text: w.text, temp: w.temp, code: w.code, updatedAt: Date.now() },
+  });
+  const next = await getPerception();
+  renderHomeWeather(next);
+  return next;
+}
+
+async function buildPerceptionPrompt(characterId) {
+  const p = await getPerception();
+  const hasWeather = !!(p.weather && p.weather.text);
+  if (!p.timeEnabled && !p.locationEnabled && !hasWeather) return '';
+  const key = characterId || 'default';
+  const lastAt = (p.lastByChar && p.lastByChar[key]) || p.lastActiveAt || 0;
+  const now = new Date();
+  const week = ['日', '一', '二', '三', '四', '五', '六'][now.getDay()];
+  const lines = ['【此刻的感知（自然融入语气，不要逐条复述）】'];
+  if (p.timeEnabled) {
+    lines.push(
+      '现在是 ' + now.getFullYear() + ' 年 ' + (now.getMonth() + 1) + ' 月 ' + now.getDate() +
+      ' 日 星期' + week + ' ' + String(now.getHours()).padStart(2, '0') + ':' +
+      String(now.getMinutes()).padStart(2, '0') + '，' + perceptionTimeOfDay(now.getHours()) + '。'
+    );
+    if (lastAt) {
+      const gap = now.getTime() - lastAt;
+      if (gap > 2 * 60 * 1000) lines.push('距离你们上一次说话，已经过去 ' + formatElapsed(gap) + '。');
+    }
+  }
+  if (p.locationEnabled && p.location && p.location.label) {
+    lines.push('对方此刻大致在「' + p.location.label + '」附近。');
+  }
+  if (hasWeather) {
+    lines.push('当地天气：' + p.weather.text + (p.weather.temp != null ? '，约 ' + Math.round(p.weather.temp) + '°C' : '') + '。');
+  }
+  lines.push('你知道这些，但不要提到系统、定位或数据；让它们悄悄影响你的关心与开场。');
+  if (p.timeEnabled) await setPerception({ lastByChar: { [key]: Date.now() } });
+  return lines.join('\n');
+}
+
 // ---------------- 音乐 ----------------
 let musicTracksCache = [];
 let musicNowId = null;
@@ -5286,7 +5467,7 @@ function refreshCfStatus() {
     el.textContent = '已就绪：' + cf.workerUrl;
     el.classList.add('ok');
   } else {
-    el.textContent = '尚未部署。部署成功后会自动填好下面的地址。';
+    el.textContent = '还没部署，地址会自己长出来。';
     el.classList.remove('ok');
   }
 }
@@ -5630,6 +5811,82 @@ $('btn-api-profile-use').addEventListener('click', () => {
 });
 $('btn-api-profile-save').addEventListener('click', saveApiProfile);
 $('btn-api-profile-del').addEventListener('click', deleteApiProfile);
+
+// 感知：真实时间 / 地点 / 天气
+$('btn-open-perception').addEventListener('click', () => { openPerception().catch(() => {}); });
+$('btn-perception-back').addEventListener('click', () => showView(viewSettings));
+$('chk-perceive-time').addEventListener('change', async (e) => {
+  try {
+    await setPerception({ timeEnabled: e.target.checked });
+    toast(e.target.checked ? '她开始感知时间的流逝' : '已收起时间感知');
+  } catch (err) {
+    e.target.checked = !e.target.checked;
+    toast('保存失败：' + (err && err.message ? err.message : err));
+  }
+});
+$('chk-perceive-location').addEventListener('change', async (e) => {
+  if (!e.target.checked) {
+    try { await setPerception({ locationEnabled: false }); } catch (_) {}
+    toast('已收起地点感知');
+    return;
+  }
+  try {
+    if (!navigator.geolocation) throw new Error('这台设备没有定位能力');
+    const pos = await new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: false, timeout: 10000, maximumAge: 5 * 60 * 1000,
+      });
+    });
+    const lat = pos.coords.latitude;
+    const lng = pos.coords.longitude;
+    const label = await reverseGeocodeLabel(lat, lng);
+    await setPerception({
+      locationEnabled: true,
+      location: { lat, lng, label, at: Date.now() },
+    });
+    await renderPerception();
+    toast(label ? '已感知到你在' + label : '已感知到你的位置');
+    refreshWeather(true).catch(() => {});
+  } catch (err) {
+    e.target.checked = false;
+    try { await setPerception({ locationEnabled: false }); } catch (_) {}
+    const denied = err && (err.code === 1 || /denied|permission/i.test(err.message || ''));
+    toast(denied ? '定位被关上了，去浏览器设置里允许。' : '没能获得定位，稍后再试。');
+  }
+});
+$('btn-weather-fetch').addEventListener('click', async () => {
+  const address = $('input-weather-address').value.trim();
+  if (!address) { toast('先写下城市名'); return; }
+  const btn = $('btn-weather-fetch');
+  btn.disabled = true;
+  const oldLabel = btn.textContent;
+  btn.textContent = '获取中…';
+  try {
+    const p = await getPerception();
+    let lat = null;
+    let lng = null;
+    if (p.locationEnabled && p.location.lat != null) {
+      lat = p.location.lat;
+      lng = p.location.lng;
+    } else {
+      const geo = await geocodeAddress(address);
+      lat = geo.lat;
+      lng = geo.lng;
+    }
+    const w = await fetchWeatherAt(lat, lng);
+    await setPerception({
+      weather: { address, text: w.text, temp: w.temp, code: w.code, updatedAt: Date.now() },
+    });
+    await renderPerception();
+    toast(w.text + (w.temp != null ? ' · ' + Math.round(w.temp) + '°' : ''));
+  } catch (err) {
+    $('perception-weather-status').textContent = '天气暂时迷路了，稍后再试。';
+    toast(err && err.name === 'AbortError' ? '天气有点慢，稍后再试。' : '天气暂时迷路了，稍后再试。');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = oldLabel;
+  }
+});
 
 // 角色聊天导航
 $('btn-chat-back').addEventListener('click', () => { closeChatCharMenu(); closeChatSheet(); closeChatMsgMenu(); exitChatSelectMode(); showView(viewHome); });
@@ -7002,8 +7259,12 @@ $('chk-keepalive').addEventListener('change', async () => {
     toast('旧数据迁移失败：' + (err && err.message ? err.message : err));
   }
   loadSaved();
+  initNavIcons();
   loadTriggerSettings();
   try { await refreshAppearance(); } catch (_) {}
+  renderPerception().catch(() => {});
+  refreshWeather(false).catch(() => {});
+  setInterval(() => { refreshWeather(false).catch(() => {}); }, 30 * 60 * 1000);
   try { await updateChatTitle(); } catch (_) {}
   registerNotifyServiceWorker().catch(() => {});
   try {
