@@ -3994,11 +3994,14 @@ body.statusbar-off .statusbar { visibility: hidden; }
 }
 .font-import-row .fetch-btn { flex: 0 0 auto; }
 
-/* ===== 聊天页弹性布局：消息区独占剩余空间，输入栏恒贴底 ===== */
+/* ===== 聊天页弹性布局：整页铺满，消息区独占剩余空间，输入栏恒贴底 ===== */
 #view-chat.active {
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
-  flex: 1 1 auto;
+  height: auto;
+  max-height: 100%;
   min-height: 0;
   overflow: hidden;
 }
@@ -4007,6 +4010,7 @@ body.statusbar-off .statusbar { visibility: hidden; }
 }
 #view-chat .chat-messages {
   flex: 1 1 auto;
+  flex-basis: 0;
   min-height: 0;
   overflow-y: auto;
   justify-content: flex-start;
@@ -4044,7 +4048,7 @@ body.statusbar-off .statusbar { visibility: hidden; }
     margin: 0;
     padding: 0;
     border-radius: 0;
-    background: var(--screen-bg);
+    background: var(--color-page-bg);
     box-shadow: none;
   }
   .phone-notch {
@@ -4057,15 +4061,6 @@ body.statusbar-off .statusbar { visibility: hidden; }
     flex-direction: column;
     border-radius: 0;
     overflow: hidden;
-  }
-  .statusbar {
-    padding-top: calc(env(safe-area-inset-top, 0px) + 8px);
-  }
-  .chat-head {
-    padding-top: calc(env(safe-area-inset-top, 0px) + 6px);
-  }
-  .app-header {
-    padding-top: calc(env(safe-area-inset-top, 0px) + 8px);
   }
   .dock {
     padding-bottom: calc(8px + var(--safe-bottom, env(safe-area-inset-bottom, 0px)));
