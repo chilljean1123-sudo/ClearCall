@@ -44,7 +44,7 @@
 - 美化数据：主屏壁纸与每个应用图标的图片都存 `files`，`appearance` 用 `wallpaperId` + `icons: { appId: fileId }` 记录引用；禁止用一张图统一覆盖所有图标。单个应用设置自定义图标后，用 `.app-glyph.custom-icon` 隐藏默认底图、边框、线条图标，只显示上传图片。状态栏只做覆盖层，`.app-view` 统一用 `--statusbar-space` 预留安全区，关闭状态栏时只隐藏内容、不取消占位。
 - 通知数据：开关与后台保活存 `notification` 文档（`enabled`、`keepAlive`、`soundId` / `soundName` / `soundType`），自定义提示音 Blob 存 `files`，备份随 `files` 一起导出；换提示音或清除时要删除旧文件。
 - Dock 只放核心入口（电话、聊天、通讯录、设置），桌面网格放信息、相机、记忆、世界书、论坛、邮箱、阅读；新增应用继续按「高频放 Dock、内容型放桌面」分配，主屏网格保持完整入口。
-- 主题跟随系统 `prefers-color-scheme`：默认深色，日间模式在 `styles.css` 末尾的 `@media (prefers-color-scheme: light)` 中覆盖变量与少量硬编码表面，采用 iOS 蓝（#007aff）/ 白 / 灰（#f2f2f7）/ 绿（#34c759）；新增界面必须同时检查日夜两套配色，避免日间出现深色块或浅色文字。
+- 视觉主题固定为低饱和白‑灰‑粉柔和色系，不跟随系统深色；所有颜色只用 `styles.css` 根部的设计 token（`--color-page-bg` / `--color-surface` / `--color-text-primary` / `--color-text-secondary` / `--color-border` / `--color-accent-light` / `--color-accent` / `--color-divider-soft`），禁止新增高饱和艳丽色。粉色只做局部点缀（hover、标签、小按钮），不做全屏大背景；文字统一灰系，不使用 `#000` 纯黑。
 - 邮箱数据存 `email` 文档：`settings`（`characterIds`、`intervalHours` 默认 24、`lastCheckedAt`）、`mails`（`direction: in | out`、`characterId`、`characterName` 快照、主题、正文、已读）、`pending`（聊天工具预约的定时任务 `characterId` / `dueAt`）。邮件生成走 `/api/email`（Vercel 为 `api/email.js`），无后端时直连兼容接口；提示词必须带角色人设、记忆和最近聊天，要求 500-1000 字、符合角色语言风格，并输出 `{subject, body}` JSON。角色来信、用户发信都要写入该角色记忆。
 - 邮箱定时调度在页面启动、打开邮箱、回到前台时检查：每个绑定角色按 `intervalHours` 最多一封，每次最多生成 2 封，60 秒内不重复检查；`pending` 任务到期后立即生成，成功才移除。删除角色时从邮箱绑定和 `pending` 中清理，历史邮件保留 `characterName` 快照。
 - 聊天工具「邮件」复用同一套邮箱数据：可以立即生成一封，也可以按小时数写入 `pending` 预约送达。
@@ -64,13 +64,15 @@
 - 严格区分「设置页」「聊天页」「角色页」「记忆页」「世界书页」等独立页面，用状态切换显示/隐藏，不要混排挤压。
 - 设置项和角色里的扩展绑定统一用抽屉（`<details class="drawer">`），点标题才展开；不要把所有字段平铺挤在一起。
 - 图标一律用 CSS/SVG 绘制，禁止用「地/图/表/¥/令/邮」等汉字充当功能图标；聊天工具菜单、顶栏入口都遵循这一条。
-- 所有应用、Dock、聊天工具与功能图标必须采用高对比（high contrast）、粗线条或实色块、强反差（bold contrast）、强视觉重量（strong visual weight）、醒目易识别（eye-catching）的设计；日夜两套主题都要保持清晰，自定义图片图标仍优先于默认 SVG，不得被默认底色或图形覆盖。
+- 所有应用、Dock、聊天工具与功能图标必须采用深灰粗图形 + 柔粉/白底的高对比设计（strong visual weight、bold shapes），在低饱和配色内保持醒目易识别；自定义图片图标仍优先于默认 SVG，不得被默认底色或图形覆盖。
+- 严格执行 8pt 网格：布局间距只使用 `--space-1` 到 `--space-6`（8/16/24/32/40/48），圆角只使用 `--radius-sm` / `--radius-md` / `--radius-lg`（8/16/24）。
+- 字号只使用 `--font-caption` / `--font-body-sm` / `--font-body` / `--font-h3` / `--font-h2` / `--font-h1`（12/14/16/20/24/32），禁止新增字号；正文行高 `--leading-body`（1.6），大标题 `--leading-heading`（1.2），小标题 `--leading-subheading`（1.4）。
 - 状态切换必须正确隐藏组件（该消失的消失、该出现的出现）。
 - 适配移动端视口（以手机屏幕宽度为准）。
 
 ## 样式继承（防连带破坏）
 
-- 已确定的 CSS 不要推翻重来，只做增量修改。
+- 已确定的布局与设计 token 不要推翻重来，只做增量修改；新增界面必须复用现有 token，不得另起一套颜色、字号或间距。
 - 改样式只针对目标元素，用更具体的选择器，别用全局通配符乱改。
 - 这些布局已定版，改动时避免连带破坏：聊天气泡、输入框、顶栏、头像。
 

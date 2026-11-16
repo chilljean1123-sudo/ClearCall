@@ -1523,8 +1523,8 @@ function applyChatAppearance(cfg) {
   const fontColor = $('input-font-color');
   const fontColorLabel = $('font-color-value');
   const font = $('input-chat-font');
-  const bubbleValue = (cfg && cfg.bubbleColor) || '#4f8cff';
-  const fontColorValue = (cfg && cfg.fontColor) || '#e8eaef';
+  const bubbleValue = (cfg && cfg.bubbleColor) || '#d8b8c4';
+  const fontColorValue = (cfg && cfg.fontColor) || '#3a3a40';
   if (bubble) bubble.value = bubbleValue;
   if (bubbleLabel) bubbleLabel.textContent = (cfg && cfg.bubbleColor) ? bubbleValue : '默认';
   if (fontColor) fontColor.value = fontColorValue;
