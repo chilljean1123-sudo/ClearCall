@@ -7,6 +7,9 @@
 :root {
   color-scheme: light;
 
+  /* 底部安全区 */
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+
   /* 配色 tokens */
   --color-page-bg: #fefcfd;
   --color-surface: #ffffff;
@@ -3991,12 +3994,11 @@ body.statusbar-off .statusbar { visibility: hidden; }
 }
 .font-import-row .fetch-btn { flex: 0 0 auto; }
 
-/* ===== 聊天页弹性布局修正（不改外观，只修正占位） ===== */
+/* ===== 聊天页弹性布局：消息区独占剩余空间，输入栏恒贴底 ===== */
 #view-chat.active {
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
-  height: auto;
   min-height: 0;
   overflow: hidden;
 }
@@ -4006,32 +4008,40 @@ body.statusbar-off .statusbar { visibility: hidden; }
 #view-chat .chat-messages {
   flex: 1 1 auto;
   min-height: 0;
-  height: auto;
   overflow-y: auto;
   justify-content: flex-start;
   -webkit-overflow-scrolling: touch;
 }
 #view-chat .chat-inputbar {
   flex: 0 0 auto;
-  margin-top: auto;
-  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  margin: 0;
+  padding-bottom: calc(10px + var(--safe-bottom, env(safe-area-inset-bottom, 0px)));
 }
 
-/* ===== 移动端：满屏虚拟手机 + 底部安全区 ===== */
+/* ===== 移动端：整机固定铺满视口（不随消息/键盘滚动） ===== */
 @media (max-width: 520px) {
+  html,
   body {
+    height: 100%;
+    min-height: 0;
+    margin: 0;
     padding: 0;
-    min-height: 100dvh;
+    overflow: hidden;
+    overscroll-behavior: none;
   }
   .page-title,
   .page-subtitle {
     display: none;
   }
   .phone {
+    position: fixed;
+    inset: 0;
     width: 100%;
-    max-width: none;
+    height: 100vh;
     height: 100dvh;
+    max-width: none;
     max-height: none;
+    margin: 0;
     padding: 0;
     border-radius: 0;
     background: var(--screen-bg);
@@ -4041,7 +4051,12 @@ body.statusbar-off .statusbar { visibility: hidden; }
     display: none;
   }
   .screen {
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
     border-radius: 0;
+    overflow: hidden;
   }
   .statusbar {
     padding-top: calc(env(safe-area-inset-top, 0px) + 8px);
@@ -4053,6 +4068,6 @@ body.statusbar-off .statusbar { visibility: hidden; }
     padding-top: calc(env(safe-area-inset-top, 0px) + 8px);
   }
   .dock {
-    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(8px + var(--safe-bottom, env(safe-area-inset-bottom, 0px)));
   }
 }
