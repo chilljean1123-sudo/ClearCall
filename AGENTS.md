@@ -68,6 +68,7 @@
 - 音乐数据存 `music` 文档：`tracks` 含 `source: local | netease`、本地曲目 `fileId` 指向 `files` 里的音频 Blob、网易云曲目 `neteaseId`、`lyrics`、`playlistName`。网易云 API 地址与登录 cookie 存 localStorage（`clearcall.musicApiBase` / `clearcall.musicNeteaseCookie` / `clearcall.musicNeteaseName`），前端直连用户自部署的 `NeteaseCloudMusicApi`。扫码流程 `/login/qr/key` → `/login/qr/create?qrimg=true` → 轮询 `/login/qr/check`（800 过期 / 801 等待 / 802 已扫 / 803 成功）→ `/user/account` → `/user/playlist` → `/playlist/detail`；歌词用 `/lyric` 取 LRC 并剥离时间轴。分享歌曲给角色时写入 `kind:'music'` 消息，把歌词注入 content，让角色基于歌词谈感受，同时写一条记忆。删除本地曲目要同时删除音频 Blob。
 - 感知数据存 `perception` 文档：`{ timeEnabled, locationEnabled, location:{lat,lng,label,at}, weather:{address,text,temp,code,updatedAt}, lastActiveAt }`。设置 → 感知进入独立页；开启真实时间后在聊天/通话 system 注入当前日期、时段与「距上次说话多久」；开启真实地点用 `navigator.geolocation` 取坐标并反查城市；天气用 Open-Meteo 地理编码 + 预报接口，结果落在主屏时间下方，30 分钟内复用缓存。感知提示词只影响语气，禁止复述系统信息。
 - 备份导出/导入要覆盖所有新增结构化数据（`music` 已接入；`perception` 属于本机感知偏好，可不跨设备迁移）。
+- APK 壳更新提醒：页面加载完成与回到前台时请求 `/api/version`（Vercel 用 `VERCEL_DEPLOYMENT_ID` 作为 `webVersion`，静态站回退 `/version.json`），与本地 `web_version` 比较。有变化弹原生「发现新版本」，「立即更新」清 WebView 缓存并重载，「稍后再说」只忽略本次进程，第二次启动仍会提示；安装包版本变化时重置 `web_version`，避免刚装完就误报。`apkVersion` / `apkUrl` 可由 Vercel 环境变量提供，正按钮打开安装包下载页。
 
 ## 安卓壳（android/）
 
@@ -133,6 +134,7 @@
 - 网易云扫码登录依赖用户自部署的 NeteaseCloudMusicApi 且需允许跨域；沙箱里无法实测，只能做代码级校验，界面必须把「填 API 地址」这一步说明清楚。
 - 壁纸必须给 `#view-home` 显式写 `background-size: cover; background-position: center; background-repeat: no-repeat;`，只改 inline `background-image` 会沿用 CSS 简写的 `auto`，大图只露左上角，看起来像「没换壁纸」。选图时同时兼容空 MIME 的手机相册文件（按扩展名判断）。
 - 天气使用免 Key 的 Open-Meteo：`geocoding-api.open-meteo.com/v1/search` 取坐标，`api.open-meteo.com/v1/forecast?current=temperature_2m,weather_code` 取实况；定位坐标反查城市用 `api.bigdatacloud.net/data/reverse-geocode-client`。天气失败时显示「天气暂时迷路了」，不能静默。
+- 更新提醒的「稍后再说」只放内存，不写持久存储；写进持久存储会导致第二次启动不再弹出，与需求相反。
 - WebView 壳里不要调用 `webView.onPause()`，否则网页定时任务与后台保活会停；只在 `onResume` 里 `resumeTimers()`。返回键先判断输入法是否可见，再看网页返回栈，避免键盘打开时直接跳页。
 - 安卓安全区不要给根布局整圈 padding：系统栏隐藏后露出的窗口底色会形成上下色带。只把刘海/手势区换算成 CSS px 注入 `--shell-inset-*`，键盘弹出时才临时加底部 padding。
 

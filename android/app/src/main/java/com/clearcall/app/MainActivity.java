@@ -46,7 +46,11 @@ import androidx.core.view.WindowInsetsControllerCompat;
 
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
 public class MainActivity extends AppCompatActivity {
@@ -54,6 +58,9 @@ public class MainActivity extends AppCompatActivity {
     private static final String PREFS = "clearcall_shell";
     private static final String KEY_URL = "app_url";
     private static final String KEY_PUSH = "native_push";
+    private static final String KEY_WEB_VERSION = "web_version";
+    private static final String KEY_APP_VERSION = "installed_version_code";
+    private static final long UPDATE_CHECK_INTERVAL_MS = 60_000L;
     private static final int REQ_LOCATION = 41;
     private static final int REQ_NOTIFICATION = 42;
 
@@ -73,11 +80,23 @@ public class MainActivity extends AppCompatActivity {
     private int insetBottom = 0;
     private int insetLeft = 0;
 
+    private String appBaseUrl = "";
+    private String sessionDismissedVersion = "";
+    private long lastUpdateCheckAt = 0;
+    private boolean updateCheckRunning = false;
+    private boolean updateDialogShowing = false;
+
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        // 安装包更新后重置网页版本记录，避免刚装完就弹“有新版本”
+        int lastCode = prefs.getInt(KEY_APP_VERSION, -1);
+        if (lastCode != BuildConfig.VERSION_CODE) {
+            prefs.edit().putInt(KEY_APP_VERSION, BuildConfig.VERSION_CODE)
+                    .remove(KEY_WEB_VERSION).apply();
+        }
 
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         getWindow().setStatusBarColor(Color.TRANSPARENT);
@@ -146,7 +165,7 @@ public class MainActivity extends AppCompatActivity {
         if (url == null || url.trim().isEmpty()) {
             showUrlDialog();
         } else {
-            webView.loadUrl(url);
+            loadApp(url);
         }
     }
 
@@ -220,8 +239,12 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onPageFinished(WebView view, String url) {
+                if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
+                    appBaseUrl = url;
+                }
                 injectShellInsets();
                 refreshShellStateInWeb();
+                checkForUpdates(false);
             }
 
             @Override
@@ -321,7 +344,7 @@ public class MainActivity extends AppCompatActivity {
                     String url = normalizeUrl(input.getText().toString());
                     if (url.isEmpty()) return;
                     prefs.edit().putString(KEY_URL, url).apply();
-                    webView.loadUrl(url);
+                    loadApp(url);
                 })
                 .setNegativeButton("退出", (dialog, which) -> finish())
                 .setOnDismissListener(dialog -> urlDialogShowing = false)
@@ -335,6 +358,157 @@ public class MainActivity extends AppCompatActivity {
             url = "https://" + url;
         }
         return url;
+    }
+
+    private void loadApp(String url) {
+        appBaseUrl = url;
+        webView.loadUrl(url);
+    }
+
+    // 每次部署网站后，Vercel 的部署 ID 会变；壳在启动/回前台时对比并提示更新
+    private void checkForUpdates(boolean fromResume) {
+        if (webView == null || appBaseUrl == null || appBaseUrl.isEmpty()) return;
+        long now = System.currentTimeMillis();
+        if (fromResume && now - lastUpdateCheckAt < UPDATE_CHECK_INTERVAL_MS) return;
+        if (updateCheckRunning) return;
+        lastUpdateCheckAt = now;
+        updateCheckRunning = true;
+        final String base = appBaseUrl;
+        new Thread(() -> {
+            JSONObject info = fetchVersionInfo(base);
+            runOnUiThread(() -> {
+                updateCheckRunning = false;
+                if (isFinishing() || isDestroyed() || webView == null) return;
+                if (info != null) handleVersionInfo(info);
+            });
+        }).start();
+    }
+
+    private JSONObject fetchVersionInfo(String base) {
+        JSONObject info = fetchJson(buildVersionUrl(base, "/api/version"));
+        if (info == null) info = fetchJson(buildVersionUrl(base, "/version.json"));
+        return info;
+    }
+
+    private String buildVersionUrl(String base, String path) {
+        try {
+            URL u = new URL(base);
+            String p = u.getPath() == null ? "" : u.getPath();
+            while (p.endsWith("/")) p = p.substring(0, p.length() - 1);
+            return new URL(u.getProtocol(), u.getHost(), u.getPort(),
+                    p + path + "?t=" + System.currentTimeMillis()).toString();
+        } catch (Exception e) {
+            return base + path;
+        }
+    }
+
+    private JSONObject fetchJson(String address) {
+        HttpURLConnection conn = null;
+        try {
+            conn = (HttpURLConnection) new URL(address).openConnection();
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(5000);
+            conn.setUseCaches(false);
+            conn.setInstanceFollowRedirects(true);
+            conn.setRequestProperty("Cache-Control", "no-cache");
+            conn.setRequestProperty("Accept", "application/json");
+            if (conn.getResponseCode() != HttpURLConnection.HTTP_OK) return null;
+            BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line);
+                if (sb.length() > 65536) break;
+            }
+            reader.close();
+            return new JSONObject(sb.toString());
+        } catch (Exception e) {
+            return null;
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+    }
+
+    private void handleVersionInfo(JSONObject info) {
+        String webVersion = info.optString("webVersion", "").trim();
+        String notes = info.optString("notes", "").trim();
+        int latestApkVersion = info.optInt("apkVersion", 0);
+        String apkUrl = info.optString("apkUrl", "").trim();
+        boolean apkNewer = latestApkVersion > BuildConfig.VERSION_CODE && !apkUrl.isEmpty();
+
+        String stored = prefs.getString(KEY_WEB_VERSION, "");
+        boolean firstRun = stored == null || stored.isEmpty();
+        if (firstRun && !webVersion.isEmpty()) {
+            prefs.edit().putString(KEY_WEB_VERSION, webVersion).apply();
+            stored = webVersion;
+        }
+        boolean webNewer = !webVersion.isEmpty()
+                && !"dev".equals(webVersion)
+                && !webVersion.equals(stored);
+        if (!webNewer && !apkNewer) return;
+
+        String promptKey = apkNewer ? "apk:" + latestApkVersion : webVersion;
+        if (promptKey.equals(sessionDismissedVersion)) return;
+        if (updateDialogShowing) return;
+        showUpdateDialog(webNewer ? webVersion : "", latestApkVersion, apkNewer, apkUrl, notes);
+    }
+
+    private void showUpdateDialog(String webVersion, int latestApkVersion, boolean apkNewer,
+                                  String apkUrl, String notes) {
+        StringBuilder message = new StringBuilder();
+        if (apkNewer) {
+            message.append("安装包有新版本。\n当前 ")
+                    .append(BuildConfig.VERSION_NAME)
+                    .append("，最新 ")
+                    .append(latestApkVersion)
+                    .append("。");
+        } else {
+            message.append("小手机有新内容。\n版本 ").append(shortVersion(webVersion)).append("。");
+        }
+        if (!notes.isEmpty()) message.append("\n").append(notes);
+        message.append(apkNewer
+                ? "\n\n点击更新会打开安装包下载页。"
+                : "\n\n点击更新会刷新页面，不会丢失数据。");
+
+        final String promptKey = apkNewer ? "apk:" + latestApkVersion : webVersion;
+        updateDialogShowing = true;
+        new AlertDialog.Builder(this)
+                .setTitle("发现新版本")
+                .setMessage(message.toString())
+                .setPositiveButton("立即更新", (dialog, which) -> {
+                    sessionDismissedVersion = promptKey;
+                    if (apkNewer) {
+                        openApkUrl(apkUrl);
+                    } else {
+                        applyWebUpdate(webVersion);
+                    }
+                })
+                .setNegativeButton("稍后再说", (dialog, which) -> sessionDismissedVersion = promptKey)
+                .setOnDismissListener(dialog -> updateDialogShowing = false)
+                .show();
+    }
+
+    private String shortVersion(String version) {
+        if (version == null || version.isEmpty()) return "最新";
+        return version.length() > 8 ? version.substring(0, 8) : version;
+    }
+
+    private void applyWebUpdate(String webVersion) {
+        prefs.edit().putString(KEY_WEB_VERSION, webVersion).apply();
+        sessionDismissedVersion = webVersion;
+        if (webView == null) return;
+        webView.clearCache(true);
+        webView.reload();
+        Toast.makeText(this, "已更新到最新版本", Toast.LENGTH_SHORT).show();
+    }
+
+    private void openApkUrl(String apkUrl) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(apkUrl)));
+        } catch (Exception e) {
+            Toast.makeText(this, "没能打开下载页，稍后再试", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void refreshShellStateInWeb() {
@@ -351,6 +525,7 @@ public class MainActivity extends AppCompatActivity {
         }
         injectShellHidden(false);
         refreshShellStateInWeb();
+        checkForUpdates(true);
     }
 
     @Override
