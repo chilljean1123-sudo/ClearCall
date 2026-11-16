@@ -1427,6 +1427,27 @@ body.statusbar-off .statusbar { visibility: hidden; }
 .wb-form-actions { display: flex; gap: var(--space-1); margin-top: var(--space-1); }
 .memory-textarea { min-height: 96px; resize: vertical; }
 
+/* 「我」的头像编辑 */
+.user-avatar-edit { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
+.user-avatar-preview {
+  flex: 0 0 auto;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border);
+  background-color: var(--color-surface);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-secondary);
+  font-size: var(--font-h3);
+  overflow: hidden;
+}
+.user-avatar-actions { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+
 /* ===== 通讯录 ===== */
 .contacts-pane { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .characters-body {
@@ -2343,6 +2364,14 @@ body.statusbar-off .statusbar { visibility: hidden; }
 }
 .forum-avatar-preview { border-radius: 50%; }
 .forum-cover-preview { width: 100%; height: 96px; }
+#moments-cover-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-secondary);
+  font-size: var(--font-caption);
+  margin-bottom: var(--space-1);
+}
 
 .forum-profile {
   border: 1px solid var(--color-border);

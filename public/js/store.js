@@ -1087,10 +1087,19 @@ function normalizeMomentSettings(raw) {
   };
 }
 
+function normalizeMomentProfile(raw) {
+  const d = raw || {};
+  return {
+    coverId: d.coverId || null,
+    coverTouched: !!d.coverTouched,
+  };
+}
+
 function normalizeMoments(doc) {
   const d = doc || {};
   return {
     settings: normalizeMomentSettings(d.settings),
+    profile: normalizeMomentProfile(d.profile),
     posts: (Array.isArray(d.posts) ? d.posts : [])
       .map(normalizeMomentPost)
       .filter(Boolean)
@@ -1107,9 +1116,11 @@ function mutateMoments(mutator) {
   return mutateDoc(DOC_MOMENTS, (doc) => {
     const base = normalizeMoments(doc);
     doc.settings = base.settings;
+    doc.profile = base.profile;
     doc.posts = base.posts;
     mutator(doc);
     doc.settings = normalizeMomentSettings(doc.settings);
+    doc.profile = normalizeMomentProfile(doc.profile);
     doc.posts = (Array.isArray(doc.posts) ? doc.posts : [])
       .map(normalizeMomentPost)
       .filter(Boolean)
@@ -1139,6 +1150,35 @@ async function updateMomentSettings(patch) {
     }
     doc.settings = s;
   });
+}
+
+// 动态背景图：独立于论坛主页背景，存 files，文档只留引用
+async function setMomentsCover(blob, type, name) {
+  if (!blob) throw new Error('缺少图片文件');
+  const moments = await getMoments();
+  const oldId = moments.profile.coverId;
+  const id = genId();
+  await putFile({ id, name: name || 'moments-cover', type: type || blob.type || 'image/jpeg', blob });
+  await mutateMoments((doc) => {
+    doc.profile = { coverId: id, coverTouched: true };
+  });
+  if (oldId) {
+    revokeFileUrl(oldId);
+    try { await deleteFile(oldId); } catch (_) {}
+  }
+  return id;
+}
+
+async function clearMomentsCover() {
+  const moments = await getMoments();
+  const oldId = moments.profile.coverId;
+  await mutateMoments((doc) => {
+    doc.profile = { coverId: null, coverTouched: true };
+  });
+  if (oldId) {
+    revokeFileUrl(oldId);
+    try { await deleteFile(oldId); } catch (_) {}
+  }
 }
 
 async function addMomentPost(post) {
@@ -2534,6 +2574,7 @@ function normalizeUserProfile(raw) {
     id: raw.id || genId(),
     name: String(raw.name || '').trim(),
     persona: String(raw.persona || ''),
+    avatarId: raw.avatarId || null,
     createdAt: raw.createdAt || Date.now(),
     updatedAt: raw.updatedAt || Date.now(),
   };
@@ -2571,8 +2612,36 @@ async function updateUserProfile(id, patch) {
     if (!p) return;
     if (patch.name !== undefined) p.name = String(patch.name || '').trim();
     if (patch.persona !== undefined) p.persona = String(patch.persona || '');
+    if (patch.avatarId !== undefined) p.avatarId = patch.avatarId || null;
     p.updatedAt = Date.now();
   });
+}
+
+// 「我」的头像：存 files，人设记录只留 avatarId
+async function setUserProfileAvatar(id, blob, type, name) {
+  if (!blob) throw new Error('缺少图片文件');
+  const { list } = await getUserProfiles();
+  const profile = list.find((p) => p.id === id);
+  if (!profile) throw new Error('人设不存在');
+  const oldId = profile.avatarId;
+  const fileId = genId();
+  await putFile({ id: fileId, name: name || 'user-avatar', type: type || blob.type || 'image/jpeg', blob });
+  await updateUserProfile(id, { avatarId: fileId });
+  if (oldId) {
+    revokeAvatarUrl(oldId);
+    try { await deleteFile(oldId); } catch (_) {}
+  }
+  return fileId;
+}
+
+async function clearUserProfileAvatar(id) {
+  const { list } = await getUserProfiles();
+  const profile = list.find((p) => p.id === id);
+  if (!profile || !profile.avatarId) return;
+  const oldId = profile.avatarId;
+  await updateUserProfile(id, { avatarId: null });
+  revokeAvatarUrl(oldId);
+  try { await deleteFile(oldId); } catch (_) {}
 }
 
 async function setActiveUserProfile(id) {
@@ -2583,13 +2652,20 @@ async function setActiveUserProfile(id) {
 }
 
 async function deleteUserProfile(id) {
+  let avatarId = null;
   await mutateDoc(DOC_USER_PROFILES, (doc) => {
     if (!Array.isArray(doc.list)) doc.list = [];
+    const target = doc.list.find((p) => p.id === id);
+    if (target) avatarId = target.avatarId || null;
     doc.list = doc.list.filter((p) => p.id !== id);
     if (doc.activeId === id || !doc.list.some((p) => p.id === doc.activeId)) {
       doc.activeId = doc.list.length ? doc.list[0].id : null;
     }
   });
+  if (avatarId) {
+    revokeAvatarUrl(avatarId);
+    try { await deleteFile(avatarId); } catch (_) {}
+  }
 }
 
 // 当前角色（聊天、记忆默认都取当前角色）
@@ -2988,6 +3064,8 @@ async function buildBackup() {
     notification.soundId,
     forum.profile.avatarId,
     forum.profile.coverId,
+    moments.profile.coverId,
+    ...(userProfiles.list || []).map((p) => p.avatarId),
     ...moments.posts.map((p) => p.imageId),
     ...music.tracks.map((t) => t.fileId),
   ].filter(Boolean);
@@ -3131,6 +3209,7 @@ async function applyBackup(data) {
   await putDoc({
     id: DOC_MOMENTS,
     settings: moments.settings,
+    profile: moments.profile,
     posts: moments.posts,
   });
   const email = normalizeEmail(data.email);

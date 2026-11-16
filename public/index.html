@@ -413,6 +413,16 @@
           <div class="forum-panel-body">
             <p class="field-hint">他们会定时更新生活，带图，或带一段画面。</p>
             <div class="field">
+              <span class="field-label">动态背景</span>
+              <div class="forum-image-preview forum-cover-preview" id="moments-cover-preview">还没有背景图</div>
+              <div class="backup-row">
+                <button class="fetch-btn" id="btn-moments-cover-pick" type="button">上传背景</button>
+                <button class="fetch-btn" id="btn-moments-cover-clear" type="button" disabled>清除</button>
+              </div>
+              <span class="field-hint">一张图，铺满我的动态。</span>
+              <input type="file" id="file-moments-cover" accept="image/*" hidden>
+            </div>
+            <div class="field">
               <span class="field-label">发动态的角色</span>
               <div class="forum-check-list" id="moments-character-list"></div>
             </div>

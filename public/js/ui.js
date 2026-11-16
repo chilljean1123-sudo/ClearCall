@@ -2046,7 +2046,7 @@ function renderCharacterForm(character, avatarUrl, refImageUrl, personaUrl) {
 }
 
 // ===== 通讯录：我的主页（用户人设，可多套） =====
-function renderUserProfileList(profiles, activeId) {
+function renderUserProfileList(profiles, activeId, avatarUrls) {
   const box = $('user-profile-list');
   box.innerHTML = '';
   if (!profiles.length) {
@@ -2064,7 +2064,7 @@ function renderUserProfileList(profiles, activeId) {
 
     const avatar = document.createElement('div');
     avatar.className = 'char-avatar';
-    avatar.innerHTML = charAvatarHTML('', p.name || '我');
+    avatar.innerHTML = charAvatarHTML((avatarUrls && avatarUrls[p.id]) || '', p.name || '我');
     row.appendChild(avatar);
 
     const info = document.createElement('div');
@@ -2111,15 +2111,83 @@ function renderUserProfileList(profiles, activeId) {
 }
 
 // 渲染「新建 / 编辑我的人设」表单；profile 为空表示新增
+function paintUserAvatarPreview(el, url, name) {
+  if (!el) return;
+  el.style.backgroundImage = url ? 'url("' + url.replace(/"/g, '%22') + '")' : '';
+  el.textContent = url ? '' : String(name || '我').trim().charAt(0) || '我';
+}
+
 function renderUserProfileForm(profile) {
   const box = $('user-profile-form');
   box.innerHTML = '';
   box.hidden = false;
+  resetPendingUserAvatar();
 
   const title = document.createElement('div');
   title.className = 'memory-form-title';
   title.textContent = profile ? '编辑人设' : '新建人设';
   box.appendChild(title);
+
+  const avatarRow = document.createElement('div');
+  avatarRow.className = 'user-avatar-edit';
+  const preview = document.createElement('div');
+  preview.className = 'user-avatar-preview';
+  paintUserAvatarPreview(preview, '', (profile && profile.name) || '我');
+  avatarRow.appendChild(preview);
+
+  const avatarActions = document.createElement('div');
+  avatarActions.className = 'user-avatar-actions';
+  const pickBtn = document.createElement('button');
+  pickBtn.type = 'button';
+  pickBtn.className = 'fetch-btn';
+  pickBtn.textContent = '上传头像';
+  const clearBtn = document.createElement('button');
+  clearBtn.type = 'button';
+  clearBtn.className = 'fetch-btn';
+  clearBtn.textContent = '移除';
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = 'image/*';
+  fileInput.hidden = true;
+
+  pickBtn.addEventListener('click', () => fileInput.click());
+  clearBtn.addEventListener('click', () => {
+    pendingUserAvatar = null;
+    pendingUserAvatarClear = true;
+    if (pendingUserAvatarUrl) {
+      URL.revokeObjectURL(pendingUserAvatarUrl);
+      pendingUserAvatarUrl = '';
+    }
+    paintUserAvatarPreview(preview, '', '我');
+  });
+  fileInput.addEventListener('change', async () => {
+    const f = fileInput.files && fileInput.files[0];
+    fileInput.value = '';
+    if (!f) return;
+    if (f.size > 20 * 1024 * 1024) { toast('这张图有点大（上限 20MB）'); return; }
+    try {
+      const blob = await fileToAvatar(f);
+      pendingUserAvatar = blob;
+      pendingUserAvatarClear = false;
+      if (pendingUserAvatarUrl) URL.revokeObjectURL(pendingUserAvatarUrl);
+      pendingUserAvatarUrl = URL.createObjectURL(blob);
+      paintUserAvatarPreview(preview, pendingUserAvatarUrl, '');
+    } catch (err) {
+      toast('头像读取失败：' + (err && err.message ? err.message : err));
+    }
+  });
+
+  avatarActions.appendChild(pickBtn);
+  avatarActions.appendChild(clearBtn);
+  avatarActions.appendChild(fileInput);
+  avatarRow.appendChild(avatarActions);
+  box.appendChild(avatarRow);
+
+  if (profile && profile.avatarId) {
+    getAvatarUrlById(profile.avatarId).then((url) => {
+      if (url && preview.isConnected && !pendingUserAvatarUrl && !pendingUserAvatarClear) paintUserAvatarPreview(preview, url, '');
+    }).catch(() => {});
+  }
 
   const name = document.createElement('input');
   name.id = 'user-profile-name-input';

@@ -41,6 +41,9 @@ let pendingRefImage = null;    // 生图参考图，同理暂存
 let pendingRefImageUrl = '';
 let iconUploadTarget = '';
 let editingUserProfileId = null; // 正在编辑的「我」的人设
+let pendingUserAvatar = null;    // 「我」的新头像 Blob
+let pendingUserAvatarUrl = '';
+let pendingUserAvatarClear = false;
 let pendingChatImage = null;   // 聊天里待发送的相册图片
 let pendingChatImageUrl = '';
 let toolLocationCoords = null; // 手机定位得到的真实坐标
@@ -874,8 +877,18 @@ async function setContactsTab(tab) {
   }
 }
 
+function resetPendingUserAvatar() {
+  pendingUserAvatar = null;
+  pendingUserAvatarClear = false;
+  if (pendingUserAvatarUrl) {
+    URL.revokeObjectURL(pendingUserAvatarUrl);
+    pendingUserAvatarUrl = '';
+  }
+}
+
 function openUserProfileAdd() {
   editingUserProfileId = null;
+  resetPendingUserAvatar();
   renderUserProfileForm(null);
 }
 
@@ -891,6 +904,7 @@ async function openUserProfileEdit(id) {
 
 function cancelUserProfileForm() {
   editingUserProfileId = null;
+  resetPendingUserAvatar();
   const box = $('user-profile-form');
   if (!box) return;
   box.hidden = true;
@@ -902,11 +916,18 @@ async function saveUserProfileForm() {
   const persona = $('user-profile-persona-input').value;
   if (!name) { toast('名字不能为空'); return; }
   try {
-    if (editingUserProfileId) {
-      await updateUserProfile(editingUserProfileId, { name, persona });
+    let profileId = editingUserProfileId;
+    if (profileId) {
+      await updateUserProfile(profileId, { name, persona });
     } else {
       const rec = await addUserProfile({ name, persona });
+      profileId = rec.id;
       await setActiveUserProfile(rec.id);
+    }
+    if (pendingUserAvatar) {
+      await setUserProfileAvatar(profileId, pendingUserAvatar, 'image/jpeg', 'user-avatar');
+    } else if (pendingUserAvatarClear) {
+      await clearUserProfileAvatar(profileId);
     }
     editingUserProfileId = null;
     cancelUserProfileForm();
@@ -945,7 +966,15 @@ async function deleteUserProfileConfirm(id) {
 
 async function refreshUserProfiles() {
   const { list, activeId } = await getUserProfiles();
-  renderUserProfileList(list, activeId);
+  const avatarUrls = {};
+  await Promise.all(list.map(async (p) => {
+    try {
+      avatarUrls[p.id] = p.avatarId ? await getAvatarUrlById(p.avatarId) : '';
+    } catch (_) {
+      avatarUrls[p.id] = '';
+    }
+  }));
+  renderUserProfileList(list, activeId, avatarUrls);
 }
 
 function loadTriggerSettings() {
@@ -6731,8 +6760,8 @@ $('file-chat-font').addEventListener('change', async (e) => {
     toast('请选择 .ttf / .otf / .woff / .woff2 字体文件');
     return;
   }
-  if (f.size > 12 * 1024 * 1024) {
-    toast('字体文件太大（上限 12MB）');
+  if (f.size > 60 * 1024 * 1024) {
+    toast('字体文件太大（上限 60MB）');
     return;
   }
   try {
@@ -7061,10 +7090,15 @@ function normalizeMomentComments(raw, character) {
 async function momentsIdentity() {
   const profile = await getActiveUserProfile();
   let avatarUrl = '';
-  try {
-    const forum = await getForum();
-    avatarUrl = await getFileUrl(forum.profile.avatarId);
-  } catch (_) {}
+  if (profile && profile.avatarId) {
+    try { avatarUrl = await getAvatarUrlById(profile.avatarId); } catch (_) {}
+  }
+  if (!avatarUrl) {
+    try {
+      const forum = await getForum();
+      avatarUrl = await getFileUrl(forum.profile.avatarId);
+    } catch (_) {}
+  }
   return {
     name: (profile && profile.name) || '我',
     avatarUrl,
@@ -7091,9 +7125,21 @@ async function refreshMomentsUI() {
   }
   let coverUrl = '';
   try {
-    coverUrl = await getFileUrl(forum && forum.profile ? forum.profile.coverId : null);
+    let coverId = moments.profile.coverId;
+    if (!coverId && !moments.profile.coverTouched && forum && forum.profile) {
+      coverId = forum.profile.coverId;
+    }
+    coverUrl = await getFileUrl(coverId);
   } catch (_) {}
   $('moments-cover-bg').style.backgroundImage = coverUrl ? 'url("' + coverUrl.replace(/"/g, '%22') + '")' : '';
+  const coverPreview = $('moments-cover-preview');
+  if (coverPreview) {
+    coverPreview.style.backgroundImage = coverUrl ? 'url("' + coverUrl.replace(/"/g, '%22') + '")' : '';
+    coverPreview.classList.toggle('has-image', !!coverUrl);
+    coverPreview.textContent = coverUrl ? '' : '还没有背景图';
+  }
+  const coverClear = $('btn-moments-cover-clear');
+  if (coverClear) coverClear.disabled = !coverUrl;
 
   const boundCount = moments.settings.characterIds.filter((id) => charsDoc.list.some((c) => c.id === id)).length;
   $('moments-status').textContent = boundCount
@@ -7115,6 +7161,7 @@ async function openMomentsSettings() {
   const [moments, charsDoc] = await Promise.all([getMoments(), getCharacters()]);
   renderMomentsSettings(moments, charsDoc.list);
   $('moments-settings').hidden = false;
+  await refreshMomentsUI();
 }
 
 function setMomentComposePreview(url) {
@@ -7505,6 +7552,30 @@ function startMomentsScheduler() {
 $('btn-moments-back').addEventListener('click', () => showView(viewHome));
 $('btn-moments-settings').addEventListener('click', () => { openMomentsSettings().catch(() => {}); });
 $('btn-moments-settings-close').addEventListener('click', () => { $('moments-settings').hidden = true; });
+$('btn-moments-cover-pick').addEventListener('click', () => $('file-moments-cover').click());
+$('btn-moments-cover-clear').addEventListener('click', async () => {
+  try {
+    await clearMomentsCover();
+    await refreshMomentsUI();
+    toast('背景已清除');
+  } catch (err) {
+    toast('清除失败：' + (err && err.message ? err.message : err));
+  }
+});
+$('file-moments-cover').addEventListener('change', async (e) => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  if (f.size > 20 * 1024 * 1024) { toast('这张图有点大（上限 20MB）'); return; }
+  try {
+    const blob = await fileToWallpaper(f);
+    await setMomentsCover(blob, blob.type || 'image/jpeg', 'moments-cover');
+    await refreshMomentsUI();
+    toast('背景已更新');
+  } catch (err) {
+    toast('背景保存失败：' + (err && err.message ? err.message : err));
+  }
+});
 $('btn-moments-settings-save').addEventListener('click', async () => {
   const ids = Array.from(document.querySelectorAll('.moment-char-check:checked')).map((el) => el.dataset.characterId);
   let interval = parseInt($('moments-interval-hours').value, 10);
