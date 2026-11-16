@@ -99,6 +99,7 @@
 - 浏览器通知：移动端 Chrome 必须通过 Service Worker 的 `showNotification` 才能弹出，`new Notification()` 只作桌面兜底；仅页面切到后台且非通话中时推送。
 - 后台保活用 1 秒静音 WAV 循环播放，浏览器自动播放策略会拦截，需等用户下一次点击后重试；关闭开关时立即停止并释放对象 URL。
 - 媒体标记不能只按整段文本匹配：模型可能把 `[[sticker:...]]` 和正文放在同一气泡，渲染层要扫描标记、分段生成真实媒体，并对未知标记做占位兜底，避免代码泄漏到界面。
+- 自定义指令同理会漏到界面：`[转账]¥5.00` 这类文本指令要按标记解析成卡片，`<split>`（含 `<split/>`）只做分段不显示；新增指令统一加进 `renderAssistantPart` 的标记扫描里。
 - 聊天气泡宽度必须随内容自适应：`.msg-stack` 用 `align-items: flex-start`（用户侧 `flex-end`），`max-width` 只做上限，不能靠默认 stretch 把短消息拉成整条长条。
 - 角色发言底层铁则（OOC 校验、对话席位、活人感、互动边界、记忆连贯、输出格式）写在 `lib/ai.js` 的 `CHAT_BASE_RULES` 与 `public/js/api.js` 的 `DIRECT_BASE_RULES`，固定放在 system 最前，并明确禁止复述或暴露；两份内容必须同步。回复返回前用 `stripThinkBlocks` 剥离 `<thinking>` / `<thought>` 标签，思维链不得进入界面。
 

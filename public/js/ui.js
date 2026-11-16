@@ -175,8 +175,10 @@ async function updateChatTitle() {
 
 function splitReplyIntoBubbles(content) {
   const s = String(content || '');
-  if (s.includes('<split>')) {
-    return s.split('<split>').map((p) => p.trim()).filter(Boolean);
+  // 兼容 <split> / <split/> / <split />，标记本身不进入气泡
+  const splitMark = /<\s*split\s*\/?\s*>/i;
+  if (splitMark.test(s)) {
+    return s.split(new RegExp(splitMark.source, 'gi')).map((p) => p.trim()).filter(Boolean);
   }
   return s.split('\n').map((p) => p.trim()).filter(Boolean);
 }
@@ -336,17 +338,32 @@ function appendAssistantSticker(stack, sticker) {
   stack.appendChild(img);
 }
 
-// 表情包标记可能和正文混在同一回复里，不能按整段文本匹配。
+// 转账卡片：用户工具发送与模型输出 [转账]¥x 共用同一套样式
+function appendAssistantTransfer(stack, amount, note) {
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble transfer-bubble';
+  bubble.appendChild(uiEl('div', 'transfer-label', '转账'));
+  bubble.appendChild(uiEl('div', 'transfer-amount', '¥' + Number(amount || 0).toFixed(2)));
+  const text = String(note || '').trim();
+  if (text) bubble.appendChild(uiEl('div', 'transfer-note', text));
+  stack.appendChild(bubble);
+}
+
+// 表情包 / 转账标记可能和正文混在同一回复里，不能按整段文本匹配。
 function renderAssistantPart(stack, part, ctx) {
   const source = String(part || '');
-  const marker = /\[\[sticker:([^\]\r\n]*)\]\]/gi;
+  const marker = /\[\[sticker:([^\]\r\n]*)\]\]|\[转账\]\s*(?:[¥￥]\s*)?(\d+(?:\.\d{1,2})?)([^\r\n]*)/gi;
   let cursor = 0;
   let match;
   while ((match = marker.exec(source))) {
     appendAssistantBubble(stack, source.slice(cursor, match.index));
-    const sticker = findSticker(ctx && ctx.stickers, match[1]);
-    if (sticker) appendAssistantSticker(stack, sticker);
-    else appendAssistantBubble(stack, '[表情包]');
+    if (match[1] !== undefined) {
+      const sticker = findSticker(ctx && ctx.stickers, match[1]);
+      if (sticker) appendAssistantSticker(stack, sticker);
+      else appendAssistantBubble(stack, '[表情包]');
+    } else {
+      appendAssistantTransfer(stack, parseFloat(match[2]), match[3]);
+    }
     cursor = marker.lastIndex;
   }
   appendAssistantBubble(stack, source.slice(cursor));
