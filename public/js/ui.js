@@ -370,20 +370,46 @@ function renderMessage(m, index, avatar, name, ctx) {
     parts.forEach((part) => renderAssistantPart(stack, part, ctx));
   }
 
-  if (ctx && ctx.call && ctx.voiceEnabled && !m.error) {
+  if (ctx && ctx.voiceEnabled && !m.error) {
     const voice = document.createElement('button');
     voice.type = 'button';
-    voice.className = 'call-voice-btn';
+    voice.className = ctx.call ? 'call-voice-btn' : 'chat-voice-btn';
     voice.dataset.speakIndex = String(index);
-    voice.textContent = '收听语音';
+    voice.textContent = ctx.call ? '收听语音' : '播放语音';
     voice.addEventListener('click', () => {
-      if (typeof speakCallMessage === 'function') speakCallMessage(index);
+      if (ctx.call) {
+        if (typeof speakCallMessage === 'function') speakCallMessage(index);
+      } else if (typeof speakChatMessage === 'function') {
+        speakChatMessage(index);
+      }
     });
     stack.appendChild(voice);
   }
 
   row.appendChild(stack);
   return row;
+}
+
+// 聊天语音按钮状态：idle | loading | playing | failed | blocked
+function setChatVoiceButtonState(index, state) {
+  const btn = document.querySelector('.chat-voice-btn[data-speak-index="' + index + '"]');
+  if (!btn) return;
+  btn.classList.remove('is-loading', 'is-playing', 'is-failed', 'is-blocked');
+  if (state === 'loading') {
+    btn.textContent = '语音加载中…';
+    btn.classList.add('is-loading');
+  } else if (state === 'playing') {
+    btn.textContent = '正在播放…';
+    btn.classList.add('is-playing');
+  } else if (state === 'failed') {
+    btn.textContent = '重试播放';
+    btn.classList.add('is-failed');
+  } else if (state === 'blocked') {
+    btn.textContent = '点按播放';
+    btn.classList.add('is-blocked');
+  } else {
+    btn.textContent = '播放语音';
+  }
 }
 
 async function renderMessagesInto(boxId, options) {
@@ -1124,13 +1150,18 @@ function setToolImagePreview(url) {
 // ===== 角色应用渲染 =====
 async function renderCharactersUI() {
   const { list, activeId } = await getCharacters();
-  const rows = await Promise.all(list.map(async (c) => ({ ...c, avatar: await getAvatarUrlById(c.avatarId) })));
+  const rows = await Promise.all(list.map(async (c) => ({
+    ...c,
+    avatar: await getAvatarUrlById(c.avatarId),
+    personaImage: await getCharacterPersonaImageUrl(c.id),
+  })));
   renderCharacterList(rows, activeId);
 }
 
 function renderCharacterList(characters, activeId) {
   const box = $('character-list');
   box.innerHTML = '';
+  box.classList.add('char-card-row');
   if (!characters.length) {
     const empty = document.createElement('div');
     empty.className = 'memory-empty';
@@ -1138,67 +1169,184 @@ function renderCharacterList(characters, activeId) {
     box.appendChild(empty);
     return;
   }
-  characters.forEach((c) => box.appendChild(characterRow(c, c.id === activeId)));
+  characters.forEach((c) => box.appendChild(characterCard(c, c.id === activeId)));
 }
 
-function characterRow(c, isActive) {
-  const row = document.createElement('div');
-  row.className = 'char-item' + (isActive ? ' active' : '');
-  row.addEventListener('click', () => switchActiveCharacter(c.id));
+// 卡包卡片：正面只放名字和虚化人设图，点击进入大图，再次点击 3D 翻到设定背面
+function characterCard(c, isActive) {
+  const card = document.createElement('button');
+  card.type = 'button';
+  card.className = 'char-card' + (isActive ? ' active' : '');
+  card.dataset.characterId = c.id;
 
-  const avatar = document.createElement('div');
-  avatar.className = 'char-avatar';
-  avatar.innerHTML = charAvatarHTML(c.avatar, c.name);
-  row.appendChild(avatar);
+  const media = c.personaImage || c.avatar;
+  const bg = document.createElement('span');
+  bg.className = 'char-card-bg';
+  if (media) {
+    const img = document.createElement('img');
+    img.src = media;
+    img.alt = '';
+    bg.appendChild(img);
+  } else {
+    bg.classList.add('char-card-bg-fallback');
+    bg.innerHTML = charAvatarHTML('', c.name);
+  }
+  card.appendChild(bg);
 
-  const info = document.createElement('div');
-  info.className = 'char-info';
-
-  const nameRow = document.createElement('div');
-  nameRow.className = 'char-name-row';
-  const name = document.createElement('div');
-  name.className = 'char-name';
+  const name = document.createElement('span');
+  name.className = 'char-card-name';
   name.textContent = c.name || '未命名角色';
-  nameRow.appendChild(name);
+  card.appendChild(name);
+
   if (isActive) {
     const chip = document.createElement('span');
-    chip.className = 'char-active-chip';
+    chip.className = 'char-card-chip';
     chip.textContent = '当前';
-    nameRow.appendChild(chip);
+    card.appendChild(chip);
   }
-  info.appendChild(nameRow);
+
+  card.addEventListener('click', () => openCharacterCardViewer(c, { isActive }));
+  return card;
+}
+
+function ensureCharacterCardViewer() {
+  let viewer = document.getElementById('char-card-viewer');
+  if (viewer) return viewer;
+
+  viewer = document.createElement('div');
+  viewer.className = 'char-card-viewer';
+  viewer.id = 'char-card-viewer';
+  viewer.hidden = true;
+  viewer.innerHTML = [
+    '<div class="char-card-stage">',
+    '  <div class="char-card-flip" id="char-card-flip">',
+    '    <div class="char-card-face char-card-face-front" id="char-card-face-front">',
+    '      <img class="char-card-full" id="char-card-full" alt="" />',
+    '      <div class="char-card-full-fallback" id="char-card-full-fallback" hidden></div>',
+    '      <div class="char-card-full-shade"></div>',
+    '      <div class="char-card-full-name" id="char-card-full-name"></div>',
+    '      <div class="char-card-full-hint">轻点卡片查看设定</div>',
+    '    </div>',
+    '    <div class="char-card-face char-card-face-back">',
+    '      <div class="char-card-back-head">',
+    '        <div class="char-card-back-name" id="char-card-back-name"></div>',
+    '        <div class="char-card-back-remark" id="char-card-back-remark" hidden></div>',
+    '      </div>',
+    '      <div class="char-card-back-body" id="char-card-back-body"></div>',
+    '      <div class="char-card-back-actions" id="char-card-back-actions"></div>',
+    '    </div>',
+    '  </div>',
+    '  <button type="button" class="char-card-close" id="char-card-close" aria-label="关闭">',
+    '    <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6.4 5 5 6.4l5.6 5.6L5 17.6 6.4 19l5.6-5.6 5.6 5.6 1.4-1.4-5.6-5.6L19 6.4 17.6 5 12 10.6 6.4 5Z"/></svg>',
+    '  </button>',
+    '  <div class="char-card-viewer-tip">再点一次卡片翻到背面</div>',
+    '</div>',
+  ].join('');
+  document.body.appendChild(viewer);
+
+  viewer.addEventListener('click', (e) => {
+    if (e.target === viewer) closeCharacterCardViewer();
+  });
+  document.getElementById('char-card-close').addEventListener('click', closeCharacterCardViewer);
+  document.getElementById('char-card-flip').addEventListener('click', (e) => {
+    if (e.target.closest('button')) return;
+    const flip = document.getElementById('char-card-flip');
+    flip.classList.toggle('flipped');
+  });
+  return viewer;
+}
+
+function openCharacterCardViewer(c, opts) {
+  const viewer = ensureCharacterCardViewer();
+  const image = c.personaImage || c.avatar || '';
+  const full = document.getElementById('char-card-full');
+  const fallback = document.getElementById('char-card-full-fallback');
+  if (image) {
+    full.src = image;
+    full.hidden = false;
+    fallback.hidden = true;
+  } else {
+    full.hidden = true;
+    full.removeAttribute('src');
+    fallback.hidden = false;
+    fallback.innerHTML = charAvatarHTML('', c.name);
+  }
+  document.getElementById('char-card-full-name').textContent = c.name || '未命名角色';
 
   const remark = String(c.remark || '').trim();
-  if (remark) {
-    const remarkEl = document.createElement('div');
-    remarkEl.className = 'char-remark';
-    remarkEl.textContent = '备注：' + remark;
-    info.appendChild(remarkEl);
+  const remarkEl = document.getElementById('char-card-back-remark');
+  remarkEl.textContent = remark ? '备注：' + remark : '';
+  remarkEl.hidden = !remark;
+  document.getElementById('char-card-back-name').textContent = c.name || '未命名角色';
+
+  const body = document.getElementById('char-card-back-body');
+  body.innerHTML = '';
+  const persona = document.createElement('p');
+  persona.className = 'char-card-persona';
+  persona.textContent = String(c.persona || '').trim() || '还没有填写人设。';
+  body.appendChild(persona);
+
+  const meta = document.createElement('div');
+  meta.className = 'char-card-meta';
+  const chips = [];
+  if (opts && opts.isActive) chips.push('当前聊天角色');
+  if (c.voice && c.voice.enabled) chips.push('语音已开启');
+  if (c.image && c.image.enabled) chips.push('外观生图已开启');
+  chips.forEach((text) => {
+    const chip = document.createElement('span');
+    chip.className = 'char-card-meta-chip';
+    chip.textContent = text;
+    meta.appendChild(chip);
+  });
+  if (chips.length) body.appendChild(meta);
+
+  const actions = document.getElementById('char-card-back-actions');
+  actions.innerHTML = '';
+  if (!(opts && opts.isActive)) {
+    const useBtn = document.createElement('button');
+    useBtn.type = 'button';
+    useBtn.className = 'fetch-btn';
+    useBtn.textContent = '设为当前角色';
+    useBtn.addEventListener('click', async () => {
+      const id = c.id;
+      closeCharacterCardViewer();
+      if (typeof switchActiveCharacter === 'function') await switchActiveCharacter(id);
+    });
+    actions.appendChild(useBtn);
   }
-
-  const persona = document.createElement('div');
-  persona.className = 'char-persona';
-  persona.textContent = String(c.persona || '').trim() || '未填写人设';
-  info.appendChild(persona);
-
-  const actions = document.createElement('div');
-  actions.className = 'char-actions';
   const editBtn = document.createElement('button');
   editBtn.type = 'button';
-  editBtn.className = 'memory-link';
-  editBtn.textContent = '编辑';
-  editBtn.addEventListener('click', (e) => { e.stopPropagation(); openCharacterEdit(c.id); });
+  editBtn.className = 'fetch-btn';
+  editBtn.textContent = '编辑资料';
+  editBtn.addEventListener('click', () => {
+    closeCharacterCardViewer();
+    if (typeof openCharacterEdit === 'function') openCharacterEdit(c.id);
+  });
+  actions.appendChild(editBtn);
+
   const delBtn = document.createElement('button');
   delBtn.type = 'button';
-  delBtn.className = 'memory-link danger';
+  delBtn.className = 'fetch-btn fetch-btn-ghost';
   delBtn.textContent = '删除';
-  delBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteCharacterConfirm(c.id); });
-  actions.appendChild(editBtn);
+  delBtn.addEventListener('click', () => {
+    closeCharacterCardViewer();
+    if (typeof deleteCharacterConfirm === 'function') deleteCharacterConfirm(c.id);
+  });
   actions.appendChild(delBtn);
-  info.appendChild(actions);
 
-  row.appendChild(info);
-  return row;
+  const flip = document.getElementById('char-card-flip');
+  flip.classList.remove('flipped');
+  viewer.hidden = false;
+  viewer.classList.add('open');
+}
+
+function closeCharacterCardViewer() {
+  const viewer = document.getElementById('char-card-viewer');
+  if (!viewer) return;
+  viewer.classList.remove('open');
+  viewer.hidden = true;
+  const flip = document.getElementById('char-card-flip');
+  if (flip) flip.classList.remove('flipped');
 }
 
 // 表单里的抽屉：标题行常驻，内容点击才展开
@@ -1222,7 +1370,7 @@ function formDrawer(title) {
 }
 
 // 渲染「新建 / 编辑角色」表单；character 为空表示新增
-function renderCharacterForm(character, avatarUrl, refImageUrl) {
+function renderCharacterForm(character, avatarUrl, refImageUrl, personaUrl) {
   const box = $('character-form');
   box.innerHTML = '';
   box.hidden = false;
@@ -1273,6 +1421,32 @@ function renderCharacterForm(character, avatarUrl, refImageUrl) {
   clearBtn.addEventListener('click', clearCharacterAvatarForm);
   avatarRow.appendChild(clearBtn);
   box.appendChild(avatarRow);
+
+  // 人设大图：卡包卡片背景与看图模式优先使用，未上传时自动回退头像
+  const personaRow = document.createElement('div');
+  personaRow.className = 'avatar-row';
+  const personaPreview = document.createElement('span');
+  personaPreview.className = 'ref-preview persona-preview';
+  personaPreview.id = 'char-persona-preview';
+  personaPreview.innerHTML = personaUrl
+    ? '<img class="msg-avatar-img" src="' + personaUrl + '" alt="" />'
+    : '<span>无</span>';
+  personaRow.appendChild(personaPreview);
+
+  const personaUpload = document.createElement('button');
+  personaUpload.type = 'button';
+  personaUpload.className = 'fetch-btn';
+  personaUpload.textContent = '上传人设大图';
+  personaUpload.addEventListener('click', () => $('file-char-persona').click());
+  personaRow.appendChild(personaUpload);
+
+  const personaClear = document.createElement('button');
+  personaClear.type = 'button';
+  personaClear.className = 'fetch-btn';
+  personaClear.textContent = '清除';
+  personaClear.addEventListener('click', clearCharacterPersonaForm);
+  personaRow.appendChild(personaClear);
+  box.appendChild(personaRow);
 
   name.addEventListener('input', () => {
     if (!preview.querySelector('img')) preview.innerHTML = charAvatarHTML('', name.value);

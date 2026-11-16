@@ -19,12 +19,18 @@ let callRingTimer = null;
 let callConnected = false;
 let callAudio = null;
 let callAudioUrl = '';
+let chatAudio = null;
+let chatAudioUrl = '';
+let chatSpeechSeq = 0;
+let chatSpeakingIndex = -1;
 let pendingCallMemory = null;
 let callSpeechSeq = 0;
 let editingCharacterId = null;
 let charactersReturnTo = 'home';
 let pendingAvatar = null;      // 新建角色时先暂存头像，保存角色后再落库
 let pendingAvatarUrl = '';
+let pendingPersonaImage = null; // 角色人设大图，同理暂存
+let pendingPersonaImageUrl = '';
 let pendingRefImage = null;    // 生图参考图，同理暂存
 let pendingRefImageUrl = '';
 let iconUploadTarget = '';
@@ -415,7 +421,8 @@ async function openCharacterEdit(id) {
   resetPendingImages();
   const avatarUrl = await getAvatarUrlById(c.avatarId);
   const refUrl = await getReferenceImageUrl(id);
-  renderCharacterForm(c, avatarUrl, refUrl);
+  const personaUrl = await getCharacterPersonaImageUrl(id);
+  renderCharacterForm(c, avatarUrl, refUrl, personaUrl);
   const box = $('character-form');
   if (box && box.scrollIntoView) box.scrollIntoView({ block: 'nearest' });
 }
@@ -425,6 +432,11 @@ function resetPendingAvatar() {
   pendingAvatar = null;
 }
 
+function resetPendingPersonaImage() {
+  if (pendingPersonaImageUrl) { URL.revokeObjectURL(pendingPersonaImageUrl); pendingPersonaImageUrl = ''; }
+  pendingPersonaImage = null;
+}
+
 function resetPendingRefImage() {
   if (pendingRefImageUrl) { URL.revokeObjectURL(pendingRefImageUrl); pendingRefImageUrl = ''; }
   pendingRefImage = null;
@@ -432,6 +444,7 @@ function resetPendingRefImage() {
 
 function resetPendingImages() {
   resetPendingAvatar();
+  resetPendingPersonaImage();
   resetPendingRefImage();
 }
 
@@ -475,6 +488,9 @@ async function saveCharacterForm() {
     if (pendingAvatar) {
       await setCharacterAvatarBlob(id, pendingAvatar.blob, pendingAvatar.type, pendingAvatar.name);
     }
+    if (pendingPersonaImage) {
+      await setCharacterPersonaImage(id, pendingPersonaImage.blob, pendingPersonaImage.type, pendingPersonaImage.name);
+    }
     if (pendingRefImage) {
       await setCharacterReferenceImage(id, pendingRefImage.blob, pendingRefImage.type, pendingRefImage.name);
     }
@@ -505,6 +521,19 @@ async function clearCharacterAvatarForm() {
   await renderCharactersUI();
 }
 
+async function clearCharacterPersonaForm() {
+  try {
+    if (editingCharacterId) await clearCharacterPersonaImage(editingCharacterId);
+  } catch (err) {
+    toast('清除人设大图失败：' + (err && err.message ? err.message : err));
+    return;
+  }
+  resetPendingPersonaImage();
+  const preview = $('char-persona-preview');
+  if (preview) preview.innerHTML = '<span>无</span>';
+  await renderCharactersUI();
+}
+
 async function clearCharacterRefImageForm() {
   try {
     if (editingCharacterId) await clearCharacterReferenceImage(editingCharacterId);
@@ -519,6 +548,7 @@ async function clearCharacterRefImageForm() {
 }
 
 async function switchActiveCharacter(id) {
+  stopChatAudio();
   try {
     await setActiveCharacter(id);
     await updateChatTitle();
@@ -918,6 +948,116 @@ async function autoPlayCallReply(reply, index) {
   await playCallSpeech(c, reply, index, false);
 }
 
+// ---- 聊天语音：开启语音的角色自动朗读，被拦截时降级为气泡按钮 ----
+function stopChatAudio() {
+  chatSpeechSeq += 1;
+  if (chatAudio) {
+    try { chatAudio.pause(); } catch (_) {}
+    chatAudio = null;
+  }
+  if (chatAudioUrl) {
+    try { URL.revokeObjectURL(chatAudioUrl); } catch (_) {}
+    chatAudioUrl = '';
+  }
+  if (chatSpeakingIndex >= 0 && typeof setChatVoiceButtonState === 'function') {
+    setChatVoiceButtonState(chatSpeakingIndex, 'idle');
+  }
+  chatSpeakingIndex = -1;
+}
+
+function playChatBlob(blob, index) {
+  stopChatAudio();
+  const url = URL.createObjectURL(blob);
+  const audio = new Audio(url);
+  chatAudio = audio;
+  chatAudioUrl = url;
+  chatSpeakingIndex = index;
+  if (typeof setChatVoiceButtonState === 'function') setChatVoiceButtonState(index, 'playing');
+  audio.addEventListener('ended', () => {
+    if (chatAudio === audio) {
+      chatAudio = null;
+      try { URL.revokeObjectURL(url); } catch (_) {}
+      chatAudioUrl = '';
+      if (typeof setChatVoiceButtonState === 'function') setChatVoiceButtonState(index, 'idle');
+      if (chatSpeakingIndex === index) chatSpeakingIndex = -1;
+    }
+  });
+  audio.addEventListener('error', () => {
+    if (chatAudio === audio) {
+      chatAudio = null;
+      try { URL.revokeObjectURL(url); } catch (_) {}
+      chatAudioUrl = '';
+      if (typeof setChatVoiceButtonState === 'function') setChatVoiceButtonState(index, 'failed');
+      if (chatSpeakingIndex === index) chatSpeakingIndex = -1;
+    }
+  });
+  const played = audio.play();
+  if (played && typeof played.catch === 'function') {
+    played.catch(() => {
+      if (chatAudio !== audio) return;
+      chatAudio = null;
+      chatSpeechSeq += 1;
+      chatSpeakingIndex = -1;
+      // 自动播放被浏览器拦截：保留按钮，等用户点按
+      if (typeof setChatVoiceButtonState === 'function') setChatVoiceButtonState(index, 'blocked');
+    });
+  }
+}
+
+async function playChatSpeech(character, text, index, manual) {
+  const clean = callSpeechText(text);
+  if (!clean) {
+    if (manual) toast('这条回复没有可朗读的文字');
+    return;
+  }
+  const v = getVoiceSettings();
+  const baseUrl = v.baseUrl || getSettings().baseUrl;
+  const apiKey = v.apiKey || getSettings().apiKey;
+  const model = (character.voice && character.voice.model) || v.model || 'tts-1';
+  const voice = (character.voice && character.voice.voiceId) || v.voice || 'alloy';
+
+  if (!baseUrl || !apiKey) {
+    if (typeof setChatVoiceButtonState === 'function') setChatVoiceButtonState(index, 'idle');
+    if (manual) toast('请先在「设置 → 语音服务」填写接口地址和 Key');
+    return;
+  }
+
+  stopChatAudio();
+  const seq = chatSpeechSeq;
+  if (typeof setChatVoiceButtonState === 'function') setChatVoiceButtonState(index, 'loading');
+  let result;
+  try {
+    result = await requestSpeech({ baseUrl, apiKey, model, voice, input: clean.slice(0, 2000) });
+  } catch (err) {
+    result = { ok: false, reason: err && err.message ? err.message : '语音请求失败' };
+  }
+  if (seq !== chatSpeechSeq) return; // 期间切换了消息或角色
+
+  if (!result || !result.ok) {
+    if (typeof setChatVoiceButtonState === 'function') setChatVoiceButtonState(index, manual ? 'failed' : 'idle');
+    if (manual) toast('语音播放失败：' + ((result && result.reason) || '未知错误'));
+    return;
+  }
+  playChatBlob(result.blob, index);
+}
+
+async function speakChatMessage(index) {
+  const c = await getActiveCharacter();
+  if (!c) return;
+  if (!c.voice || !c.voice.enabled) { toast('该角色还没有开启语音'); return; }
+  const history = await getHistory();
+  const m = history[index];
+  if (!m || m.role !== 'assistant' || m.error) return;
+  await playChatSpeech(c, m.content, index, true);
+}
+
+async function autoPlayChatReply(reply, index) {
+  if (callActive) return;
+  const c = await getActiveCharacter();
+  if (!c || !c.voice || !c.voice.enabled) return;
+  await playChatSpeech(c, reply, index, false);
+}
+
 // ---- 聊天编排 ----
 async function getPending() {
   const h = await getHistory();
@@ -1165,6 +1305,9 @@ async function flushQueue() {
     }
     if (result && result.ok && callActive && callCharacterId === characterId) {
       autoPlayCallReply(result.reply, baseIndex).catch(() => {});
+    }
+    if (result && result.ok && !inCall && viewChat.classList.contains('active')) {
+      autoPlayChatReply(result.reply, baseIndex).catch(() => {});
     }
     if (result && result.ok) {
       notifyCharacterReply(characterId, result.reply).catch(() => {});
@@ -3189,14 +3332,32 @@ async function refreshSchedulePage(characterId) {
   renderSchedulePage(character, schedule);
 }
 
+async function fillScheduleCharacterSelect(selectedId) {
+  const select = $('select-schedule-char');
+  if (!select) return;
+  const { list, activeId } = await getCharacters();
+  select.innerHTML = '';
+  list.forEach((c) => {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = c.name || '未命名角色';
+    select.appendChild(opt);
+  });
+  const fallback = selectedId || activeId || '';
+  if (fallback) select.value = fallback;
+  select.disabled = list.length <= 1;
+}
+
 async function openSchedule() {
-  const id = await getActiveCharacterId();
-  if (!id) {
+  const { list, activeId } = await getCharacters();
+  if (!list.length || !activeId) {
     toast('先在「角色」应用里创建并选择一个角色');
     return;
   }
-  scheduleCharacterId = id;
-  await refreshSchedulePage(id);
+  const keep = list.some((c) => c.id === scheduleCharacterId) ? scheduleCharacterId : activeId;
+  scheduleCharacterId = keep;
+  await fillScheduleCharacterSelect(keep);
+  await refreshSchedulePage(keep);
   showView(viewSchedule);
   runScheduleSchedule().catch(() => {});
 }
@@ -4050,6 +4211,12 @@ $('btn-chat-style-save').addEventListener('click', saveChatStyle);
 $('btn-diary-back').addEventListener('click', () => showView(viewChat));
 $('btn-schedule-back').addEventListener('click', () => showView(viewHome));
 $('btn-schedule-refresh').addEventListener('click', () => { refreshScheduleNow().catch(() => {}); });
+$('select-schedule-char').addEventListener('change', async (e) => {
+  const id = e.target.value;
+  if (!id) return;
+  scheduleCharacterId = id;
+  await refreshSchedulePage(id);
+});
 $('schedule-body').addEventListener('click', (e) => {
   if (e.target.closest('#btn-schedule-save')) saveScheduleSettingsFromPage().catch(() => {});
 });
@@ -4092,6 +4259,22 @@ $('file-char-avatar').addEventListener('change', async (e) => {
     toast('头像已选择，保存角色后生效');
   } catch (err) {
     toast(err && err.message ? err.message : '头像读取失败');
+  }
+});
+$('file-char-persona').addEventListener('change', async (e) => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  try {
+    const blob = await fileToAvatar(f);
+    if (pendingPersonaImageUrl) URL.revokeObjectURL(pendingPersonaImageUrl);
+    pendingPersonaImage = { blob, type: 'image/jpeg', name: f.name };
+    pendingPersonaImageUrl = URL.createObjectURL(blob);
+    const preview = $('char-persona-preview');
+    if (preview) preview.innerHTML = '<img class="msg-avatar-img" src="' + pendingPersonaImageUrl + '" alt="" />';
+    toast('人设大图已选择，保存角色后生效');
+  } catch (err) {
+    toast(err && err.message ? err.message : '人设大图读取失败');
   }
 });
 $('file-char-ref').addEventListener('change', async (e) => {

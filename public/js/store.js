@@ -1637,6 +1637,7 @@ function normalizeCharacter(raw, fallbackId) {
     remark: String(raw.remark || '').trim(),
     persona: String(raw.persona || ''),
     avatarId: raw.avatarId || null,
+    personaImageId: raw.personaImageId || null,
     voice: normalizeCharacterVoice(raw.voice),
     image: normalizeCharacterImage(raw.image),
     chatStyle: normalizeCharacterChatStyle(raw.chatStyle),
@@ -1697,6 +1698,7 @@ async function updateCharacterRecord(id, patch) {
     if (patch.remark !== undefined) c.remark = String(patch.remark || '').trim();
     if (patch.persona !== undefined) c.persona = String(patch.persona || '');
     if (patch.avatarId !== undefined) c.avatarId = patch.avatarId || null;
+    if (patch.personaImageId !== undefined) c.personaImageId = patch.personaImageId || null;
     if (patch.voice !== undefined) c.voice = normalizeCharacterVoice(Object.assign({}, c.voice, patch.voice));
     if (patch.image !== undefined) c.image = normalizeCharacterImage(Object.assign({}, c.image, patch.image));
     if (patch.chatStyle !== undefined) c.chatStyle = normalizeCharacterChatStyle(patch.chatStyle);
@@ -1755,6 +1757,37 @@ async function clearCharacterAvatar(characterId) {
   }
 }
 
+// 角色人设大图：单独一个 Blob 字段，缺省时由界面回退到头像
+async function setCharacterPersonaImage(characterId, blob, type, name) {
+  const c = await getCharacter(characterId);
+  if (!c) throw new Error('角色不存在');
+  const oldId = c.personaImageId;
+  const id = genId();
+  await putFile({ id, name: name || 'persona', type: type || (blob && blob.type) || 'image/jpeg', blob });
+  await updateCharacterRecord(characterId, { personaImageId: id });
+  if (oldId) {
+    revokeAvatarUrl(oldId);
+    try { await deleteFile(oldId); } catch (_) {}
+  }
+  return id;
+}
+
+async function clearCharacterPersonaImage(characterId) {
+  const c = await getCharacter(characterId);
+  if (!c) return;
+  const oldId = c.personaImageId;
+  await updateCharacterRecord(characterId, { personaImageId: null });
+  if (oldId) {
+    revokeAvatarUrl(oldId);
+    try { await deleteFile(oldId); } catch (_) {}
+  }
+}
+
+async function getCharacterPersonaImageUrl(characterId) {
+  const c = await getCharacter(characterId);
+  return c && c.personaImageId ? getAvatarUrlById(c.personaImageId) : '';
+}
+
 // 生图参考图：同样以 Blob 存 files，角色记录只存 image.referenceImageId
 async function setCharacterReferenceImage(characterId, blob, type, name) {
   const c = await getCharacter(characterId);
@@ -1799,6 +1832,10 @@ async function deleteCharacter(id) {
   if (refId) {
     revokeAvatarUrl(refId);
     try { await deleteFile(refId); } catch (_) {}
+  }
+  if (c.personaImageId) {
+    revokeAvatarUrl(c.personaImageId);
+    try { await deleteFile(c.personaImageId); } catch (_) {}
   }
   // 聊天里发送过的图片文件也一并清理，避免孤儿 Blob
   const chatDoc = await getDoc(chatDocId(id));

@@ -876,6 +876,10 @@
           <span class="app-title" id="schedule-title">日程</span>
           <button class="forum-icon-btn" id="btn-schedule-refresh" type="button">刷新</button>
         </header>
+        <div class="schedule-charbar">
+          <label class="schedule-charbar-label" for="select-schedule-char">角色</label>
+          <select class="schedule-charbar-select" id="select-schedule-char"></select>
+        </div>
         <div class="schedule-scroll" id="schedule-body"></div>
       </div>
 
@@ -945,10 +949,11 @@
         <div class="contacts-pane" id="contacts-pane-characters">
           <div class="characters-body">
             <button type="button" class="fetch-btn" id="btn-character-add">新建联系人</button>
-            <p class="wb-hint">每个联系人都有独立的人设、头像、聊天记录、记忆、世界书绑定，以及可选的语音与生图绑定；点联系人卡片可切换当前聊天对象。</p>
+            <p class="wb-hint">每个联系人都有独立的人设、头像、人设大图、聊天记录、记忆、世界书绑定，以及可选的语音与生图绑定；轻点卡片查看大图，再点一次翻到背面查看设定。</p>
             <div class="wb-form" id="character-form" hidden></div>
             <div class="char-list" id="character-list"></div>
             <input type="file" id="file-char-avatar" accept="image/*" hidden />
+            <input type="file" id="file-char-persona" accept="image/*" hidden />
             <input type="file" id="file-char-ref" accept="image/*" hidden />
           </div>
         </div>
