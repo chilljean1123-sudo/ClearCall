@@ -104,6 +104,7 @@
 - 角色发言底层铁则（OOC 校验、对话席位、活人感、互动边界、记忆连贯、输出格式）写在 `lib/ai.js` 的 `CHAT_BASE_RULES` 与 `public/js/api.js` 的 `DIRECT_BASE_RULES`，固定放在 system 最前，并明确禁止复述或暴露；两份内容必须同步。回复返回前用 `stripThinkBlocks` 剥离 `<thinking>` / `<thought>` 标签，思维链不得进入界面。
 - 无标签思维链（如 “Wait, the user says… I should confirm…”）不能只靠提示词：`api.js` 的 `sanitizeAssistantReply` 按行过滤英文元推理，`requestReply` 两条通道都清洗；旧消息在 `ui.js` 渲染时再用 `looksLikeMetaReasoning` 过滤一次。
 - 聊天消息长按菜单依赖 `renderMessagesInto` 给每行写 `data-msg-index`；多选圆圈挂在 `.msg-row` 首个子元素（角色在头像前、用户在气泡后），删除按索引从大到小 `splice`，避免索引错位。
+- 商城与外卖共用「搜索 → 购物车 → 选角色 → 结算发卡片」模式：`renderShopTabs/Products/Cart` 通过 `boxId`/`prefix` 复用；订单统一存 `kind:'shop'`，用 `shop.type` 区分 `shop`/`food`，卡片必须写 `toName`（送给谁）。
 
 ## 待补充
 

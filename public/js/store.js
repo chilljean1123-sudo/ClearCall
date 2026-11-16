@@ -275,6 +275,7 @@ const DEFAULT_DIARY_TIME = '22:00';    // 默认每天写日记的时间
 const DOC_SCHEDULE_PREFIX = 'schedule:'; // 角色日程：按角色分仓
 const DEFAULT_SCHEDULE_TIME = '07:00';   // 默认每天刷新日程的时间
 const DOC_SHOP = 'shop';               // 商城：按角色分仓的购物车 + 订单记录
+const DOC_FOOD = 'food';               // 外卖：按角色分仓的购物车 + 订单记录
 const LEGACY_CHARACTER_ID = 'character';
 
 let _dbPromise = null;
@@ -1785,6 +1786,112 @@ async function createShopOrder(payload) {
     days: p.days,
   });
   await mutateShop((doc) => {
+    doc.orders.unshift(order);
+    delete doc.carts[id];
+  });
+  return order;
+}
+
+// ===== 外卖 =====
+// 与商城同一套结构：按角色分仓购物车 + 订单，额外记录预计送达分钟数
+function normalizeFoodOrder(raw) {
+  const base = normalizeShopOrder(raw);
+  return {
+    ...base,
+    minutes: Math.max(5, Math.min(180, parseInt(raw && raw.minutes, 10) || 30)),
+  };
+}
+
+function normalizeFood(doc) {
+  const d = doc || {};
+  const carts = {};
+  if (d.carts && typeof d.carts === 'object') {
+    Object.keys(d.carts).forEach((cid) => {
+      const items = (Array.isArray(d.carts[cid]) ? d.carts[cid] : []).map(normalizeShopItem).filter(Boolean);
+      if (items.length) carts[cid] = items;
+    });
+  }
+  return {
+    carts,
+    orders: (Array.isArray(d.orders) ? d.orders : [])
+      .map(normalizeFoodOrder)
+      .filter((o) => o.items.length),
+  };
+}
+
+async function getFood() {
+  return normalizeFood(await getDoc(DOC_FOOD));
+}
+
+function mutateFood(mutator) {
+  return mutateDoc(DOC_FOOD, (doc) => {
+    const base = normalizeFood(doc);
+    doc.carts = base.carts;
+    doc.orders = base.orders;
+    mutator(doc);
+    const next = normalizeFood(doc);
+    doc.carts = next.carts;
+    doc.orders = next.orders;
+  });
+}
+
+async function getFoodCart(characterId) {
+  const id = characterId || await getActiveCharacterId();
+  if (!id) return [];
+  const food = await getFood();
+  return food.carts[id] || [];
+}
+
+async function addFoodCartItem(characterId, product) {
+  const id = characterId || await getActiveCharacterId();
+  if (!id) throw new Error('请先选择一个联系人');
+  const item = normalizeShopItem(product);
+  if (!item) throw new Error('商品信息不完整，暂时不能加入购物车');
+  await mutateFood((doc) => {
+    if (!Array.isArray(doc.carts[id])) doc.carts[id] = [];
+    const existing = doc.carts[id].find((x) => x.name === item.name && x.price === item.price);
+    if (existing) existing.qty = Math.min(99, existing.qty + 1);
+    else doc.carts[id].push({ ...item, qty: 1 });
+  });
+  return getFoodCart(id);
+}
+
+async function updateFoodCartQty(characterId, itemId, qty) {
+  const id = characterId || await getActiveCharacterId();
+  if (!id) throw new Error('请先选择一个联系人');
+  const next = Math.max(1, Math.min(99, parseInt(qty, 10) || 1));
+  await mutateFood((doc) => {
+    const items = doc.carts[id] || [];
+    const item = items.find((x) => x.id === itemId);
+    if (item) item.qty = next;
+  });
+  return getFoodCart(id);
+}
+
+async function removeFoodCartItem(characterId, itemId) {
+  const id = characterId || await getActiveCharacterId();
+  if (!id) throw new Error('请先选择一个联系人');
+  await mutateFood((doc) => {
+    if (Array.isArray(doc.carts[id])) doc.carts[id] = doc.carts[id].filter((x) => x.id !== itemId);
+  });
+  return getFoodCart(id);
+}
+
+async function createFoodOrder(payload) {
+  const p = payload || {};
+  const id = p.characterId || await getActiveCharacterId();
+  if (!id) throw new Error('请先选择一个联系人');
+  const food = await getFood();
+  const items = food.carts[id] || [];
+  if (!items.length) throw new Error('购物车还是空的');
+  const order = normalizeFoodOrder({
+    characterId: id,
+    characterName: p.characterName,
+    items,
+    address: p.address,
+    minutes: p.minutes,
+  });
+  await mutateFood((doc) => {
     doc.orders.unshift(order);
     delete doc.carts[id];
   });

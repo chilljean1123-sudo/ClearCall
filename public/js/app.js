@@ -62,6 +62,14 @@ let shopCartCharId = null;
 let shopSearching = false;
 let shopCheckingOut = false;
 
+// 外卖
+let foodCategory = 'recommend';
+let foodVisibleProducts = [];
+let foodSearchResults = null;
+let foodCartCharId = null;
+let foodSearching = false;
+let foodCheckingOut = false;
+
 // 小说阅读
 let currentBookId = null;
 let readerChapterIndex = 0;
@@ -3973,7 +3981,9 @@ async function checkoutShop() {
       content: '我在商城买了些东西，已经下单了，预计 ' + order.days + ' 天后送到。',
       kind: 'shop',
       shop: {
+        type: 'shop',
         orderId: order.id,
+        toName: character.name,
         items: order.items,
         total: order.total,
         address: order.address,
@@ -3999,6 +4009,191 @@ async function checkoutShop() {
     toast('结算失败：' + (err && err.message ? err.message : err));
   } finally {
     shopCheckingOut = false;
+    if (btn) btn.disabled = false;
+  }
+}
+
+// ---------------- 外卖 ----------------
+function buildFoodSearchSystemPrompt(keyword) {
+  return [
+    '你在帮用户点外卖，用户想吃：' + keyword + '。',
+    '请模拟一次外卖平台搜索，返回 5-8 个符合关键词、真实可点的餐品或饮品。',
+    '要求：',
+    '1. 名称具体、口语化，不要出现真实品牌或店铺信息。',
+    '2. 价格用数字（人民币元），符合定位，不要出现 0 或离谱高价。',
+    '3. 每项配一句 15-40 字的描述，以及一个 2-4 字的标签（如「热卖」「新品」）。',
+    '4. 不要输出解释、广告语或 Markdown，只输出 JSON 数组。',
+    '5. 格式：[{"name":"餐品名","price":18,"desc":"一句话描述","tag":"标签"}]',
+  ].join('\n');
+}
+
+function renderFoodPage() {
+  const isSearch = foodCategory === 'search';
+  renderShopTabs(foodCategory, !!foodSearchResults, 'food-tabs', FOOD_CATEGORIES);
+  if (isSearch && foodSearchResults) foodVisibleProducts = foodSearchResults;
+  else foodVisibleProducts = foodProductsByCategory(foodCategory);
+  renderShopProducts(foodVisibleProducts, 'food-products');
+}
+
+async function openFood() {
+  const { list } = await getCharacters();
+  if (foodCartCharId && !list.some((c) => c.id === foodCartCharId)) foodCartCharId = null;
+  renderFoodPage();
+  showView(viewFood);
+  const cart = foodCartCharId ? await getFoodCart(foodCartCharId) : [];
+  renderShopCart(cart, 'food');
+}
+
+function switchFoodCategory(key) {
+  if (key === 'search' && !foodSearchResults) return;
+  foodCategory = key;
+  renderFoodPage();
+  const scroll = $('food-scroll');
+  if (scroll) scroll.scrollTop = 0;
+}
+
+async function addFoodProductToCart(product) {
+  if (!product) return;
+  const { list, activeId } = await getCharacters();
+  if (!list.length) { toast('先在「通讯录」里创建一个角色'); return; }
+  if (!foodCartCharId || !list.some((c) => c.id === foodCartCharId)) {
+    if (list.length === 1) {
+      foodCartCharId = list[0].id;
+    } else {
+      await openFoodCart(activeId || list[0].id);
+      toast('先在下拉里选一个联系人，再点一次「加入购物车」');
+      return;
+    }
+  }
+  try {
+    await addFoodCartItem(foodCartCharId, product);
+    await refreshFoodCart();
+    toast('已加入购物车');
+  } catch (err) {
+    toast('加入购物车失败：' + (err && err.message ? err.message : err));
+  }
+}
+
+async function openFoodCart(preferId) {
+  const { list, activeId } = await getCharacters();
+  if (!list.length) { toast('先在「通讯录」里创建一个角色'); return; }
+  const wanted = preferId || foodCartCharId || activeId || list[0].id;
+  foodCartCharId = list.some((c) => c.id === wanted) ? wanted : list[0].id;
+  fillShopCartCharacters(list, foodCartCharId, 'select-food-cart-char');
+  const cart = await getFoodCart(foodCartCharId);
+  renderShopCart(cart, 'food');
+  $('food-cart-mask').hidden = false;
+  $('food-cart-panel').hidden = false;
+}
+
+function closeFoodCart() {
+  $('food-cart-mask').hidden = true;
+  $('food-cart-panel').hidden = true;
+}
+
+async function refreshFoodCart() {
+  if (!foodCartCharId) { renderShopCart([], 'food'); return; }
+  const cart = await getFoodCart(foodCartCharId);
+  renderShopCart(cart, 'food');
+  if (!$('food-cart-panel').hidden) {
+    const { list } = await getCharacters();
+    fillShopCartCharacters(list, foodCartCharId, 'select-food-cart-char');
+  }
+}
+
+async function searchFoodProducts() {
+  const keyword = $('input-food-search').value.trim();
+  if (!keyword) { toast('先输入想吃的关键词'); return; }
+  if (foodSearching) return;
+  const api = emailApiConfig();
+  if (!api.baseUrl || !api.apiKey || !api.model) {
+    toast('请先到「设置」填好接口地址、API Key 和模型名');
+    return;
+  }
+  foodSearching = true;
+  const btn = $('btn-food-search');
+  if (btn) btn.disabled = true;
+  toast('正在搜「' + keyword + '」…');
+  try {
+    const data = await requestShopChat({
+      baseUrl: api.baseUrl,
+      apiKey: api.apiKey,
+      model: api.model,
+      system: buildFoodSearchSystemPrompt(keyword),
+      user: '请搜索「' + keyword + '」相关的外卖餐品，按格式返回 JSON 数组。',
+      maxTokens: 1600,
+    });
+    if (!data || !data.ok) throw new Error((data && (data.reason || data.message)) || '搜索失败');
+    const items = parseShopJson(data.reply);
+    if (!items) throw new Error('模型没有返回可用的餐品，稍后重试或换模型');
+    foodSearchResults = items;
+    foodCategory = 'search';
+    renderFoodPage();
+    const scroll = $('food-scroll');
+    if (scroll) scroll.scrollTop = 0;
+    toast('找到 ' + items.length + ' 份餐品');
+  } catch (err) {
+    toast('搜索失败：' + (err && err.message ? err.message : err));
+  } finally {
+    foodSearching = false;
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function checkoutFood() {
+  if (foodCheckingOut) return;
+  if (!foodCartCharId) { toast('先在下拉里选一个联系人'); return; }
+  const address = $('input-food-address').value.trim();
+  if (!address) { toast('请先填写送达地址'); return; }
+  const minutes = parseInt($('input-food-minutes').value, 10);
+  if (!(minutes >= 5 && minutes <= 180)) { toast('预计送达分钟数请填 5 到 180 之间的整数'); return; }
+  const character = await getCharacter(foodCartCharId);
+  if (!character) { toast('这个角色已经被删除了，换一个联系人吧'); return; }
+  const cart = await getFoodCart(foodCartCharId);
+  if (!cart.length) { toast('购物车是空的'); return; }
+
+  foodCheckingOut = true;
+  const btn = $('btn-food-checkout');
+  if (btn) btn.disabled = true;
+  try {
+    const order = await createFoodOrder({
+      characterId: foodCartCharId,
+      characterName: character.name,
+      address,
+      minutes,
+    });
+    await mutateHistory((arr) => arr.push({
+      role: 'user',
+      content: '我点了外卖，已经下单了，预计 ' + order.minutes + ' 分钟后送到。',
+      kind: 'shop',
+      shop: {
+        type: 'food',
+        orderId: order.id,
+        toName: character.name,
+        items: order.items,
+        total: order.total,
+        address: order.address,
+        minutes: order.minutes,
+      },
+      createdAt: Date.now(),
+    }), foodCartCharId);
+    await addMemoryEntry({
+      category: 'event',
+      text: '你在外卖平台点了一份外卖：' + order.items.map((it) => it.name + '×' + it.qty).join('、') +
+        '，合计 ¥' + order.total.toFixed(2) + '，送达地址 ' + order.address +
+        '，预计 ' + order.minutes + ' 分钟后送到。',
+    }, foodCartCharId);
+    const { activeId } = await getCharacters();
+    if (viewChat.classList.contains('active') && activeId === foodCartCharId) {
+      await renderChat();
+    }
+    await refreshFoodCart();
+    closeFoodCart();
+    toast('下单成功，外卖卡片已发到 ' + (character.name || '角色') + ' 的聊天室');
+  } catch (err) {
+    toast('结算失败：' + (err && err.message ? err.message : err));
+  } finally {
+    foodCheckingOut = false;
     if (btn) btn.disabled = false;
   }
 }
@@ -4616,6 +4811,8 @@ document.querySelectorAll('.app-icon, .dock-icon').forEach((btn) => {
       openSchedule();
     } else if (app === 'shop') {
       openShop();
+    } else if (app === 'food') {
+      openFood();
     } else if (app === 'settings') {
       loadSaved();
       loadTriggerSettings();
@@ -5068,6 +5265,56 @@ $('select-shop-cart-char').addEventListener('change', (e) => {
   refreshShopCart().catch(() => {});
 });
 $('btn-shop-checkout').addEventListener('click', () => { checkoutShop().catch(() => {}); });
+
+// 外卖事件
+$('btn-food-back').addEventListener('click', () => { closeFoodCart(); showView(viewHome); });
+$('btn-food-cart').addEventListener('click', () => { openFoodCart().catch(() => {}); });
+$('btn-food-cart-close').addEventListener('click', closeFoodCart);
+$('food-cart-mask').addEventListener('click', closeFoodCart);
+$('btn-food-search').addEventListener('click', () => { searchFoodProducts().catch(() => {}); });
+$('input-food-search').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.isComposing) {
+    e.preventDefault();
+    searchFoodProducts().catch(() => {});
+  }
+});
+$('food-tabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-shop-cat]');
+  if (btn) switchFoodCategory(btn.dataset.shopCat);
+});
+$('food-products').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-shop-add]');
+  if (!btn) return;
+  const index = Number(btn.dataset.shopAdd);
+  addFoodProductToCart(foodVisibleProducts[index]).catch((err) => {
+    toast('加入购物车失败：' + (err && err.message ? err.message : err));
+  });
+});
+$('food-cart-items').addEventListener('click', async (e) => {
+  if (!foodCartCharId) return;
+  const qtyBtn = e.target.closest('[data-shop-qty]');
+  if (qtyBtn) {
+    const cart = await getFoodCart(foodCartCharId);
+    const item = cart.find((x) => x.id === qtyBtn.dataset.shopQty);
+    if (!item) return;
+    const delta = Number(qtyBtn.dataset.shopQtyDelta) || 0;
+    const next = item.qty + delta;
+    if (next < 1) await removeFoodCartItem(foodCartCharId, item.id);
+    else await updateFoodCartQty(foodCartCharId, item.id, next);
+    await refreshFoodCart();
+    return;
+  }
+  const delBtn = e.target.closest('[data-shop-del]');
+  if (delBtn) {
+    await removeFoodCartItem(foodCartCharId, delBtn.dataset.shopDel);
+    await refreshFoodCart();
+  }
+});
+$('select-food-cart-char').addEventListener('change', (e) => {
+  foodCartCharId = e.target.value || null;
+  refreshFoodCart().catch(() => {});
+});
+$('btn-food-checkout').addEventListener('click', () => { checkoutFood().catch(() => {}); });
 
 $('btn-diary-write').addEventListener('click', () => writeDiaryNow(diaryCharacterId).catch(() => {}));
 $('chat-style-grid').addEventListener('change', (e) => {

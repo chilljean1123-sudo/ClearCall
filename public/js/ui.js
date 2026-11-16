@@ -21,6 +21,7 @@ const viewSchedule = $('view-schedule');
 const viewIconManager = $('view-icon-manager');
 const viewMoments = $('view-moments');
 const viewShop = $('view-shop');
+const viewFood = $('view-food');
 
 function showView(view) {
   document.querySelectorAll('.app-view').forEach((el) => el.classList.remove('active'));
@@ -295,10 +296,12 @@ function renderUserAttachment(m, ctx) {
     bubble.appendChild(card);
   } else if (m.kind === 'shop') {
     const s = m.shop || {};
+    const isFood = s.type === 'food';
     bubble.className += ' shop-bubble';
     const card = document.createElement('div');
     card.className = 'chat-shop-card';
-    card.appendChild(uiEl('div', 'chat-shop-card-label', '商城订单'));
+    card.appendChild(uiEl('div', 'chat-shop-card-label', isFood ? '外卖订单' : '商城订单'));
+    if (s.toName) card.appendChild(uiEl('div', 'chat-shop-recipient', '送给：' + s.toName));
     (Array.isArray(s.items) ? s.items : []).forEach((it) => {
       const qty = Number(it.qty) || 1;
       const row = uiEl('div', 'chat-shop-item');
@@ -310,8 +313,9 @@ function renderUserAttachment(m, ctx) {
     total.appendChild(uiEl('span', '', '合计'));
     total.appendChild(uiEl('strong', '', '¥' + Number(s.total || 0).toFixed(2)));
     card.appendChild(total);
-    if (s.address) card.appendChild(uiEl('div', 'chat-shop-meta', '收货地址：' + s.address));
-    card.appendChild(uiEl('div', 'chat-shop-meta', '预计 ' + (Number(s.days) || 3) + ' 天后送达'));
+    if (s.address) card.appendChild(uiEl('div', 'chat-shop-meta', (isFood ? '送达地址：' : '收货地址：') + s.address));
+    if (isFood) card.appendChild(uiEl('div', 'chat-shop-meta', '预计 ' + (Number(s.minutes) || 30) + ' 分钟后送达'));
+    else card.appendChild(uiEl('div', 'chat-shop-meta', '预计 ' + (Number(s.days) || 3) + ' 天后送达'));
     bubble.appendChild(card);
   } else {
     bubble.textContent = m.content;
@@ -564,7 +568,10 @@ async function appendTypingTo(boxId, rowId) {
   row.appendChild(avatar);
   const bubble = document.createElement('div');
   bubble.className = 'msg-bubble assistant-bubble typing-bubble';
-  bubble.textContent = '正在回复…';
+  const dots = document.createElement('span');
+  dots.className = 'typing-dots';
+  dots.innerHTML = '<i></i><i></i><i></i>';
+  bubble.appendChild(dots);
   row.appendChild(bubble);
   const box = $(boxId);
   if (!box) return;
@@ -3591,11 +3598,39 @@ function shopProductsByCategory(key) {
   return SHOP_PRODUCTS.filter((p) => p.category === key);
 }
 
-function renderShopTabs(activeKey, showSearch) {
-  const box = $('shop-tabs');
+// ===== 外卖 =====
+const FOOD_CATEGORIES = [
+  { key: 'recommend', label: '热卖' },
+  { key: 'drink', label: '奶茶' },
+  { key: 'meal', label: '正餐' },
+  { key: 'snack', label: '小吃' },
+  { key: 'dessert', label: '甜品' },
+];
+
+const FOOD_PRODUCTS = [
+  { id: 'food-1', name: '珍珠奶茶', price: 18, desc: '现煮黑糖珍珠，三分糖去冰刚好。', tag: '招牌', category: 'drink' },
+  { id: 'food-2', name: '生椰拿铁', price: 22, desc: '椰香压住苦味，下午犯困时来一杯。', tag: '人气', category: 'drink' },
+  { id: 'food-3', name: '满杯水果茶', price: 20, desc: '西瓜、橙子和百香果，清爽不腻。', tag: '清爽', category: 'drink' },
+  { id: 'food-4', name: '脆皮炸鸡桶', price: 45, desc: '外皮咔嚓响，配两包辣椒粉更香。', tag: '热卖', category: 'meal' },
+  { id: 'food-5', name: '黄焖鸡米饭', price: 26, desc: '土豆炖得软烂，汤汁拌饭能吃两碗。', tag: '管饱', category: 'meal' },
+  { id: 'food-6', name: '麻辣烫', price: 32, desc: '自选食材，微辣加麻酱，冬天最合适。', tag: '微辣', category: 'meal' },
+  { id: 'food-7', name: '酸菜鱼', price: 58, desc: '鱼片滑嫩，酸菜够味，适合两个人分。', tag: '招牌', category: 'meal' },
+  { id: 'food-8', name: '章鱼小丸子', price: 16, desc: '六颗一盒，木鱼花铺得满满当当。', tag: '现做', category: 'snack' },
+  { id: 'food-9', name: '烤冷面', price: 12, desc: '加蛋加肠，刷一层甜辣酱。', tag: '夜宵', category: 'snack' },
+  { id: 'food-10', name: '草莓奶油蛋糕', price: 28, desc: '动物奶油配新鲜草莓，甜度刚好。', tag: '甜品', category: 'dessert' },
+];
+
+function foodProductsByCategory(key) {
+  if (key === 'recommend') return FOOD_PRODUCTS.slice();
+  return FOOD_PRODUCTS.filter((p) => p.category === key);
+}
+
+function renderShopTabs(activeKey, showSearch, boxId, categories) {
+  const box = $(boxId || 'shop-tabs');
   if (!box) return;
   box.innerHTML = '';
-  const list = showSearch ? [{ key: 'search', label: '搜索结果' }].concat(SHOP_CATEGORIES) : SHOP_CATEGORIES;
+  const cats = Array.isArray(categories) && categories.length ? categories : SHOP_CATEGORIES;
+  const list = showSearch ? [{ key: 'search', label: '搜索结果' }].concat(cats) : cats;
   list.forEach((cat) => {
     const btn = uiEl('button', 'shop-tab' + (cat.key === activeKey ? ' active' : ''), cat.label);
     btn.type = 'button';
@@ -3604,8 +3639,8 @@ function renderShopTabs(activeKey, showSearch) {
   });
 }
 
-function renderShopProducts(products) {
-  const box = $('shop-products');
+function renderShopProducts(products, boxId) {
+  const box = $(boxId || 'shop-products');
   if (!box) return;
   box.innerHTML = '';
   const list = Array.isArray(products) ? products : [];
@@ -3634,8 +3669,9 @@ function renderShopProducts(products) {
   });
 }
 
-function renderShopCart(cart) {
-  const box = $('shop-cart-items');
+function renderShopCart(cart, prefix) {
+  const key = prefix || 'shop';
+  const box = $(key + '-cart-items');
   if (!box) return;
   box.innerHTML = '';
   const items = Array.isArray(cart) ? cart : [];
@@ -3672,14 +3708,14 @@ function renderShopCart(cart) {
     row.appendChild(del);
     box.appendChild(row);
   });
-  const totalEl = $('shop-cart-total');
+  const totalEl = $(key + '-cart-total');
   if (totalEl) totalEl.textContent = '¥' + total.toFixed(2);
-  const countEl = $('shop-cart-count');
+  const countEl = $(key + '-cart-count');
   if (countEl) countEl.textContent = String(count);
 }
 
-function fillShopCartCharacters(characters, selectedId) {
-  const select = $('select-shop-cart-char');
+function fillShopCartCharacters(characters, selectedId, selectId) {
+  const select = $(selectId || 'select-shop-cart-char');
   if (!select) return;
   select.innerHTML = '';
   const list = Array.isArray(characters) ? characters : [];
