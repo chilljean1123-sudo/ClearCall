@@ -587,6 +587,17 @@ function toolActionButton(id, text, primary) {
   return b;
 }
 
+const CHAT_TOOL_ICON_SVGS = {
+  location: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 22s7-6.1 7-13a7 7 0 1 0-14 0c0 6.9 7 13 7 13Z"/><circle cx="12" cy="9" r="2.8" fill="var(--tool-cutout)"/></svg>',
+  image: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="2.8"/><circle cx="8" cy="9" r="1.8" fill="currentColor"/><path d="m5 18 5-5 3 3 2-2 4 4" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  sticker: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="currentColor"/><circle cx="8" cy="9" r="1.5" fill="var(--tool-cutout)"/><circle cx="16" cy="9" r="1.5" fill="var(--tool-cutout)"/><path d="M7.5 14c1 2 2.5 3 4.5 3s3.5-1 4.5-3" fill="none" stroke="var(--tool-cutout)" stroke-width="2.3" stroke-linecap="round"/></svg>',
+  transfer: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 5h12V1l6 6-6 6V9H3V5Zm18 14H9v4l-6-6 6-6v4h12v4Z"/></svg>',
+  directive: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="20" height="18" rx="3" fill="currentColor"/><path d="m7 8 4 4-4 4M13 16h4" fill="none" stroke="var(--tool-cutout)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  mail: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="3" fill="currentColor"/><path d="m4 7 8 6 8-6" fill="none" stroke="var(--tool-cutout)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  style: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><circle cx="8" cy="6" r="3" fill="var(--tool-cutout)" stroke="currentColor" stroke-width="2.4"/><circle cx="16" cy="12" r="3" fill="var(--tool-cutout)" stroke="currentColor" stroke-width="2.4"/><circle cx="10" cy="18" r="3" fill="var(--tool-cutout)" stroke="currentColor" stroke-width="2.4"/></svg>',
+  diary: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M5 2h15v20H5a3 3 0 0 1-3-3V5a3 3 0 0 1 3-3Z"/><path d="M7 2v20M10 7h6M10 11h6M10 15h4" fill="none" stroke="var(--tool-cutout)" stroke-width="2.3" stroke-linecap="round"/></svg>',
+};
+
 function renderChatToolMenu(body) {
   const grid = uiEl('div', 'tool-grid');
   [
@@ -602,7 +613,9 @@ function renderChatToolMenu(body) {
     const tile = uiEl('button', 'tool-tile');
     tile.type = 'button';
     tile.dataset.tool = tool;
-    tile.appendChild(uiEl('span', 'tool-tile-glyph tool-icon-' + tool));
+    const glyph = uiEl('span', 'tool-tile-glyph tool-icon-' + tool);
+    glyph.innerHTML = CHAT_TOOL_ICON_SVGS[tool];
+    tile.appendChild(glyph);
     tile.appendChild(uiEl('span', '', label));
     grid.appendChild(tile);
   });
@@ -1555,7 +1568,9 @@ function buildIconPreview(glyph, url) {
     preview.style.backgroundImage = 'url("' + url.replace(/"/g, '%22') + '")';
   } else if (glyph) {
     preview.innerHTML = glyph.innerHTML;
-    if (glyph.classList.contains('accent')) preview.classList.add('accent');
+    glyph.classList.forEach((name) => {
+      if (name === 'accent' || name.startsWith('glyph-')) preview.classList.add(name);
+    });
   }
   return preview;
 }

@@ -96,24 +96,35 @@ body.statusbar-off .statusbar { visibility: hidden; }
 
 .signal-bars { display: inline-flex; align-items: flex-end; gap: 2px; }
 .signal-bars i {
-  width: 3px;
+  width: 4px;
   background: var(--text);
-  border-radius: 1px;
+  border-radius: 2px;
 }
-.signal-bars i:nth-child(1) { height: 4px; }
-.signal-bars i:nth-child(2) { height: 6px; }
-.signal-bars i:nth-child(3) { height: 8px; }
-.signal-bars i:nth-child(4) { height: 10px; }
+.signal-bars i:nth-child(1) { height: 5px; }
+.signal-bars i:nth-child(2) { height: 8px; }
+.signal-bars i:nth-child(3) { height: 11px; }
+.signal-bars i:nth-child(4) { height: 14px; }
 
 .battery {
-  width: 22px;
-  height: 11px;
-  border: 1px solid var(--muted);
-  border-radius: 3px;
+  position: relative;
+  width: 25px;
+  height: 13px;
+  border: 2px solid var(--text);
+  border-radius: 4px;
   padding: 1px;
   display: inline-flex;
 }
-.battery-fill { width: 70%; height: 100%; background: var(--green); border-radius: 1px; }
+.battery::after {
+  content: '';
+  position: absolute;
+  right: -5px;
+  top: 3px;
+  width: 3px;
+  height: 5px;
+  border-radius: 0 2px 2px 0;
+  background: var(--text);
+}
+.battery-fill { width: 74%; height: 100%; background: var(--green); border-radius: 1px; }
 
 /* ===== 应用视图切换 ===== */
 .app-view {
@@ -199,19 +210,39 @@ body.statusbar-off .statusbar { visibility: hidden; }
   display: grid;
   place-items: center;
   background: var(--card);
-  border: 1px solid var(--card-border);
-  color: #cfd6e4;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: #fff;
   transition: transform 0.12s ease;
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 6px 14px rgba(0, 0, 0, 0.24);
 }
-.app-glyph svg { width: 28px; height: 28px; }
+.app-glyph svg {
+  width: 30px;
+  height: 30px;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.2));
+}
+
+/* 高对比应用图标：饱和实色底、白色粗图形、清晰负形细节 */
+.app-glyph.glyph-sms:not(.custom-icon), .icon-manager-glyph.glyph-sms:not(.custom-icon) { --glyph-cutout: #1d64d8; background: linear-gradient(145deg, #3487f6, #1854c4); color: #fff; }
+.app-glyph.glyph-camera:not(.custom-icon), .icon-manager-glyph.glyph-camera:not(.custom-icon) { --glyph-cutout: #1f2937; background: linear-gradient(145deg, #4b5563, #111827); color: #fff; }
+.app-glyph.glyph-moments:not(.custom-icon), .icon-manager-glyph.glyph-moments:not(.custom-icon) { --glyph-cutout: #7e22ce; background: linear-gradient(145deg, #a855f7, #6d28d9); color: #fff; }
+.app-glyph.glyph-memory:not(.custom-icon), .icon-manager-glyph.glyph-memory:not(.custom-icon) { --glyph-cutout: #b45309; background: linear-gradient(145deg, #d97706, #92400e); color: #fff; }
+.app-glyph.glyph-worldbook:not(.custom-icon), .icon-manager-glyph.glyph-worldbook:not(.custom-icon) { --glyph-cutout: #0f766e; background: linear-gradient(145deg, #0d9488, #115e59); color: #fff; }
+.app-glyph.glyph-forum:not(.custom-icon), .icon-manager-glyph.glyph-forum:not(.custom-icon) { --glyph-cutout: #be185d; background: linear-gradient(145deg, #db2777, #9d174d); color: #fff; }
+.app-glyph.glyph-mail:not(.custom-icon), .icon-manager-glyph.glyph-mail:not(.custom-icon) { --glyph-cutout: #0866d8; background: linear-gradient(145deg, #0a84ff, #0057b8); color: #fff; }
+.app-glyph.glyph-books:not(.custom-icon), .icon-manager-glyph.glyph-books:not(.custom-icon) { --glyph-cutout: #6d28d9; background: linear-gradient(145deg, #8b5cf6, #5b21b6); color: #fff; }
+.app-glyph.glyph-phone:not(.custom-icon), .icon-manager-glyph.glyph-phone:not(.custom-icon) { --glyph-cutout: #15803d; background: linear-gradient(145deg, #22a652, #08783a); color: #fff; }
+.app-glyph.glyph-chat:not(.custom-icon), .icon-manager-glyph.glyph-chat:not(.custom-icon) { --glyph-cutout: #3169dc; background: linear-gradient(145deg, #4f8cff, #2456c8); color: #fff; }
+.app-glyph.glyph-characters:not(.custom-icon), .icon-manager-glyph.glyph-characters:not(.custom-icon) { --glyph-cutout: #c2410c; background: linear-gradient(145deg, #e75a3c, #a9281d); color: #fff; }
+.app-glyph.glyph-settings:not(.custom-icon), .icon-manager-glyph.glyph-settings:not(.custom-icon) { --glyph-cutout: #475569; background: linear-gradient(145deg, #64748b, #334155); color: #fff; }
 
 /* 单个应用自定义图标：去掉默认底图、边框与线条图标，只显示上传的图片 */
 .app-glyph.custom-icon {
   background-color: transparent !important;
   border-color: transparent !important;
+  box-shadow: none;
 }
 .app-glyph.custom-icon svg { display: none; }
 
@@ -302,13 +333,14 @@ body.statusbar-off .statusbar { visibility: hidden; }
   display: grid;
   place-items: center;
   background: var(--card);
-  border: 1px solid var(--card-border);
-  color: #cfd6e4;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: #fff;
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 5px 12px rgba(0, 0, 0, 0.2);
 }
-.icon-manager-glyph svg { width: 28px; height: 28px; }
+.icon-manager-glyph svg { width: 30px; height: 30px; }
 .icon-manager-glyph.accent { background: linear-gradient(160deg, #4f8cff, #3b76e8); color: #fff; border: none; }
 .icon-manager-glyph.custom-icon { border-color: transparent; background-color: transparent; }
 .icon-manager-tile-name { font-size: 11px; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -335,8 +367,8 @@ body.statusbar-off .statusbar { visibility: hidden; }
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
 }
 .icon-manager-preview.has-image { border-color: transparent; }
-.icon-manager-preview .icon-manager-glyph { width: 76px; height: 76px; border: none; background: transparent; }
-.icon-manager-preview .icon-manager-glyph svg { width: 52px; height: 52px; }
+.icon-manager-preview .icon-manager-glyph { width: 88px; height: 88px; border: none; border-radius: 23px; }
+.icon-manager-preview .icon-manager-glyph svg { width: 50px; height: 50px; }
 .icon-manager-app-name { font-size: 16px; font-weight: 600; }
 .icon-manager-actions { display: flex; gap: 10px; }
 
@@ -362,11 +394,11 @@ body.statusbar-off .statusbar { visibility: hidden; }
 }
 .drawer-head::-webkit-details-marker { display: none; }
 .drawer-arrow {
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
   flex: 0 0 auto;
-  border-right: 1.5px solid var(--muted);
-  border-bottom: 1.5px solid var(--muted);
+  border-right: 2.5px solid var(--text);
+  border-bottom: 2.5px solid var(--text);
   transform: rotate(45deg);
   transition: transform 0.18s ease;
   margin-right: 3px;
@@ -825,32 +857,31 @@ body.statusbar-off .statusbar { visibility: hidden; }
   height: 40px;
   border-radius: 50%;
   border: none;
-  background:
-    radial-gradient(circle at 32% 28%, rgba(79, 140, 255, 0.38), rgba(79, 140, 255, 0.10) 70%);
-  color: var(--accent);
+  background: linear-gradient(145deg, #5c96ff, #2864dc);
+  color: #fff;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0;
   box-shadow:
-    inset 0 0 0 1px rgba(79, 140, 255, 0.35),
-    0 4px 14px rgba(0, 0, 0, 0.28);
+    inset 0 0 0 1px rgba(255, 255, 255, 0.3),
+    0 5px 14px rgba(37, 99, 235, 0.38);
   transition: transform 0.25s cubic-bezier(0.2, 0.9, 0.3, 1), background 0.25s, color 0.25s, box-shadow 0.25s;
 }
 .chat-plus-btn:active { transform: scale(0.92); }
 .chat-plus-btn[aria-expanded="true"] {
   transform: rotate(135deg);
-  background: var(--accent);
+  background: linear-gradient(145deg, #475569, #0f172a);
   color: #fff;
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.3),
-    0 0 18px rgba(79, 140, 255, 0.55);
+    0 0 18px rgba(79, 140, 255, 0.48);
 }
 .chat-plus-glyph {
   position: relative;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   display: block;
 }
 .chat-plus-glyph::before,
@@ -858,10 +889,10 @@ body.statusbar-off .statusbar { visibility: hidden; }
   content: '';
   position: absolute;
   background: currentColor;
-  border-radius: 2px;
+  border-radius: 3px;
 }
-.chat-plus-glyph::before { left: 7px; top: 0; width: 2px; height: 16px; }
-.chat-plus-glyph::after { left: 0; top: 7px; width: 16px; height: 2px; }
+.chat-plus-glyph::before { left: 7.5px; top: 0; width: 3px; height: 18px; }
+.chat-plus-glyph::after { left: 0; top: 7.5px; width: 18px; height: 3px; }
 
 /* ===== 系统指令提示条 ===== */
 .directive-chip {
@@ -887,14 +918,17 @@ body.statusbar-off .statusbar { visibility: hidden; }
 }
 .directive-chip-clear {
   flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
   background: none;
   border: none;
-  color: var(--muted);
-  font-size: 16px;
-  line-height: 1;
+  color: var(--text);
   cursor: pointer;
-  padding: 0 2px;
+  padding: 0;
 }
+.directive-chip-clear svg { width: 16px; height: 16px; }
 
 /* ===== 聊天功能抽屉 ===== */
 .chat-sheet { position: absolute; inset: 0; z-index: 20; display: flex; }
@@ -982,172 +1016,31 @@ body.statusbar-off .statusbar { visibility: hidden; }
   background: rgba(79, 140, 255, 0.12);
 }
 .tool-tile-glyph {
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
-  background:
-    radial-gradient(circle at 30% 25%, rgba(79, 140, 255, 0.34), rgba(79, 140, 255, 0.10) 72%);
-  color: var(--accent);
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+  background: #2456c8;
+  color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 0;
   position: relative;
-  box-shadow: inset 0 0 0 1px rgba(79, 140, 255, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 5px 12px rgba(0, 0, 0, 0.24);
 }
-.tool-icon-location::before {
-  content: '';
-  position: absolute;
-  left: 10px;
-  top: 8px;
-  width: 14px;
-  height: 14px;
-  border: 2px solid currentColor;
-  border-radius: 50% 50% 50% 0;
-  transform: rotate(-45deg);
+.tool-tile-glyph svg {
+  width: 27px;
+  height: 27px;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.18));
 }
-.tool-icon-location::after {
-  content: '';
-  position: absolute;
-  left: 15px;
-  top: 13px;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: currentColor;
-}
-.tool-icon-image::before {
-  content: '';
-  position: absolute;
-  inset: 6px 5px;
-  border: 2px solid currentColor;
-  border-radius: 5px;
-  background: radial-gradient(circle, currentColor 1.5px, transparent 1.8px) 6px 5px / 4px 4px no-repeat;
-}
-.tool-icon-image::after {
-  content: '';
-  position: absolute;
-  left: 9px;
-  bottom: 9px;
-  width: 0;
-  height: 0;
-  border-left: 5px solid transparent;
-  border-right: 5px solid transparent;
-  border-bottom: 7px solid currentColor;
-}
-.tool-icon-sticker::before {
-  content: '';
-  position: absolute;
-  inset: 6px;
-  border: 2px solid currentColor;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle, currentColor 1.5px, transparent 1.8px) 7px 8px / 4px 4px no-repeat,
-    radial-gradient(circle, currentColor 1.5px, transparent 1.8px) 15px 8px / 4px 4px no-repeat;
-}
-.tool-icon-sticker::after {
-  content: '';
-  position: absolute;
-  left: 12px;
-  top: 18px;
-  width: 10px;
-  height: 5px;
-  border-bottom: 2px solid currentColor;
-  border-radius: 0 0 10px 10px;
-}
-.tool-icon-transfer::before,
-.tool-icon-transfer::after {
-  content: '';
-  position: absolute;
-  left: 7px;
-  width: 20px;
-  height: 6px;
-  background: currentColor;
-  clip-path: polygon(0 35%, 68% 35%, 68% 0, 100% 50%, 68% 100%, 68% 65%, 0 65%);
-}
-.tool-icon-transfer::before { top: 8px; }
-.tool-icon-transfer::after { top: 20px; transform: rotate(180deg); }
-.tool-icon-directive::before {
-  content: '';
-  position: absolute;
-  left: 7px;
-  right: 7px;
-  top: 10px;
-  height: 2px;
-  background: currentColor;
-  box-shadow: 0 6px 0 currentColor, 0 12px 0 currentColor;
-}
-.tool-icon-directive::after {
-  content: '';
-  position: absolute;
-  left: 10px;
-  top: 8px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  box-shadow: 8px 6px 0 currentColor, 2px 12px 0 currentColor;
-}
-.tool-icon-mail::before {
-  content: '';
-  position: absolute;
-  left: 5px;
-  right: 5px;
-  top: 8px;
-  bottom: 8px;
-  border: 2px solid currentColor;
-  border-radius: 4px;
-  background:
-    linear-gradient(to bottom right, transparent calc(50% - 1px), currentColor calc(50% - 1px), currentColor calc(50% + 1px), transparent calc(50% + 1px)) left top / 50% 100% no-repeat,
-    linear-gradient(to bottom left, transparent calc(50% - 1px), currentColor calc(50% - 1px), currentColor calc(50% + 1px), transparent calc(50% + 1px)) right top / 50% 100% no-repeat;
-}
-.tool-icon-style::before {
-  content: '';
-  position: absolute;
-  left: 6px;
-  right: 6px;
-  top: 9px;
-  height: 2px;
-  background: currentColor;
-  box-shadow: 0 7px 0 currentColor, 0 14px 0 currentColor;
-}
-.tool-icon-style::after {
-  content: '';
-  position: absolute;
-  left: 22px;
-  top: 6px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  box-shadow: -8px 7px 0 currentColor, 2px 14px 0 currentColor;
-}
-.tool-icon-diary::before {
-  content: '';
-  position: absolute;
-  left: 8px;
-  right: 8px;
-  top: 5px;
-  bottom: 5px;
-  border: 2px solid currentColor;
-  border-radius: 3px;
-  background:
-    linear-gradient(currentColor, currentColor) 5px 6px / 12px 2px no-repeat,
-    linear-gradient(currentColor, currentColor) 5px 11px / 9px 2px no-repeat,
-    linear-gradient(currentColor, currentColor) 5px 16px / 11px 2px no-repeat;
-  opacity: 0.9;
-}
-.tool-icon-diary::after {
-  content: '';
-  position: absolute;
-  left: 5px;
-  top: 8px;
-  bottom: 8px;
-  width: 2px;
-  border-radius: 2px;
-  background: currentColor;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.2);
-}
+.tool-icon-location { --tool-cutout: #be123c; background: linear-gradient(145deg, #e11d48, #9f1239); }
+.tool-icon-image { --tool-cutout: #1d4ed8; background: linear-gradient(145deg, #2563eb, #1e40af); }
+.tool-icon-sticker { --tool-cutout: #92400e; background: linear-gradient(145deg, #b45309, #78350f); }
+.tool-icon-transfer { --tool-cutout: #047857; background: linear-gradient(145deg, #059669, #065f46); }
+.tool-icon-directive { --tool-cutout: #1e293b; background: linear-gradient(145deg, #475569, #0f172a); }
+.tool-icon-mail { --tool-cutout: #0e7490; background: linear-gradient(145deg, #0891b2, #155e75); }
+.tool-icon-style { --tool-cutout: #7e22ce; background: linear-gradient(145deg, #9333ea, #6b21a8); }
+.tool-icon-diary { --tool-cutout: #9a3412; background: linear-gradient(145deg, #c2410c, #7c2d12); }
 .tool-section-title { font-size: 12px; color: var(--muted); margin: 12px 0 6px; }
 .tool-actions { display: flex; gap: 8px; margin-top: 10px; }
 .tool-actions .fetch-btn { flex: 1 1 auto; text-align: center; padding: 10px 0; }
@@ -1199,14 +1092,25 @@ body.statusbar-off .statusbar { visibility: hidden; }
   position: absolute;
   left: 50%;
   top: 48%;
-  width: 15px;
-  height: 15px;
-  margin: -15px 0 0 -7px;
-  background: var(--accent);
+  width: 19px;
+  height: 19px;
+  margin: -19px 0 0 -9px;
+  background: #2563eb;
+  border: 2px solid #fff;
   border-radius: 50% 50% 50% 0;
   transform: rotate(-45deg);
-  box-shadow: 0 0 0 4px rgba(79, 140, 255, 0.25);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.42), 0 0 0 3px rgba(37, 99, 235, 0.3);
   z-index: 1;
+}
+.map-pin::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #fff;
 }
 .mini-map-label {
   position: absolute;
@@ -1546,7 +1450,7 @@ body.statusbar-off .statusbar { visibility: hidden; }
   border-radius: 9px;
   transition: background 0.2s ease;
 }
-.contacts-tab.active .contacts-tab-icon { background: rgba(79, 140, 255, 0.16); }
+.contacts-tab.active .contacts-tab-icon { background: var(--accent); color: #fff; box-shadow: 0 3px 8px rgba(79, 140, 255, 0.3); }
 .icon-contacts::before {
   content: '';
   position: absolute;
@@ -1554,7 +1458,7 @@ body.statusbar-off .statusbar { visibility: hidden; }
   top: 4px;
   width: 14px;
   height: 18px;
-  border: 2px solid currentColor;
+  border: 2.5px solid currentColor;
   border-radius: 3px;
   box-sizing: border-box;
 }
@@ -1563,10 +1467,10 @@ body.statusbar-off .statusbar { visibility: hidden; }
   position: absolute;
   left: 9px;
   top: 8px;
-  width: 6px;
-  height: 2px;
+  width: 7px;
+  height: 2.5px;
   background: currentColor;
-  border-radius: 1px;
+  border-radius: 2px;
   box-shadow: 0 4px 0 currentColor, 0 8px 0 currentColor;
 }
 .icon-me::before {
@@ -1576,8 +1480,8 @@ body.statusbar-off .statusbar { visibility: hidden; }
   top: 4px;
   width: 8px;
   height: 8px;
-  border: 2px solid currentColor;
   border-radius: 50%;
+  background: currentColor;
   box-sizing: border-box;
 }
 .icon-me::after {
@@ -1586,10 +1490,9 @@ body.statusbar-off .statusbar { visibility: hidden; }
   left: 5px;
   bottom: 3px;
   width: 16px;
-  height: 9px;
-  border: 2px solid currentColor;
-  border-bottom: none;
-  border-radius: 9px 9px 0 0;
+  height: 10px;
+  border-radius: 9px 9px 3px 3px;
+  background: currentColor;
   box-sizing: border-box;
 }
 
@@ -1954,7 +1857,7 @@ body.statusbar-off .statusbar { visibility: hidden; }
   height: 48px;
   border-radius: 13px;
 }
-.dock-icon .app-glyph svg { width: 24px; height: 24px; }
+.dock-icon .app-glyph svg { width: 27px; height: 27px; }
 .dock-icon .app-name { font-size: 10px; }
 .dock-icon:active .app-glyph { transform: scale(0.9); }
 
@@ -2022,10 +1925,14 @@ body.statusbar-off .statusbar { visibility: hidden; }
   -webkit-tap-highlight-color: transparent;
 }
 .forum-refresh-arrow {
-  font-size: 10px;
+  width: 8px;
+  height: 8px;
+  border-right: 2.5px solid currentColor;
+  border-bottom: 2.5px solid currentColor;
+  transform: rotate(45deg) translateY(-2px);
   transition: transform 0.18s ease;
 }
-.forum-refresh.open .forum-refresh-arrow { transform: rotate(180deg); }
+.forum-refresh.open .forum-refresh-arrow { transform: rotate(225deg) translateY(-2px); }
 .forum-refresh-body {
   display: flex;
   align-items: center;
@@ -2169,10 +2076,10 @@ body.statusbar-off .statusbar { visibility: hidden; }
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.34);
 }
 .forum-refresh-icon {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   display: block;
-  border: 2px solid currentColor;
+  border: 3px solid currentColor;
   border-right-color: transparent;
   border-radius: 50%;
   position: relative;
@@ -2180,11 +2087,11 @@ body.statusbar-off .statusbar { visibility: hidden; }
 .forum-refresh-icon::after {
   content: '';
   position: absolute;
-  top: -3px;
-  right: -2px;
+  top: -4px;
+  right: -3px;
   width: 0;
   height: 0;
-  border: 4px solid transparent;
+  border: 5px solid transparent;
   border-top-color: currentColor;
   border-right-color: currentColor;
 }
@@ -2194,12 +2101,26 @@ body.statusbar-off .statusbar { visibility: hidden; }
   width: 48px;
   height: 48px;
   border-radius: 50%;
-  font-size: 24px;
-  line-height: 1;
-  background: linear-gradient(145deg, #4f8cff, #3b76e8);
+  background: linear-gradient(145deg, #4f8cff, #2456c8);
   display: grid;
   place-items: center;
 }
+.fab-plus-glyph {
+  position: relative;
+  display: block;
+  width: 21px;
+  height: 21px;
+  color: #fff;
+}
+.fab-plus-glyph::before,
+.fab-plus-glyph::after {
+  content: '';
+  position: absolute;
+  border-radius: 3px;
+  background: currentColor;
+}
+.fab-plus-glyph::before { left: 9px; top: 0; width: 3px; height: 21px; }
+.fab-plus-glyph::after { left: 0; top: 9px; width: 21px; height: 3px; }
 .forum-fab-btn:disabled { opacity: 0.55; }
 .forum-fab-btn:not(:disabled):active { transform: scale(0.94); }
 
@@ -3122,10 +3043,10 @@ body.statusbar-off .statusbar { visibility: hidden; }
 }
 .diary-todo-head-icon {
   position: relative;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
-  border: 1.5px solid #ffd60a;
+  border: 2.5px solid #ffd60a;
 }
 .diary-todo-head-icon::after {
   content: '';
@@ -3134,8 +3055,8 @@ body.statusbar-off .statusbar { visibility: hidden; }
   top: 1px;
   width: 4px;
   height: 7px;
-  border-right: 1.5px solid #ffd60a;
-  border-bottom: 1.5px solid #ffd60a;
+  border-right: 2.5px solid #ffd60a;
+  border-bottom: 2.5px solid #ffd60a;
   transform: rotate(42deg);
 }
 .diary-todo {
@@ -3150,7 +3071,7 @@ body.statusbar-off .statusbar { visibility: hidden; }
   width: 19px;
   height: 19px;
   margin: 1px 0 0;
-  border: 1.5px solid #5a5a5f;
+  border: 2.5px solid #8e8e93;
   border-radius: 50%;
   background: transparent;
   appearance: none;
@@ -3159,7 +3080,7 @@ body.statusbar-off .statusbar { visibility: hidden; }
 }
 .diary-todo input:checked {
   border-color: #ffd60a;
-  background: #ffd60a url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-6' fill='none' stroke='%23111' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 13px 13px no-repeat;
+  background: #ffd60a url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-6' fill='none' stroke='%23111' stroke-width='2.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 13px 13px no-repeat;
 }
 .diary-todo-text {
   min-width: 0;
@@ -3233,10 +3154,11 @@ body.statusbar-off .statusbar { visibility: hidden; }
 .phone-notice-icon {
   position: relative;
   flex: 0 0 auto;
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
-  background: linear-gradient(160deg, #ffd60a, #f5b544);
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: linear-gradient(145deg, #ffd60a, #d97706);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 4px 10px rgba(0, 0, 0, 0.25);
 }
 .phone-notice-icon::before {
   content: '';
@@ -3245,12 +3167,12 @@ body.statusbar-off .statusbar { visibility: hidden; }
   right: 9px;
   top: 7px;
   bottom: 7px;
-  border: 1.5px solid rgba(0, 0, 0, 0.72);
-  border-radius: 2px;
+  border: 2.5px solid #3f2b00;
+  border-radius: 3px;
   background:
-    linear-gradient(rgba(0, 0, 0, 0.72), rgba(0, 0, 0, 0.72)) 4px 5px / 8px 1.5px no-repeat,
-    linear-gradient(rgba(0, 0, 0, 0.72), rgba(0, 0, 0, 0.72)) 4px 9px / 6px 1.5px no-repeat,
-    linear-gradient(rgba(0, 0, 0, 0.72), rgba(0, 0, 0, 0.72)) 4px 13px / 7px 1.5px no-repeat;
+    linear-gradient(#3f2b00, #3f2b00) 4px 4px / 8px 2.5px no-repeat,
+    linear-gradient(#3f2b00, #3f2b00) 4px 9px / 6px 2.5px no-repeat,
+    linear-gradient(#3f2b00, #3f2b00) 4px 14px / 7px 2.5px no-repeat;
 }
 .phone-notice-main {
   flex: 1 1 auto;
@@ -3674,9 +3596,9 @@ body.statusbar-off .statusbar { visibility: hidden; }
   .home-clock-date { color: #6e6e73; }
   .app-glyph {
     background: #ffffff;
-    border-color: rgba(0, 0, 0, 0.05);
-    color: #007aff;
-    box-shadow: 0 2px 8px rgba(60, 60, 67, 0.14);
+    border-color: rgba(255, 255, 255, 0.32);
+    color: #ffffff;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 5px 12px rgba(60, 60, 67, 0.2);
   }
   .app-glyph.accent {
     background: linear-gradient(160deg, #0a84ff, #0066d6);
@@ -3705,10 +3627,11 @@ body.statusbar-off .statusbar { visibility: hidden; }
   .chat-sheet-handle { background: rgba(0, 0, 0, 0.16); }
   .tool-tile { background: #f7f7fa; border-color: rgba(0, 0, 0, 0.05); }
   .tool-tile:active { background: rgba(0, 122, 255, 0.08); border-color: rgba(0, 122, 255, 0.35); }
-  .tool-tile-glyph { background: radial-gradient(circle at 30% 25%, rgba(0, 122, 255, 0.22), rgba(0, 122, 255, 0.06) 72%); }
+  .tool-tile-glyph { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 4px 10px rgba(60, 60, 67, 0.2); }
   .chat-plus-btn {
-    background: radial-gradient(circle at 32% 28%, rgba(0, 122, 255, 0.22), rgba(0, 122, 255, 0.06) 70%);
-    box-shadow: inset 0 0 0 1px rgba(0, 122, 255, 0.28), 0 3px 10px rgba(60, 60, 67, 0.14);
+    background: linear-gradient(145deg, #0a84ff, #0066d6);
+    color: #ffffff;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35), 0 4px 12px rgba(0, 102, 214, 0.3);
   }
   .chat-plus-btn[aria-expanded="true"] {
     background: #007aff;
@@ -3730,7 +3653,7 @@ body.statusbar-off .statusbar { visibility: hidden; }
   #user-profile-list .char-item.active { background: rgba(0, 122, 255, 0.08); }
   .contacts-tabs { background: rgba(255, 255, 255, 0.94); border-top-color: rgba(0, 0, 0, 0.08); }
   .contacts-tab-icon { background: rgba(0, 0, 0, 0.05); }
-  .contacts-tab.active .contacts-tab-icon { background: rgba(0, 122, 255, 0.14); }
+  .contacts-tab.active .contacts-tab-icon { background: #007aff; color: #ffffff; }
   .char-avatar { background: radial-gradient(circle at 32% 26%, rgba(0, 122, 255, 0.20), rgba(0, 122, 255, 0.05)); border-color: rgba(0, 122, 255, 0.18); }
 
   /* 论坛 / 邮箱 / 阅读 */
