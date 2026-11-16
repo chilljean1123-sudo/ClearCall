@@ -193,6 +193,11 @@ public class MainActivity extends AppCompatActivity {
         settings.setAllowContentAccess(true);
         settings.setSupportZoom(false);
         settings.setBuiltInZoomControls(false);
+        settings.setDisplayZoomControls(false);
+        settings.setLoadWithOverviewMode(false);
+        settings.setUseWideViewPort(false);
+        // 锁定当前显示比例，不跟随系统字体/显示大小缩放
+        settings.setTextZoom(100);
         settings.setJavaScriptCanOpenWindowsAutomatically(true);
         settings.setUserAgentString(settings.getUserAgentString() + " ClearCallShell/1.0");
         webView.setBackgroundColor(Color.parseColor("#FEFCFD"));

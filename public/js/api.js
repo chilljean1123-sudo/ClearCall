@@ -2,7 +2,7 @@
 // 只负责请求 AI：优先走后端代理（/api/*），检测到无后端（纯静态托管）时直连服务商。
 // 不碰 DOM、不读写 localStorage。
 
-const DIRECT_TIMEOUT_MS = 30000;
+const DIRECT_TIMEOUT_MS = 90000;
 
 const DIRECT_FORMAT_INSTRUCTION = [
   '【回复格式要求】',
@@ -228,7 +228,7 @@ async function directChat(baseUrl, apiKey, model, persona, memory, history, mess
     const errMsg = (data && (data.error && (data.error.message || data.error.code))) || (data && data.message) || text || ('HTTP ' + res.status);
     return { ok: false, status: res.status, reason: '服务商返回错误（HTTP ' + res.status + '）', message: String(errMsg).slice(0, 500), hints: ['检查接口地址、API Key、模型名是否正确'] };
   } catch (err) {
-    if (err && err.name === 'AbortError') return { ok: false, reason: '请求超时（30 秒未响应）', hints: ['服务商可能较慢，稍后重试'] };
+    if (err && err.name === 'AbortError') return { ok: false, reason: '请求超时（90 秒未响应）', hints: ['服务商可能较慢，稍后重试'] };
     return { ok: false, reason: '直连失败（可能是浏览器跨域 CORS 被拦截）：' + (err && err.message ? err.message : err), hints: ['纯静态托管要求服务商允许浏览器跨域 CORS', '建议改用 Vercel 部署（自带代理，无跨域问题）'] };
   } finally {
     clearTimeout(timer);
@@ -250,7 +250,7 @@ async function directModels(baseUrl, apiKey) {
     }
     return { ok: false, reason: '服务商返回错误（HTTP ' + res.status + '）', hints: ['检查接口地址、API Key 是否正确'] };
   } catch (err) {
-    if (err && err.name === 'AbortError') return { ok: false, reason: '请求超时（30 秒未响应）', hints: ['稍后重试'] };
+    if (err && err.name === 'AbortError') return { ok: false, reason: '请求超时（90 秒未响应）', hints: ['稍后重试'] };
     return { ok: false, reason: '直连失败（可能是浏览器跨域 CORS 被拦截）', hints: ['建议改用 Vercel 部署（自带代理）'] };
   } finally {
     clearTimeout(timer);
@@ -280,7 +280,7 @@ async function directTest(baseUrl, apiKey, model) {
     const errMsg = (data && (data.error && (data.error.message || data.error.code))) || text || ('HTTP ' + res.status);
     return { ok: false, status: res.status, reason: '服务商返回错误（HTTP ' + res.status + '）', message: String(errMsg).slice(0, 500), hints: ['检查接口地址、API Key、模型名是否正确'] };
   } catch (err) {
-    if (err && err.name === 'AbortError') return { ok: false, reason: '请求超时（30 秒未响应）', hints: ['检查网络是否稳定'] };
+    if (err && err.name === 'AbortError') return { ok: false, reason: '请求超时（90 秒未响应）', hints: ['检查网络是否稳定'] };
     return { ok: false, reason: '直连失败（可能是浏览器跨域 CORS 被拦截）：' + (err && err.message ? err.message : err), hints: ['纯静态托管要求服务商允许浏览器跨域 CORS', '建议改用 Vercel 部署（自带代理，无跨域问题）'] };
   } finally {
     clearTimeout(timer);
@@ -348,7 +348,7 @@ async function directForumChat(baseUrl, apiKey, model, system, user, maxTokens) 
     const errMsg = (data && (data.error && (data.error.message || data.error.code))) || (data && data.message) || text || ('HTTP ' + res.status);
     return { ok: false, status: res.status, reason: '论坛接口返回错误（HTTP ' + res.status + '）', message: String(errMsg).slice(0, 500), hints: ['检查论坛 API 地址、Key、模型名'] };
   } catch (err) {
-    if (err && err.name === 'AbortError') return { ok: false, reason: '论坛请求超时（30 秒未响应）', hints: ['稍后重试或换模型'] };
+    if (err && err.name === 'AbortError') return { ok: false, reason: '论坛请求超时（90 秒未响应）', hints: ['稍后重试或换模型'] };
     return { ok: false, reason: '论坛直连失败（可能被跨域拦截）：' + (err && err.message ? err.message : err), hints: ['建议使用 Vercel 部署，或允许服务商 CORS'] };
   } finally {
     clearTimeout(timer);
@@ -398,7 +398,7 @@ async function directEmailChat(baseUrl, apiKey, model, system, user, maxTokens) 
     const errMsg = (data && (data.error && (data.error.message || data.error.code))) || (data && data.message) || text || ('HTTP ' + res.status);
     return { ok: false, status: res.status, reason: '邮箱接口返回错误（HTTP ' + res.status + '）', message: String(errMsg).slice(0, 500), hints: ['检查 AI 接口地址、Key、模型名'] };
   } catch (err) {
-    if (err && err.name === 'AbortError') return { ok: false, reason: '邮箱请求超时（30 秒未响应）', hints: ['稍后重试或换模型'] };
+    if (err && err.name === 'AbortError') return { ok: false, reason: '邮箱请求超时（90 秒未响应）', hints: ['稍后重试或换模型'] };
     return { ok: false, reason: '邮箱直连失败（可能被跨域拦截）：' + (err && err.message ? err.message : err), hints: ['建议使用 Vercel 部署，或允许服务商 CORS'] };
   } finally {
     clearTimeout(timer);
@@ -448,7 +448,7 @@ async function directDiaryChat(baseUrl, apiKey, model, system, user, maxTokens) 
     const errMsg = (data && (data.error && (data.error.message || data.error.code))) || (data && data.message) || text || ('HTTP ' + res.status);
     return { ok: false, status: res.status, reason: '日记接口返回错误（HTTP ' + res.status + '）', message: String(errMsg).slice(0, 500), hints: ['检查 AI 接口地址、Key、模型名'] };
   } catch (err) {
-    if (err && err.name === 'AbortError') return { ok: false, reason: '日记请求超时（30 秒未响应）', hints: ['稍后重试或换模型'] };
+    if (err && err.name === 'AbortError') return { ok: false, reason: '日记请求超时（90 秒未响应）', hints: ['稍后重试或换模型'] };
     return { ok: false, reason: '日记直连失败（可能被跨域拦截）：' + (err && err.message ? err.message : err), hints: ['建议使用 Vercel 部署，或允许服务商 CORS'] };
   } finally {
     clearTimeout(timer);
@@ -598,7 +598,7 @@ async function directMomentChat(baseUrl, apiKey, model, system, user, maxTokens)
     const errMsg = (data && (data.error && (data.error.message || data.error.code))) || (data && data.message) || text || ('HTTP ' + res.status);
     return { ok: false, status: res.status, reason: '动态接口返回错误（HTTP ' + res.status + '）', message: String(errMsg).slice(0, 500), hints: ['检查 AI 接口地址、Key、模型名'] };
   } catch (err) {
-    if (err && err.name === 'AbortError') return { ok: false, reason: '动态请求超时（30 秒未响应）', hints: ['稍后重试或换模型'] };
+    if (err && err.name === 'AbortError') return { ok: false, reason: '动态请求超时（90 秒未响应）', hints: ['稍后重试或换模型'] };
     return { ok: false, reason: '动态直连失败（可能被跨域拦截）：' + (err && err.message ? err.message : err), hints: ['建议使用 Vercel 部署，或允许服务商 CORS'] };
   } finally {
     clearTimeout(timer);
@@ -694,7 +694,7 @@ async function directReadingChat(baseUrl, apiKey, model, system, user, maxTokens
     const errMsg = (data && (data.error && (data.error.message || data.error.code))) || (data && data.message) || text || ('HTTP ' + res.status);
     return { ok: false, status: res.status, reason: '阅读接口返回错误（HTTP ' + res.status + '）', message: String(errMsg).slice(0, 500), hints: ['检查 AI 接口地址、Key、模型名'] };
   } catch (err) {
-    if (err && err.name === 'AbortError') return { ok: false, reason: '阅读请求超时（30 秒未响应）', hints: ['稍后重试或换模型'] };
+    if (err && err.name === 'AbortError') return { ok: false, reason: '阅读请求超时（90 秒未响应）', hints: ['稍后重试或换模型'] };
     return { ok: false, reason: '阅读直连失败（可能被跨域拦截）：' + (err && err.message ? err.message : err), hints: ['建议使用 Vercel 部署，或允许服务商 CORS'] };
   } finally {
     clearTimeout(timer);
@@ -807,7 +807,7 @@ async function directSummarizeMemory(baseUrl, apiKey, model, content, existing) 
     const errMsg = (data && (data.error && (data.error.message || data.error.code))) || (data && data.message) || text || ('HTTP ' + res.status);
     return { ok: false, reason: '服务商返回错误（HTTP ' + res.status + '）', message: String(errMsg).slice(0, 500), hints: ['检查记忆服务地址、Key、模型名是否正确'] };
   } catch (err) {
-    if (err && err.name === 'AbortError') return { ok: false, reason: '请求超时（30 秒未响应）', hints: ['记忆服务可能较慢，稍后重试'] };
+    if (err && err.name === 'AbortError') return { ok: false, reason: '请求超时（90 秒未响应）', hints: ['记忆服务可能较慢，稍后重试'] };
     return { ok: false, reason: '直连失败（可能是浏览器跨域 CORS 被拦截）：' + (err && err.message ? err.message : err), hints: ['建议改用 Vercel 部署（自带代理）'] };
   } finally {
     clearTimeout(timer);

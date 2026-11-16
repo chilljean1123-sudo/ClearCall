@@ -79,7 +79,15 @@ html, body {
   line-height: var(--leading-body);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* 安卓壳内锁定显示比例：可滚动，但不允许双指缩放 */
+html.native-shell,
+html.native-shell body {
+  touch-action: pan-x pan-y;
 }
 
 button, [role="button"], summary, label, a {

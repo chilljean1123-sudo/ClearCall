@@ -73,6 +73,7 @@
 
 - `android/` 是 WebView 壳，加载 `BuildConfig.APP_URL`（Gradle 属性 `clearcallAppUrl` 或环境变量 `CLEARCALL_APP_URL`）；加载失败时弹原生输入框填写站点地址，存 `SharedPreferences`。
 - 全屏采用 edge-to-edge：隐藏系统栏，WebView 一直铺到屏幕边缘；刘海高度、手势区高度按屏幕密度换算成 CSS px 写入 `--shell-inset-top/bottom`，网页再用这些变量留白，禁止给根布局加全局 padding（会出现上下色带）。只有软键盘弹出时才给根部加底部 padding。
+- 壳内锁定显示比例：WebView 关闭缩放与缩放按钮、`setTextZoom(100)`、关闭 overview/wide viewport；页面 viewport 写 `user-scalable=no` 与固定 scale，CSS `touch-action: pan-x pan-y`，只允许滚动，不允许双指或双击缩放。
 - 侧边返回通过 `window.__handleAndroidBack()` 回到网页上一个页面（优先点当前页返回按钮），主屏再按一次才退出；键盘打开时先收起键盘。
 - 原生能力由 `ClearCallNative` 注入：`getDeviceInfo / getShellState / notify / scheduleNotification / enableNativePush / disableNativePush / requestIgnoreBatteryOptimizations / openBatteryOptimizationSettings / saveTextFile`；网页端「设置 → 手机壳」按桥是否存在显示。备份与世界书导出在壳内走 `saveTextFile`（系统文件选择器），浏览器仍用 Blob 下载。
 - 推送走 WorkManager（`PushWorker`）+ 通知渠道，网页 `sendBrowserNotification()` 在壳内优先走原生。
@@ -108,7 +109,7 @@
 
 ## 制作经验（反复踩过的坑，一句话记录）
 
-- 接口超时 30s 会被网关抢先返回 504，已改为 15s；超时/503 提示「服务商过载，稍后重试或换模型」。
+- 接口超时：后端代理 `TEST_TIMEOUT_MS` 为 55s，前端直连 `DIRECT_TIMEOUT_MS` 为 90s；Vercel 在 `vercel.json` 里给 `api/*.js` 配 `maxDuration: 60`，55s 留出网关余量。超时/503 提示「服务商过载，稍后重试或换模型」。
 - 回复拆气泡用 `<split>` 分隔「多条消息」；模型写下的换行也一律拆成独立气泡，一个气泡只放一小段话。不要按句号/问号暴力切句。
 - 语音、图片等媒体标记不能漏到界面：`[语音消息：0:05]` 渲染成可点的语音条，`[图片]` / `[图片：描述]` / `[[image:...]]` 渲染成图片占位卡；TTS 朗读前必须剥离这些标记。
 - 「消息上屏」和「请求 AI」是两个阶段：三种触发模式都先上屏，区别只在何时调 AI。
