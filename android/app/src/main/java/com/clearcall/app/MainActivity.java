@@ -12,6 +12,8 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.PowerManager;
 import android.provider.Settings;
 import android.text.InputType;
@@ -85,6 +87,14 @@ public class MainActivity extends AppCompatActivity {
     private long lastUpdateCheckAt = 0;
     private boolean updateCheckRunning = false;
     private boolean updateDialogShowing = false;
+    private final Handler updateHandler = new Handler(Looper.getMainLooper());
+    private final Runnable updatePoll = new Runnable() {
+        @Override
+        public void run() {
+            checkForUpdates(false);
+            updateHandler.postDelayed(this, 5 * 60 * 1000L);
+        }
+    };
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -526,11 +536,14 @@ public class MainActivity extends AppCompatActivity {
         injectShellHidden(false);
         refreshShellStateInWeb();
         checkForUpdates(true);
+        updateHandler.removeCallbacks(updatePoll);
+        updateHandler.postDelayed(updatePoll, 5 * 60 * 1000L);
     }
 
     @Override
     protected void onPause() {
         super.onPause();
+        updateHandler.removeCallbacks(updatePoll);
         injectShellHidden(true);
     }
 
@@ -557,6 +570,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        updateHandler.removeCallbacks(updatePoll);
         if (webView != null) {
             webView.removeJavascriptInterface("ClearCallNative");
             webView.destroy();
