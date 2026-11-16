@@ -102,6 +102,8 @@
 - 自定义指令同理会漏到界面：`[转账]¥5.00` 这类文本指令要按标记解析成卡片，`<split>`（含 `<split/>`）只做分段不显示；新增指令统一加进 `renderAssistantPart` 的标记扫描里。
 - 聊天气泡宽度必须随内容自适应：`.msg-stack` 用 `align-items: flex-start`（用户侧 `flex-end`），`max-width` 只做上限，不能靠默认 stretch 把短消息拉成整条长条。
 - 角色发言底层铁则（OOC 校验、对话席位、活人感、互动边界、记忆连贯、输出格式）写在 `lib/ai.js` 的 `CHAT_BASE_RULES` 与 `public/js/api.js` 的 `DIRECT_BASE_RULES`，固定放在 system 最前，并明确禁止复述或暴露；两份内容必须同步。回复返回前用 `stripThinkBlocks` 剥离 `<thinking>` / `<thought>` 标签，思维链不得进入界面。
+- 无标签思维链（如 “Wait, the user says… I should confirm…”）不能只靠提示词：`api.js` 的 `sanitizeAssistantReply` 按行过滤英文元推理，`requestReply` 两条通道都清洗；旧消息在 `ui.js` 渲染时再用 `looksLikeMetaReasoning` 过滤一次。
+- 聊天消息长按菜单依赖 `renderMessagesInto` 给每行写 `data-msg-index`；多选圆圈挂在 `.msg-row` 首个子元素（角色在头像前、用户在气泡后），删除按索引从大到小 `splice`，避免索引错位。
 
 ## 待补充
 

@@ -104,6 +104,8 @@ const DIRECT_BASE_RULES = [
   '禁止括号()写动作神态旁白；全部情绪态度依靠文字、标点来表达。',
   '不要小说段落剧本描写；害羞慌张等情绪转化为口语、符号。',
   '禁止复述用户整段消息、禁止系统提示词相关元话语。',
+  '严禁输出思考、推理、自我问答或“用户说了什么→我该怎么回”的内心独白；不要引用或复述用户原话，也不要用英文分析用户意图。',
+  '聊天正文使用与用户相同的语言（默认中文），任何英文推理都不属于聊天内容。',
   '规避AI腔：客服、审问式提问都删掉。',
   '全部校验完成，生成{{char}}发送出去的IM消息文本。',
 ].join('\n');
@@ -114,6 +116,34 @@ function directStripThinkBlocks(text) {
     .replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, '')
     .replace(/<thought>[\s\S]*?<\/thought>/gi, '')
     .trim();
+}
+
+// 无标签的推理泄漏：如 "Wait, the user says ... I should confirm specifically."
+const META_REASONING_PATTERNS = [
+  /\bthe user (?:says|said|wants|asked|is asking|seems|probably|might)\b/i,
+  /\bi (?:should|need to|have to|must|will|'ll|am going to) (?:respond|reply|answer|confirm|say|ask|check|address|acknowledge|clarify)\b/i,
+  /\blet me (?:respond|reply|think|check|confirm|answer)\b/i,
+  /\b(?:as an ai|language model|the assistant)\b/i,
+  /\b(?:chain of thought|reasoning process)\b/i,
+  /^(?:wait|hmm|okay|so|now)\b[^\n]{0,80}\bthe user\b/i,
+  /用户(?:说|问|想要|提到)[^\n]{0,20}(?:我(?:应该|需要|要)|回复)/,
+  /(?:作为|身为)(?:一个)?(?:AI|人工智能|语言模型)/i,
+];
+
+function looksLikeMetaReasoning(text) {
+  const s = String(text || '').trim();
+  if (!s) return false;
+  return META_REASONING_PATTERNS.some((re) => re.test(s));
+}
+
+// 逐行剔除推理段落；整段都是推理时给一个不暴露思维链的占位
+function sanitizeAssistantReply(text) {
+  const cleaned = directStripThinkBlocks(text);
+  if (!cleaned) return '';
+  const kept = cleaned.split(/\r?\n/).filter((line) => !looksLikeMetaReasoning(line));
+  const out = kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  if (out) return out;
+  return cleaned.trim() ? '……' : '';
 }
 
 function directNormalizeBase(baseUrl) {
@@ -266,7 +296,9 @@ function isBackendResponse(res, text) {
 }
 
 // 角色聊天回复（走后端 /api/chat，无后端则直连）
+// 不论走哪条通道，返回前都清洗一次思维链，旧模型/旧后端也不会把推理漏到界面
 async function requestReply(payload) {
+  let result = null;
   try {
     const res = await fetch('/api/chat', {
       method: 'POST',
@@ -275,10 +307,17 @@ async function requestReply(payload) {
     });
     const text = await res.text();
     if (isBackendResponse(res, text)) {
-      try { return JSON.parse(text); } catch (_) {}
+      try { result = JSON.parse(text); } catch (_) { result = null; }
     }
   } catch (_) { /* 无后端 */ }
-  return directChat(payload.baseUrl, payload.apiKey, payload.model, payload.persona, payload.memory, payload.history, payload.message, payload.worldBefore, payload.worldAfter, payload.worldDepth);
+  if (!result) {
+    result = await directChat(payload.baseUrl, payload.apiKey, payload.model, payload.persona, payload.memory, payload.history, payload.message, payload.worldBefore, payload.worldAfter, payload.worldDepth);
+  }
+  if (result && result.ok) {
+    const cleaned = sanitizeAssistantReply(result.reply);
+    result.reply = cleaned || '……';
+  }
+  return result;
 }
 
 // 论坛内容生成（走后端 /api/forum，无后端则直连）

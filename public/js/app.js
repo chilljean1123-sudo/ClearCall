@@ -664,6 +664,8 @@ function closeChatCharMenu() {
 
 async function pickChatCharacter(id) {
   closeChatCharMenu();
+  closeChatMsgMenu();
+  exitChatSelectMode();
   if (!id) return;
   charactersReturnTo = 'chat';
   await switchActiveCharacter(id);
@@ -806,6 +808,8 @@ async function openChat() {
   await updateGenerateButton();
   await refreshDirectiveChip();
   closeChatCharMenu();
+  closeChatMsgMenu();
+  exitChatSelectMode();
   showView(viewChat);
 }
 
@@ -1484,6 +1488,213 @@ async function retryReply(index) {
     if (result && result.ok) {
       notifyCharacterReply(characterId, result.reply).catch(() => {});
     }
+  }
+  setChatSending(false);
+}
+
+// ---- 消息长按菜单：复制 / 删除 / 重试 / 多选 ----
+let chatSelectMode = false;
+let chatSelected = new Set();
+let chatMsgMenuIndex = -1;
+let longPressTimer = null;
+let longPressOrigin = null;
+
+function closeChatMsgMenu() {
+  const menu = $('chat-msg-menu');
+  if (menu) { menu.hidden = true; menu.innerHTML = ''; }
+  chatMsgMenuIndex = -1;
+}
+
+async function copyChatMessageText(index) {
+  const history = await getHistory();
+  const m = history[index];
+  const text = String((m && m.content) || '').trim();
+  if (!text) { toast('这条消息没有可复制的文字'); return; }
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('已复制');
+  } catch (_) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); toast('已复制'); }
+    catch (e) { toast('复制失败，请长按文字手动复制'); }
+    ta.remove();
+  }
+}
+
+function openChatMsgMenu(index, x, y) {
+  const idx = Number(index);
+  if (!Number.isInteger(idx) || idx < 0) return;
+  const menu = $('chat-msg-menu');
+  if (!menu) return;
+  menu.innerHTML = '';
+  const actions = [
+    { action: 'copy', label: '复制' },
+    { action: 'delete', label: '删除', danger: true },
+    { action: 'retry', label: '重试' },
+    { action: 'multi', label: '多选' },
+  ];
+  actions.forEach((item) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.dataset.msgAction = item.action;
+    btn.textContent = item.label;
+    if (item.danger) btn.className = 'is-danger';
+    menu.appendChild(btn);
+  });
+  chatMsgMenuIndex = idx;
+  menu.hidden = false;
+
+  const viewRect = viewChat.getBoundingClientRect();
+  const mw = menu.offsetWidth;
+  const mh = menu.offsetHeight;
+  let left = x - viewRect.left - mw + 24;
+  let top = y - viewRect.top - mh - 8;
+  left = Math.max(8, Math.min(left, viewRect.width - mw - 8));
+  top = Math.max(8, Math.min(top, viewRect.height - mh - 8));
+  menu.style.left = left + 'px';
+  menu.style.top = top + 'px';
+}
+
+function applyChatSelectDots() {
+  const box = $('chat-messages');
+  if (!box) return;
+  box.querySelectorAll('.msg-select-dot').forEach((el) => el.remove());
+  if (!chatSelectMode) return;
+  box.querySelectorAll('.msg-row[data-msg-index]').forEach((row) => {
+    const idx = Number(row.dataset.msgIndex);
+    if (!Number.isInteger(idx)) return;
+    const dot = document.createElement('button');
+    dot.type = 'button';
+    dot.className = 'msg-select-dot' + (chatSelected.has(idx) ? ' checked' : '');
+    dot.dataset.selectIndex = String(idx);
+    dot.setAttribute('aria-label', '选择这条消息');
+    row.insertBefore(dot, row.firstChild);
+  });
+}
+
+function updateChatSelectBar() {
+  const btn = $('btn-chat-select-delete');
+  if (btn) btn.hidden = chatSelected.size === 0;
+}
+
+function enterChatSelectMode(preselectIndex) {
+  chatSelectMode = true;
+  chatSelected = new Set();
+  if (Number.isInteger(preselectIndex)) chatSelected.add(preselectIndex);
+  const box = $('chat-messages');
+  if (box) box.classList.add('selecting');
+  $('chat-select-bar').hidden = false;
+  $('input-chat').disabled = true;
+  closeChatCharMenu();
+  closeChatSheet();
+  applyChatSelectDots();
+  updateChatSelectBar();
+}
+
+function exitChatSelectMode() {
+  chatSelectMode = false;
+  chatSelected = new Set();
+  const box = $('chat-messages');
+  if (box) {
+    box.classList.remove('selecting');
+    box.querySelectorAll('.msg-select-dot').forEach((el) => el.remove());
+  }
+  const bar = $('chat-select-bar');
+  if (bar) bar.hidden = true;
+  const input = $('input-chat');
+  if (input) input.disabled = false;
+  updateChatSelectBar();
+}
+
+// ui.js 每次重绘消息后回调：选择模式下重新挂上圆圈
+function onChatMessagesRendered(boxId) {
+  if (boxId !== 'chat-messages') return;
+  if (chatSelectMode) applyChatSelectDots();
+}
+
+async function deleteSelectedMessages() {
+  if (!chatSelected.size) return;
+  const characterId = await getActiveCharacterId();
+  if (!characterId) return;
+  const count = chatSelected.size;
+  const indexes = new Set(chatSelected);
+  try {
+    await mutateHistory((arr) => {
+      for (let i = arr.length - 1; i >= 0; i--) {
+        if (indexes.has(i)) arr.splice(i, 1);
+      }
+    }, characterId);
+  } catch (err) {
+    toast('删除失败：' + (err && err.message ? err.message : err));
+    return;
+  }
+  exitChatSelectMode();
+  if ((await getActiveCharacterId()) === characterId) {
+    await renderChat();
+    await updateGenerateButton();
+    await refreshDirectiveChip();
+  }
+  toast('已删除 ' + count + ' 条消息');
+}
+
+// 重试：把这一轮角色消息重新 roll 一次，其余历史保持不变
+async function rerollAssistantMessage(index) {
+  if (chatSending) { toast('正在生成回复，稍等'); return; }
+  const characterId = await getActiveCharacterId();
+  if (!characterId) return;
+  const history = await getHistory(characterId);
+  const msg = history[index];
+  if (!msg || msg.role !== 'assistant') return;
+  if (msg.error) { await retryReply(index); return; }
+
+  let start = index - 1;
+  while (start >= 0 && history[start].role === 'user') start--;
+  start += 1;
+  if (start >= index) { toast('找不到这轮消息对应的提问'); return; }
+
+  const combined = history.slice(start, index).map((m) => m.content).join('\n');
+  const payload = await currentChatPayload(combined, history.slice(0, start), characterId);
+
+  setChatSending(true);
+  await appendTyping();
+  let result;
+  try {
+    result = await requestReply(payload);
+  } catch (err) {
+    result = { ok: false, reason: '无法连接本地服务：' + (err && err.message ? err.message : err), hints: ['确认本地服务已启动'] };
+  }
+  removeTyping();
+
+  const replyMsg = (result && result.ok)
+    ? { role: 'assistant', content: result.reply }
+    : {
+      role: 'assistant',
+      content: '',
+      error: true,
+      errorReason: (result && result.reason) || '请求没有成功，请稍后重试。',
+      errorHints: (result && result.hints) || [],
+    };
+  if (await getCharacter(characterId)) {
+    await mutateHistory((arr) => {
+      if (arr[index] && arr[index].role === 'assistant') arr[index] = replyMsg;
+    }, characterId);
+    if (result && result.ok) {
+      try {
+        const pending = await getPendingDirective(characterId);
+        if (pending && pending === payload.directiveUsed) await clearPendingDirective(characterId);
+      } catch (_) {}
+    }
+    if ((await getActiveCharacterId()) === characterId) {
+      await refreshDirectiveChip();
+      await renderChat();
+      if (result && result.ok) autoPlayChatReply(result.reply, index).catch(() => {});
+    }
+    if (result && result.ok) notifyCharacterReply(characterId, result.reply).catch(() => {});
   }
   setChatSending(false);
 }
@@ -4776,7 +4987,7 @@ $('btn-test').addEventListener('click', async () => {
 });
 
 // 角色聊天导航
-$('btn-chat-back').addEventListener('click', () => { closeChatCharMenu(); closeChatSheet(); showView(viewHome); });
+$('btn-chat-back').addEventListener('click', () => { closeChatCharMenu(); closeChatSheet(); closeChatMsgMenu(); exitChatSelectMode(); showView(viewHome); });
 $('btn-chat-switch').addEventListener('click', (e) => {
   e.stopPropagation();
   const menu = $('chat-char-menu');
@@ -5154,6 +5365,83 @@ $('input-chat').addEventListener('keydown', (e) => {
   }
 });
 $('btn-batch-send').addEventListener('click', () => flushQueue());
+
+// ---- 消息长按菜单 / 多选删除 ----
+$('chat-msg-menu').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-msg-action]');
+  if (!btn) return;
+  const index = chatMsgMenuIndex;
+  const action = btn.dataset.msgAction;
+  closeChatMsgMenu();
+  if (action === 'copy') await copyChatMessageText(index);
+  else if (action === 'retry') await rerollAssistantMessage(index);
+  else if (action === 'delete') enterChatSelectMode(index);
+  else if (action === 'multi') enterChatSelectMode();
+});
+
+$('btn-chat-select-cancel').addEventListener('click', exitChatSelectMode);
+$('btn-chat-select-delete').addEventListener('click', deleteSelectedMessages);
+
+$('chat-messages').addEventListener('click', (e) => {
+  const dot = e.target.closest('.msg-select-dot');
+  if (!dot || !chatSelectMode) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const idx = Number(dot.dataset.selectIndex);
+  if (!Number.isInteger(idx)) return;
+  if (chatSelected.has(idx)) {
+    chatSelected.delete(idx);
+    dot.classList.remove('checked');
+  } else {
+    chatSelected.add(idx);
+    dot.classList.add('checked');
+  }
+  updateChatSelectBar();
+});
+
+// 长按角色气泡：复制 / 删除 / 重试 / 多选
+const chatMsgBox = $('chat-messages');
+function cancelChatLongPress() {
+  if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+  longPressOrigin = null;
+}
+chatMsgBox.addEventListener('pointerdown', (e) => {
+  if (chatSelectMode) return;
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  const target = e.target.closest('.msg-row.assistant .msg-bubble, .msg-row.assistant .sticker-img');
+  if (!target) return;
+  const row = target.closest('.msg-row');
+  const idx = Number(row && row.dataset.msgIndex);
+  if (!Number.isInteger(idx)) return;
+  cancelChatLongPress();
+  longPressOrigin = { x: e.clientX, y: e.clientY };
+  longPressTimer = setTimeout(() => {
+    longPressTimer = null;
+    const origin = longPressOrigin;
+    longPressOrigin = null;
+    const selection = window.getSelection && window.getSelection();
+    if (selection && selection.removeAllRanges) selection.removeAllRanges();
+    if (origin) openChatMsgMenu(idx, origin.x, origin.y);
+  }, 450);
+});
+chatMsgBox.addEventListener('pointermove', (e) => {
+  if (!longPressOrigin) return;
+  if (Math.abs(e.clientX - longPressOrigin.x) > 10 || Math.abs(e.clientY - longPressOrigin.y) > 10) cancelChatLongPress();
+});
+chatMsgBox.addEventListener('pointerup', cancelChatLongPress);
+chatMsgBox.addEventListener('pointercancel', cancelChatLongPress);
+chatMsgBox.addEventListener('scroll', () => {
+  cancelChatLongPress();
+  closeChatMsgMenu();
+}, true);
+chatMsgBox.addEventListener('contextmenu', (e) => {
+  if (e.target.closest('.msg-row.assistant')) e.preventDefault();
+});
+document.addEventListener('pointerdown', (e) => {
+  const menu = $('chat-msg-menu');
+  if (!menu || menu.hidden) return;
+  if (!menu.contains(e.target)) closeChatMsgMenu();
+}, true);
 
 // ---- 电话事件 ----
 $('btn-call-picker-back').addEventListener('click', () => showView(viewHome));

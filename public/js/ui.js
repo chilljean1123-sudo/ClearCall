@@ -393,7 +393,10 @@ function renderMessage(m, index, avatar, name, ctx) {
 
   if (m.error) return null;
 
-  const parts = splitReplyIntoBubbles(m.content);
+  const rawParts = splitReplyIntoBubbles(m.content);
+  // 兼容旧记录：历史消息里已经存下的无标签思维链，渲染时同样过滤掉
+  const parts = rawParts.filter((part) => !(typeof looksLikeMetaReasoning === 'function' && looksLikeMetaReasoning(part)));
+  if (!parts.length && rawParts.length) parts.push('……');
   parts.forEach((part) => renderAssistantPart(stack, part, ctx));
 
   if (ctx && ctx.voiceEnabled && !m.error) {
@@ -469,9 +472,13 @@ async function renderMessagesInto(boxId, options) {
   };
   for (let i = start; i < history.length; i++) {
     const row = renderMessage(history[i], i, c.avatar, c.name, ctx);
-    if (row) box.appendChild(row);
+    if (row) {
+      row.dataset.msgIndex = String(i);
+      box.appendChild(row);
+    }
   }
   renderChatErrorNotice(history, !!(options && options.call));
+  if (typeof onChatMessagesRendered === 'function') onChatMessagesRendered(boxId);
   box.scrollTop = box.scrollHeight;
 }
 
