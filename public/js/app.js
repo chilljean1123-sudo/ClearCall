@@ -120,6 +120,11 @@ function loadSaved() {
   $('input-image-apikey').value = im.apiKey;
   $('input-image-model').value = im.model;
   $('input-image-size').value = im.size;
+  const cf = getCfSettings();
+  $('input-cf-token').value = cf.token;
+  $('input-cf-account').value = cf.accountId;
+  $('input-cf-worker-url').value = cf.workerUrl;
+  refreshCfStatus();
 }
 
 function save() {
@@ -145,6 +150,12 @@ function save() {
     apiKey: $('input-image-apikey').value.trim(),
     model: $('input-image-model').value.trim(),
     size: $('input-image-size').value.trim(),
+  });
+  setCfSettings({
+    token: $('input-cf-token').value.trim(),
+    accountId: $('input-cf-account').value.trim(),
+    workerUrl: $('input-cf-worker-url').value.trim().replace(/\/+$/, ''),
+    workerName: getCfSettings().workerName || 'clearcall-autopush',
   });
 }
 
@@ -4123,6 +4134,217 @@ document.querySelectorAll('.app-icon, .dock-icon').forEach((btn) => {
 
 $('btn-back').addEventListener('click', () => { save(); showView(viewHome); });
 
+// ===== 主动消息（Cloudflare Worker 云推送） =====
+let autopushTimer = null;
+
+function refreshCfStatus() {
+  const el = $('cf-deploy-status');
+  if (!el) return;
+  const cf = getCfSettings();
+  if (cf.workerUrl) {
+    el.textContent = '已就绪：' + cf.workerUrl;
+    el.classList.add('ok');
+  } else {
+    el.textContent = '尚未部署。部署成功后会自动填好下面的地址。';
+    el.classList.remove('ok');
+  }
+}
+
+async function deployCfWorker() {
+  const token = $('input-cf-token').value.trim();
+  const accountId = $('input-cf-account').value.trim();
+  const btn = $('btn-cf-deploy');
+  const status = $('cf-deploy-status');
+  if (!token || !accountId) {
+    toast('请先填写 API Token 和 Account ID');
+    return;
+  }
+
+  const workerName = 'clearcall-autopush';
+  btn.disabled = true;
+  btn.textContent = '部署中…';
+  status.classList.remove('ok');
+  status.textContent = '正在从本站读取 Worker 脚本…';
+
+  try {
+    const scriptResp = await fetch('worker-autopush.js', { cache: 'no-store' });
+    if (!scriptResp.ok) throw new Error('读取 Worker 脚本失败（' + scriptResp.status + '）');
+    const script = await scriptResp.text();
+
+    status.textContent = '正在部署到 Cloudflare…';
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify({
+      main_module: 'worker.js',
+      compatibility_date: '2024-09-23',
+    })], { type: 'application/json' }));
+    form.append('worker.js', new Blob([script], { type: 'application/javascript+module' }), 'worker.js');
+
+    const resp = await fetch(
+      'https://api.cloudflare.com/client/v4/accounts/' + accountId + '/workers/scripts/' + workerName,
+      { method: 'PUT', headers: { Authorization: 'Bearer ' + token }, body: form }
+    );
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok || !data.success) {
+      const msg = (data.errors && data.errors[0] && data.errors[0].message) || ('HTTP ' + resp.status);
+      throw new Error(msg);
+    }
+
+    // 读取账号的 workers.dev 子域，拼出访问地址
+    let workerUrl = '';
+    try {
+      const subResp = await fetch(
+        'https://api.cloudflare.com/client/v4/accounts/' + accountId + '/workers/subdomain',
+        { headers: { Authorization: 'Bearer ' + token } }
+      );
+      const subData = await subResp.json();
+      const subdomain = subData && subData.result && subData.result.subdomain;
+      if (subdomain) workerUrl = 'https://' + workerName + '.' + subdomain + '.workers.dev';
+    } catch (_) { /* 子域读取失败时不阻断部署 */ }
+
+    setCfSettings({ token, accountId, workerName, workerUrl });
+    $('input-cf-worker-url').value = workerUrl;
+    refreshCfStatus();
+
+    // 部署成功即默认写好主动消息：30 分钟一条
+    if (!getAutopushSettings().intervalMin) {
+      setAutopushSettings({ enabled: true, intervalMin: 30, prompt: '' });
+      setAutopushLastAt(0);
+      startAutopushPolling();
+    }
+
+    if (workerUrl) {
+      status.textContent = '✓ 部署成功：' + workerUrl;
+      status.classList.add('ok');
+      toast('Worker 部署成功，主动消息已就绪');
+    } else {
+      status.textContent = '✓ 脚本已上传，但没读到 workers.dev 子域，请把 Worker 地址手动填到下面。';
+      toast('脚本已上传，请手动填写 Worker 地址');
+    }
+  } catch (err) {
+    status.textContent = '部署失败：' + (err && err.message ? err.message : err);
+    toast('部署失败：' + (err && err.message ? err.message : err));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '一键部署 Worker';
+  }
+}
+
+async function buildAutopushPayload() {
+  const cid = await getActiveCharacterId();
+  if (!cid) return null;
+  const char = await getCharacter(cid);
+  const mem = await getMemory(cid);
+  const settings = getSettings();
+  if (!settings.baseUrl || !settings.apiKey || !settings.model) return null;
+
+  const memoryText = [
+    formatMemory(mem.core || []),
+    formatMemory(mem.longTerm || []),
+    formatMemory(mem.entries || []),
+  ].filter(Boolean).join('\n');
+
+  return {
+    clientId: getAutopushClientId(),
+    intervalMin: getAutopushSettings().intervalMin,
+    prompt: getAutopushSettings().prompt,
+    config: {
+      baseUrl: settings.baseUrl,
+      apiKey: settings.apiKey,
+      model: settings.model,
+      persona: char ? [char.name, char.remark, char.persona].filter(Boolean).join('\n') : '',
+      memory: memoryText,
+    },
+  };
+}
+
+async function pollAutopush(force) {
+  const cfg = getAutopushSettings();
+  const cf = getCfSettings();
+  if (!cfg.enabled || !cf.workerUrl) return;
+  if (chatSending) return;
+
+  const payload = await buildAutopushPayload();
+  if (!payload) return;
+
+  try {
+    const resp = await fetch(cf.workerUrl + '/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clientId: payload.clientId,
+        enabled: true,
+        intervalMin: payload.intervalMin,
+        lastAt: force ? 0 : getAutopushLastAt(),
+        prompt: payload.prompt,
+        config: payload.config,
+      }),
+    });
+    const data = await resp.json();
+    if (!data || !data.ok || !data.message) return;
+    const text = String(data.message.content || '').trim();
+    if (!text) return;
+
+    setAutopushLastAt(data.message.at || Date.now());
+    const cid = await getActiveCharacterId();
+    await mutateHistory((arr) => {
+      arr.push({ role: 'assistant', content: text, autopush: true });
+    }, cid);
+
+    if (viewChat.classList.contains('active')) {
+      await renderChat();
+      const box = $('chat-messages');
+      if (box) box.scrollTop = box.scrollHeight;
+    }
+    toast('收到一条主动消息');
+  } catch (_) { /* 网络失败静默，下个周期再试 */ }
+}
+
+function startAutopushPolling() {
+  stopAutopushPolling();
+  autopushTimer = setInterval(() => { pollAutopush(false); }, 60 * 1000);
+  pollAutopush(false);
+}
+
+function stopAutopushPolling() {
+  if (autopushTimer) {
+    clearInterval(autopushTimer);
+    autopushTimer = null;
+  }
+}
+
+async function saveAutopushFromSheet() {
+  const cf = getCfSettings();
+  if (!cf.workerUrl) {
+    toast('请先在「设置 → 主动消息推送」部署 Worker');
+    return;
+  }
+  const activeTab = document.querySelector('.autopush-tab.active');
+  let min = activeTab ? parseInt(activeTab.dataset.autopushMin, 10) : 0;
+  if (min === 0) {
+    const v = parseInt($('input-autopush-min').value, 10);
+    if (!v || v < 1 || v > 1440) {
+      toast('请输入 1-1440 之间的分钟数');
+      return;
+    }
+    min = v;
+  }
+  const prompt = ($('input-autopush-prompt').value || '').trim();
+  setAutopushSettings({ enabled: true, intervalMin: min, prompt });
+  setAutopushLastAt(0);
+  startAutopushPolling();
+  await renderChatSheet('autopush');
+  toast('主动消息已开启：每 ' + min + ' 分钟一条');
+}
+
+async function disableAutopush() {
+  const cfg = getAutopushSettings();
+  setAutopushSettings({ enabled: false, intervalMin: cfg.intervalMin, prompt: cfg.prompt });
+  stopAutopushPolling();
+  await renderChatSheet('autopush');
+  toast('已关闭主动消息');
+}
+
+// ===== 事件绑定 =====
 function bindKeyToggle(inputId, btnId) {
   const btn = $(btnId);
   btn.addEventListener('click', () => {
@@ -4136,6 +4358,17 @@ bindKeyToggle('input-apikey', 'btn-toggle-key');
 bindKeyToggle('input-memory-apikey', 'btn-toggle-memory-key');
 bindKeyToggle('input-voice-apikey', 'btn-toggle-voice-key');
 bindKeyToggle('input-image-apikey', 'btn-toggle-image-key');
+bindKeyToggle('input-cf-token', 'btn-toggle-cf-token');
+
+// 主动消息推送配置：输入即保存 + 一键部署
+['input-cf-token', 'input-cf-account', 'input-cf-worker-url'].forEach((id) => {
+  $(id).addEventListener('blur', () => {
+    save();
+    refreshCfStatus();
+    if (getAutopushSettings().enabled && getCfSettings().workerUrl) startAutopushPolling();
+  });
+});
+$('btn-cf-deploy').addEventListener('click', deployCfWorker);
 
 // 拉取模型列表
 $('btn-fetch-models').addEventListener('click', async () => {
@@ -4548,9 +4781,19 @@ $('chat-sheet-body').addEventListener('click', async (e) => {
     return;
   }
 
+  const apTab = e.target.closest('[data-autopush-min]');
+  if (apTab) {
+    document.querySelectorAll('.autopush-tab').forEach((t) => t.classList.toggle('active', t === apTab));
+    const row = $('autopush-custom-row');
+    if (row) row.hidden = apTab.dataset.autopushMin !== '0';
+    return;
+  }
+
   const btn = e.target.closest('button');
   if (!btn) return;
-  if (btn.id === 'btn-tool-loc-real') requestRealLocation();
+  if (btn.id === 'btn-autopush-save') await saveAutopushFromSheet();
+  else if (btn.id === 'btn-autopush-disable') await disableAutopush();
+  else if (btn.id === 'btn-tool-loc-real') requestRealLocation();
   else if (btn.id === 'btn-tool-loc-send') await sendToolLocation();
   else if (btn.id === 'btn-tool-image-pick') $('file-chat-image').click();
   else if (btn.id === 'btn-tool-image-clear') { resetPendingChatImage(); setToolImagePreview(''); }
@@ -5305,6 +5548,7 @@ $('chk-keepalive').addEventListener('change', async () => {
   startDiaryScheduler();
   startScheduleScheduler();
   startMomentsScheduler();
+  if (getAutopushSettings().enabled && getCfSettings().workerUrl) startAutopushPolling();
 })();
 
 // 回到前台时补检查一次邮箱 / 日记定时任务
@@ -5314,4 +5558,5 @@ document.addEventListener('visibilitychange', () => {
   runDiarySchedule().catch(() => {});
   runScheduleSchedule().catch(() => {});
   runMomentsSchedule().catch(() => {});
+  pollAutopush(false);
 });

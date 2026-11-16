@@ -650,6 +650,7 @@ const CHAT_TOOL_TITLES = {
   mail: '发邮件',
   style: '聊天方式',
   diary: '日记',
+  autopush: '主动消息',
 };
 
 function uiEl(tag, className, text) {
@@ -676,6 +677,7 @@ const CHAT_TOOL_ICON_SVGS = {
   mail: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="3" fill="currentColor"/><path d="m4 7 8 6 8-6" fill="none" stroke="var(--tool-cutout)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   style: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><circle cx="8" cy="6" r="3" fill="var(--tool-cutout)" stroke="currentColor" stroke-width="2.4"/><circle cx="16" cy="12" r="3" fill="var(--tool-cutout)" stroke="currentColor" stroke-width="2.4"/><circle cx="10" cy="18" r="3" fill="var(--tool-cutout)" stroke="currentColor" stroke-width="2.4"/></svg>',
   diary: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M5 2h15v20H5a3 3 0 0 1-3-3V5a3 3 0 0 1 3-3Z"/><path d="M7 2v20M10 7h6M10 11h6M10 15h4" fill="none" stroke="var(--tool-cutout)" stroke-width="2.3" stroke-linecap="round"/></svg>',
+  autopush: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 22a2.6 2.6 0 0 0 2.6-2.6H9.4A2.6 2.6 0 0 0 12 22Z"/><path fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" d="M18 9a6 6 0 1 0-12 0c0 5-2 6-2 6h16s-2-1-2-6Z"/></svg>',
 };
 
 function renderChatToolMenu(body) {
@@ -689,6 +691,7 @@ function renderChatToolMenu(body) {
     ['mail', '邮件'],
     ['style', '聊天方式'],
     ['diary', '日记'],
+    ['autopush', '主动消息'],
   ].forEach(([tool, label]) => {
     const tile = uiEl('button', 'tool-tile');
     tile.type = 'button';
@@ -944,7 +947,70 @@ async function renderChatSheet(view) {
   else if (key === 'directive') await renderDirectiveTool(body);
   else if (key === 'mail') await renderMailTool(body);
   else if (key === 'diary') await renderDiaryTool(body);
+  else if (key === 'autopush') renderAutopushTool(body);
   else renderChatToolMenu(body);
+}
+
+// ===== 主动消息（Cloudflare Worker 推送） =====
+function renderAutopushTool(body) {
+  const cf = getCfSettings();
+  const cfg = getAutopushSettings();
+  const presets = [15, 30, 60];
+  const isPreset = presets.indexOf(cfg.intervalMin) >= 0;
+
+  const status = uiEl('div', 'autopush-status ' + (cf.workerUrl ? 'ok' : 'warn'));
+  status.id = 'autopush-status';
+  status.textContent = cf.workerUrl
+    ? ('已连接推送服务：' + cf.workerUrl)
+    : '还没部署推送服务。请先到「设置 → 主动消息推送」填入 Token，点「一键部署 Worker」。';
+  body.appendChild(status);
+
+  body.appendChild(uiEl('div', 'field-label', '时间间隔'));
+  const tabs = uiEl('div', 'autopush-tabs');
+  presets.concat([0]).forEach((min) => {
+    const active = min === 0 ? (!isPreset && cfg.intervalMin > 0) : cfg.intervalMin === min;
+    const b = uiEl('button', 'autopush-tab' + (active ? ' active' : ''), min === 0 ? '自定义' : (min >= 60 ? (min / 60) + ' 小时' : min + ' 分钟'));
+    b.type = 'button';
+    b.dataset.autopushMin = String(min);
+    tabs.appendChild(b);
+  });
+  body.appendChild(tabs);
+
+  const custom = uiEl('div', 'autopush-custom');
+  custom.id = 'autopush-custom-row';
+  custom.hidden = isPreset;
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.min = '1';
+  input.max = '1440';
+  input.id = 'input-autopush-min';
+  input.value = String(cfg.intervalMin || 30);
+  custom.appendChild(input);
+  custom.appendChild(uiEl('span', 'field-hint', '分钟（1-1440）'));
+  body.appendChild(custom);
+
+  body.appendChild(uiEl('div', 'field-label', '主动消息提示词（可选）'));
+  const ta = document.createElement('textarea');
+  ta.id = 'input-autopush-prompt';
+  ta.className = 'autopush-prompt';
+  ta.rows = 3;
+  ta.placeholder = '留空则按角色人设自然问候，例如：关心一下用户今天过得怎么样';
+  ta.value = cfg.prompt || '';
+  body.appendChild(ta);
+
+  const row = uiEl('div', 'autopush-actions');
+  const off = uiEl('button', 'fetch-btn', '关闭主动消息');
+  off.type = 'button';
+  off.id = 'btn-autopush-disable';
+  off.hidden = !cfg.enabled;
+  row.appendChild(off);
+  const save = uiEl('button', 'fetch-btn', '保存并开启');
+  save.type = 'button';
+  save.id = 'btn-autopush-save';
+  row.appendChild(save);
+  body.appendChild(row);
+
+  body.appendChild(uiEl('div', 'tool-hint', '开启后，角色会按间隔生成一条主动消息，存在 Cloudflare Worker 上；页面打开或回到前台时自动拉取上屏。'));
 }
 
 // ===== 聊天方式（按角色） =====
@@ -1883,7 +1949,8 @@ function fileToImage(file, max) {
 }
 
 function fileToAvatar(file) {
-  return fileToImage(file, 200);
+  // 最大边 800px：卡片大图/头像放大后不糊
+  return fileToImage(file, 800);
 }
 
 function fileToReferenceImage(file) {

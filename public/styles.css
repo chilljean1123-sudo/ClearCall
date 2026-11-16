@@ -3718,3 +3718,88 @@ body.statusbar-off .statusbar { visibility: hidden; }
   line-height: var(--leading-subheading);
   cursor: pointer;
 }
+
+/* ===== 主动消息（Cloudflare Worker 推送） ===== */
+.autopush-status {
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  font-size: var(--font-caption);
+  line-height: var(--leading-body);
+  background: var(--color-accent-light);
+  color: var(--color-text-secondary);
+  word-break: break-all;
+}
+.autopush-status.ok { background: #e8f4ec; color: #3f7d5a; }
+.autopush-status.warn { background: #fbf0e6; color: #96703f; }
+
+.autopush-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+.autopush-tab {
+  padding: 6px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-family: inherit;
+  font-size: var(--font-caption);
+  cursor: pointer;
+}
+.autopush-tab.active {
+  background: var(--color-accent-light);
+  border-color: var(--color-accent);
+  color: var(--color-text-primary);
+}
+
+.autopush-custom {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+.autopush-custom input {
+  width: 88px;
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font-family: inherit;
+  font-size: var(--font-body-sm);
+}
+.autopush-custom input:focus { outline: none; border-color: var(--color-accent); }
+
+.autopush-prompt {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font-family: inherit;
+  font-size: var(--font-body-sm);
+  line-height: 1.5;
+  resize: vertical;
+}
+.autopush-prompt:focus { outline: none; border-color: var(--color-accent); }
+
+.autopush-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.autopush-actions .fetch-btn { flex: 1 1 0; text-align: center; }
+
+.cf-deploy-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+#cf-deploy-status.ok { color: #3f7d5a; word-break: break-all; }

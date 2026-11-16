@@ -761,6 +761,41 @@
 
           <details class="drawer">
             <summary class="drawer-head">
+              <span class="drawer-title">主动消息推送</span>
+              <span class="drawer-arrow"></span>
+            </summary>
+            <div class="drawer-body">
+              <p class="settings-note">让角色定时主动发消息。需要你自部署一个 Cloudflare Worker 作为中转：填好 Token 和 Account ID 后点「一键部署」，系统会自动写入 Worker 并填好地址。</p>
+
+              <div class="field">
+                <span class="field-label">Cloudflare API Token</span>
+                <span class="key-wrap">
+                  <input id="input-cf-token" type="password" placeholder="Workers Edit + Account Settings Read" autocomplete="off" />
+                  <button type="button" class="toggle-key" id="btn-toggle-cf-token">显示</button>
+                </span>
+                <span class="field-hint">到 dash.cloudflare.com → My Profile → API Tokens → Create Token → Custom，权限勾选 Workers:Edit 与 Account Settings:Read。</span>
+              </div>
+
+              <div class="field">
+                <span class="field-label">Account ID</span>
+                <input id="input-cf-account" type="text" placeholder="Cloudflare 后台右侧栏可见" autocomplete="off" />
+              </div>
+
+              <div class="cf-deploy-row">
+                <button type="button" class="fetch-btn" id="btn-cf-deploy">一键部署 Worker</button>
+                <span class="field-hint" id="cf-deploy-status">尚未部署。部署成功后会自动填好下面的地址。</span>
+              </div>
+
+              <div class="field">
+                <span class="field-label">Worker 地址</span>
+                <input id="input-cf-worker-url" type="text" placeholder="https://clearcall-autopush.你的子域.workers.dev" autocomplete="off" />
+                <span class="field-hint">如果你手动在 Cloudflare 建了 Worker，把它的地址填到这里也能用。</span>
+              </div>
+            </div>
+          </details>
+
+          <details class="drawer">
+            <summary class="drawer-head">
               <span class="drawer-title">备份与恢复</span>
               <span class="drawer-arrow"></span>
             </summary>
@@ -1055,46 +1090,6 @@
           <p class="wb-hint">关键词命中才注入；关键词留空表示无条件触发。概率开关打开后，命中还要通过随机判定才注入。添加条目时可在表单里选择绑定「全局」或某个角色；导出 / 导入作用于当前选中的列表。</p>
           <div class="wb-form" id="wb-form" hidden></div>
           <div class="wb-list" id="wb-list"></div>
-        </div>
-      </div>
-
-      <!-- 主动消息弹窗 -->
-      <div class="modal-backdrop" id="modal-autopush" hidden>
-        <div class="modal-card">
-          <div class="modal-header">
-            <span class="modal-title">主动消息</span>
-            <button type="button" class="modal-close" id="btn-autopush-close">×</button>
-          </div>
-          <div class="modal-body">
-            <p class="modal-note">设置时间间隔，让角色自动给你发消息。消息会在下次打开页面时自动接收。</p>
-
-            <div class="field">
-              <span class="field-label">消息间隔</span>
-              <div class="interval-tabs">
-                <button type="button" class="interval-tab active" data-min="15">15 分钟</button>
-                <button type="button" class="interval-tab" data-min="30">30 分钟</button>
-                <button type="button" class="interval-tab" data-min="60">1 小时</button>
-                <button type="button" class="interval-tab" data-min="0">自定义</button>
-              </div>
-              <div class="interval-custom-row" id="interval-custom-row" hidden>
-                <input id="input-autopush-min" type="number" min="1" max="1440" value="30" />
-                <span class="field-hint">分钟（1-1440）</span>
-              </div>
-            </div>
-
-            <div class="field">
-              <span class="field-label">消息提示词（可选）</span>
-              <textarea id="input-autopush-prompt" rows="2" placeholder="让角色根据人设和聊天记录，生成一句想对你说的话…"></textarea>
-              <span class="field-hint">留空则自动根据人设生成自然问候。</span>
-            </div>
-
-            <div class="autopush-status-row" id="autopush-status-row" hidden></div>
-
-            <div class="modal-actions">
-              <button type="button" class="fetch-btn" id="btn-autopush-disable" hidden>关闭主动消息</button>
-              <button type="button" class="fetch-btn primary" id="btn-autopush-save">保存设置</button>
-            </div>
-          </div>
         </div>
       </div>
     </div>

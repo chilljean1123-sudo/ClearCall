@@ -51,6 +51,19 @@ const IMAGE_KEYS = {
   size: 'clearcall.imageSize',
 };
 
+// 主动消息推送（云推送 Worker）配置
+const CF_KEYS = {
+  token: 'clearcall.cfToken',
+  accountId: 'clearcall.cfAccountId',
+  workerUrl: 'clearcall.cfWorkerUrl',
+  workerName: 'clearcall.cfWorkerName',
+  intervalMin: 'clearcall.autopushIntervalMin',
+  prompt: 'clearcall.autopushPrompt',
+  enabled: 'clearcall.autopushEnabled',
+  clientId: 'clearcall.autopushClientId',
+  lastAt: 'clearcall.autopushLastAt',
+};
+
 const MEMORY_CATEGORY_LABELS = {
   personal: '个人信息',
   agreement: '约定与待办',
@@ -119,6 +132,56 @@ function setSettings(s) {
   localStorage.setItem(KEYS.apiKey, (s && s.apiKey) || '');
   localStorage.setItem(KEYS.model, (s && s.model) || '');
   localStorage.setItem(KEYS.modelMode, (s && s.modelMode) || 'select');
+}
+
+// ---------- 主动消息推送设置（localStorage） ----------
+function getCfSettings() {
+  return {
+    token: localStorage.getItem(CF_KEYS.token) || '',
+    accountId: localStorage.getItem(CF_KEYS.accountId) || '',
+    workerUrl: localStorage.getItem(CF_KEYS.workerUrl) || '',
+    workerName: localStorage.getItem(CF_KEYS.workerName) || '',
+  };
+}
+
+function setCfSettings(s) {
+  localStorage.setItem(CF_KEYS.token, (s && s.token) || '');
+  localStorage.setItem(CF_KEYS.accountId, (s && s.accountId) || '');
+  localStorage.setItem(CF_KEYS.workerUrl, (s && s.workerUrl) || '');
+  localStorage.setItem(CF_KEYS.workerName, (s && s.workerName) || '');
+}
+
+function getAutopushSettings() {
+  return {
+    intervalMin: Math.max(0, parseInt(localStorage.getItem(CF_KEYS.intervalMin) || '0', 10) || 0),
+    prompt: localStorage.getItem(CF_KEYS.prompt) || '',
+    enabled: localStorage.getItem(CF_KEYS.enabled) === '1',
+  };
+}
+
+function setAutopushSettings(s) {
+  localStorage.setItem(CF_KEYS.intervalMin, String(Math.max(0, (s && s.intervalMin) || 0)));
+  localStorage.setItem(CF_KEYS.prompt, (s && s.prompt) || '');
+  localStorage.setItem(CF_KEYS.enabled, (s && s.enabled) ? '1' : '0');
+}
+
+// 每个浏览器一个稳定 clientId，Worker 用它区分推送对象
+function getAutopushClientId() {
+  let id = localStorage.getItem(CF_KEYS.clientId);
+  if (!id) {
+    id = 'cc-' + (genId ? genId() : Date.now().toString(36));
+    localStorage.setItem(CF_KEYS.clientId, id);
+  }
+  return id;
+}
+
+// 上次收到主动消息的时间（由前端保存，Worker 保持无状态）
+function getAutopushLastAt() {
+  return parseInt(localStorage.getItem(CF_KEYS.lastAt) || '0', 10) || 0;
+}
+
+function setAutopushLastAt(ts) {
+  localStorage.setItem(CF_KEYS.lastAt, String(ts || Date.now()));
 }
 
 // ---------- 回复触发模式（localStorage 开关） ----------
@@ -2285,6 +2348,8 @@ async function buildBackup() {
   const memorySettings = getMemorySettings();
   const voiceSettings = getVoiceSettings();
   const imageSettings = getImageSettings();
+  const cfSettings = getCfSettings();
+  const autopush = getAutopushSettings();
   const { list, activeId } = await getCharacters();
   const userProfiles = await getUserProfiles();
   const files = {};
@@ -2367,6 +2432,8 @@ async function buildBackup() {
     memorySettings,
     voiceSettings,
     imageSettings,
+    cfSettings,
+    autopush,
     appearance,
     notification,
     forum,
@@ -2397,6 +2464,8 @@ async function applyBackup(data) {
   setMemorySettings(data.memorySettings || {});
   setVoiceSettings(data.voiceSettings || {});
   setImageSettings(data.imageSettings || {});
+  setCfSettings(data.cfSettings || {});
+  setAutopushSettings(data.autopush || {});
 
   // 统一成多角色结构；同时兼容旧版（version 1）单角色备份
   let characters;
