@@ -73,9 +73,10 @@
 
 - `android/` 是 WebView 壳，加载 `BuildConfig.APP_URL`（Gradle 属性 `clearcallAppUrl` 或环境变量 `CLEARCALL_APP_URL`）；加载失败时弹原生输入框填写站点地址，存 `SharedPreferences`。
 - 全屏采用 edge-to-edge：隐藏系统栏，WebView 一直铺到屏幕边缘；刘海高度、手势区高度按屏幕密度换算成 CSS px 写入 `--shell-inset-top/bottom`，网页再用这些变量留白，禁止给根布局加全局 padding（会出现上下色带）。只有软键盘弹出时才给根部加底部 padding。
-- 壳内锁定显示比例：WebView 关闭缩放与缩放按钮、`setTextZoom(100)`、关闭 overview/wide viewport；页面 viewport 写 `user-scalable=no` 与固定 scale，CSS `touch-action: pan-x pan-y`，只允许滚动，不允许双指或双击缩放。
+- 壳内锁定显示比例：WebView 关闭缩放与缩放按钮、`setTextZoom(100)`、关闭 overview/wide viewport，CSS 在 `html.native-shell` 上设 `touch-action: pan-x pan-y`，只允许滚动，不允许双指或双击缩放。
 - 侧边返回通过 `window.__handleAndroidBack()` 回到网页上一个页面（优先点当前页返回按钮），主屏再按一次才退出；键盘打开时先收起键盘。
 - 原生能力由 `ClearCallNative` 注入：`getDeviceInfo / getShellState / notify / scheduleNotification / enableNativePush / disableNativePush / requestIgnoreBatteryOptimizations / openBatteryOptimizationSettings / saveTextFile`；网页端「设置 → 手机壳」按桥是否存在显示。备份与世界书导出在壳内走 `saveTextFile`（系统文件选择器），浏览器仍用 Blob 下载。
+- 壳内 `Notification` 可能不存在：通知开关先判断 `ClearCallNative.notify`，走 `enableNativePush` 并把 `getShellState().pushEnabled / notificationsGranted` 当作权限状态；`onPause / onResume` 注入 `window.__shellHidden`，让后台回复通知可靠触发。不要用「浏览器不支持通知」直接拦住原生推送。
 - 推送走 WorkManager（`PushWorker`）+ 通知渠道，网页 `sendBrowserNotification()` 在壳内优先走原生。
 - GitHub Actions `.github/workflows/android.yml` 构建 debug APK 并上传 artifact；打 `v*` tag 时附加到 Release。
 
@@ -119,6 +120,7 @@
 - 浏览器通知：移动端 Chrome 必须通过 Service Worker 的 `showNotification` 才能弹出，`new Notification()` 只作桌面兜底；仅页面切到后台且非通话中时推送。
 - 后台保活用 1 秒静音 WAV 循环播放，浏览器自动播放策略会拦截，需等用户下一次点击后重试；关闭开关时立即停止并释放对象 URL。
 - 媒体标记不能只按整段文本匹配：模型可能把 `[[sticker:...]]` 和正文放在同一气泡，渲染层要扫描标记、分段生成真实媒体，并对未知标记做占位兜底，避免代码泄漏到界面。
+- 语音消息 `[语音消息：0:05]` 渲染成 CSS 声波条（12 根高低不一的竖条 + 时长），播放/加载时竖条起伏，不再显示“语音”文字或图标。
 - 自定义指令同理会漏到界面：`[转账]¥5.00` 这类文本指令要按标记解析成卡片，`<split>`（含 `<split/>`）只做分段不显示；新增指令统一加进 `renderAssistantPart` 的标记扫描里。
 - 聊天气泡宽度必须随内容自适应：`.msg-stack` 用 `align-items: flex-start`（用户侧 `flex-end`），`max-width` 只做上限，不能靠默认 stretch 把短消息拉成整条长条。
 - 角色发言底层铁则（OOC 校验、对话席位、活人感、互动边界、记忆连贯、输出格式）写在 `lib/ai.js` 的 `CHAT_BASE_RULES` 与 `public/js/api.js` 的 `DIRECT_BASE_RULES`，固定放在 system 最前，并明确禁止复述或暴露；两份内容必须同步。回复返回前用 `stripThinkBlocks` 剥离 `<thinking>` / `<thought>` 标签，思维链不得进入界面。

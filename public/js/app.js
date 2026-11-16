@@ -2,6 +2,12 @@
 // 串联 store.js（存取数据）、api.js（调用模型）、ui.js（界面渲染）。
 // 负责聊天状态机、回复触发模式、备份导入导出、以及所有事件绑定。
 
+// 安卓壳通过生命周期告诉网页是否退到后台，补足 WebView 里 document.hidden 不更新的情况
+window.__shellHidden = false;
+window.__setShellHidden = function (hidden) {
+  window.__shellHidden = !!hidden;
+};
+
 let chatSending = false;
 let countdownTick = null;
 let countdownSecRemain = 0;
@@ -285,8 +291,27 @@ async function refreshAppearance() {
   renderWallpaperDevice();
 }
 
-// ---- 通知：浏览器推送 / 自定义提示音 / 后台保活 ----
+// ---- 通知：浏览器推送 / 原生推送 / 自定义提示音 / 后台保活 ----
+function nativePushBridge() {
+  const bridge = shellBridge();
+  return bridge && typeof bridge.notify === 'function' ? bridge : null;
+}
+
+function nativePushState() {
+  return nativePushBridge() ? shellState() : null;
+}
+
+function nativePushReady() {
+  const state = nativePushState();
+  return !!(state && state.pushEnabled && state.notificationsGranted !== false);
+}
+
+function browserNotifyGranted() {
+  return typeof Notification !== 'undefined' && Notification.permission === 'granted';
+}
+
 function notifySupported() {
+  if (nativePushBridge()) return true;
   return typeof Notification !== 'undefined';
 }
 
@@ -294,7 +319,14 @@ function updateNotifyHint() {
   const el = $('notify-status-hint');
   if (!el) return;
   if (!notifySupported()) {
-    el.textContent = '这台浏览器还不会通知。';
+    el.textContent = '这台设备还不会通知。';
+    return;
+  }
+  if (nativePushBridge()) {
+    const state = nativePushState() || {};
+    if (!state.pushEnabled) el.textContent = '打开原生推送，才叫得醒你。';
+    else if (state.notificationsGranted === false) el.textContent = '系统还没允许通知，去设置里放行。';
+    else el.textContent = '那个人可以在后台轻轻叫醒你。';
     return;
   }
   if (Notification.permission === 'granted') {
@@ -336,8 +368,30 @@ async function registerNotifyServiceWorker() {
 }
 
 async function ensureNotifyPermission() {
+  const native = nativePushBridge();
+  if (native) {
+    try {
+      native.enableNativePush();
+    } catch (_) {
+      toast('原生推送没能打开');
+      return false;
+    }
+    for (let i = 0; i < 16; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      const state = nativePushState() || {};
+      if (state.notificationsGranted) {
+        updateNotifyHint();
+        return true;
+      }
+    }
+    const state = nativePushState() || {};
+    updateNotifyHint();
+    if (state.pushEnabled) return true;
+    toast('系统还没允许通知，去设置里放行');
+    return false;
+  }
   if (!notifySupported()) {
-    toast('当前浏览器不支持系统通知');
+    toast('当前设备不支持系统通知');
     return false;
   }
   if (Notification.permission === 'granted') return true;
@@ -362,12 +416,12 @@ async function sendBrowserNotification(title, options) {
     const state = shellState();
     if (state.pushEnabled && state.notificationsGranted !== false) {
       try {
-        native.notify(title, (options && (options.body || options.text)) || '');
-        return true;
+        const sent = native.notify(title, (options && (options.body || options.text)) || '');
+        return sent !== false;
       } catch (_) {}
     }
   }
-  if (!notifySupported() || Notification.permission !== 'granted') return false;
+  if (!browserNotifyGranted()) return false;
   const opts = Object.assign({ tag: 'clearcall-reply' }, options || {});
   try {
     if (!notifySwReg && navigator.serviceWorker) {
@@ -426,8 +480,8 @@ async function testBrowserNotification() {
 // 角色回复通知：仅在页面处于后台、非通话中时推送
 async function notifyCharacterReply(characterId, reply) {
   if (callActive) return;
-  if (typeof document !== 'undefined' && !document.hidden) return;
-  if (!notifySupported() || Notification.permission !== 'granted') return;
+  if (typeof document !== 'undefined' && !document.hidden && !window.__shellHidden) return;
+  if (!nativePushReady() && !browserNotifyGranted()) return;
   let cfg;
   try { cfg = await getNotificationConfig(); } catch (_) { return; }
   if (!cfg.enabled) return;
@@ -4485,9 +4539,15 @@ function initNativeShell() {
   document.documentElement.classList.add('native-shell');
   renderWallpaperDevice();
   refreshShellSettings();
-  window.__refreshShellState = refreshShellSettings;
+  window.__refreshShellState = function () {
+    refreshShellSettings();
+    updateNotifyHint();
+  };
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) refreshShellSettings();
+    if (!document.hidden) {
+      refreshShellSettings();
+      updateNotifyHint();
+    }
   });
 }
 

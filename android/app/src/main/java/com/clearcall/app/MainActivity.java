@@ -349,7 +349,20 @@ public class MainActivity extends AppCompatActivity {
             webView.onResume();
             webView.resumeTimers();
         }
+        injectShellHidden(false);
         refreshShellStateInWeb();
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        injectShellHidden(true);
+    }
+
+    private void injectShellHidden(boolean hidden) {
+        if (webView == null) return;
+        webView.evaluateJavascript(
+                "window.__setShellHidden&&window.__setShellHidden(" + hidden + ")", null);
     }
 
     @Override
@@ -481,9 +494,13 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @JavascriptInterface
-        public void notify(String title, String body) {
-            if (!prefs.getBoolean(KEY_PUSH, false)) return;
+        public boolean notify(String title, String body) {
+            if (!prefs.getBoolean(KEY_PUSH, false)) return false;
+            if (Build.VERSION.SDK_INT >= 33
+                    && ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) return false;
             PushWorker.enqueue(MainActivity.this, title, body, 0);
+            return true;
         }
 
         @JavascriptInterface

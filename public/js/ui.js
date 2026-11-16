@@ -507,13 +507,19 @@ function appendAssistantVoiceNote(stack, duration, ctx) {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'chat-voice-note';
-  const glyph = uiEl('span', 'chat-voice-note-glyph');
-  glyph.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M9 18.2a3.2 3.2 0 1 1-2-3V6.6a1.4 1.4 0 0 1 1.1-1.37l8.2-1.8A1.4 1.4 0 0 1 18 4.8v10.9a3.2 3.2 0 1 1-2-2.97V7.3l-7 1.54Z"/></svg>';
-  btn.appendChild(glyph);
-  btn.appendChild(uiEl('span', 'chat-voice-note-label', '语音'));
   let durationText = String(duration || '0:01').replace('：', ':');
   if (/^\d+$/.test(durationText)) durationText = '0:' + durationText.padStart(2, '0');
+  const wave = uiEl('span', 'chat-voice-wave');
+  wave.setAttribute('aria-hidden', 'true');
+  for (let i = 0; i < 12; i += 1) {
+    const bar = document.createElement('i');
+    bar.style.setProperty('--i', String(i));
+    wave.appendChild(bar);
+  }
+  btn.appendChild(wave);
   btn.appendChild(uiEl('span', 'chat-voice-note-time', durationText));
+  btn.setAttribute('aria-label', '播放语音 ' + durationText);
+  if (ctx && typeof ctx.messageIndex === 'number') btn.dataset.speakIndex = String(ctx.messageIndex);
   btn.addEventListener('click', () => {
     if (ctx && ctx.voiceEnabled && typeof ctx.messageIndex === 'number' && typeof speakChatMessage === 'function') {
       speakChatMessage(ctx.messageIndex);
@@ -614,6 +620,12 @@ function renderMessage(m, index, avatar, name, ctx) {
 
 // 聊天语音按钮状态：idle | loading | playing | failed | blocked
 function setChatVoiceButtonState(index, state) {
+  const note = document.querySelector('.chat-voice-note[data-speak-index="' + index + '"]');
+  if (note) {
+    note.classList.remove('is-loading', 'is-playing', 'is-failed', 'is-blocked');
+    if (state && state !== 'idle') note.classList.add('is-' + state);
+    return;
+  }
   const btn = document.querySelector('.chat-voice-btn[data-speak-index="' + index + '"]');
   if (!btn) return;
   btn.classList.remove('is-loading', 'is-playing', 'is-failed', 'is-blocked');
