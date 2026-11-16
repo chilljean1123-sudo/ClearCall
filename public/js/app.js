@@ -6,6 +6,10 @@ let chatSending = false;
 let countdownTick = null;
 let countdownSecRemain = 0;
 let editingMemoryId = null;
+let autopushInterval = null; // 主动消息的定时间隔
+let plusMenuOpen = false;
+
+const CLIENT_ID = 'clearcall-' + (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'default');
 
 // 最近聊天直接带上；更早的内容交给记忆总结
 const RECENT_HISTORY_LIMIT = 20;
@@ -23,6 +27,10 @@ function loadSaved() {
   $('input-memory-baseurl').value = m.baseUrl;
   $('input-memory-apikey').value = m.apiKey;
   $('input-memory-model').value = m.model;
+  const cf = getCfSettings();
+  $('input-cf-token').value = cf.token;
+  $('input-cf-account').value = cf.accountId;
+  $('input-cf-worker-url').value = cf.workerUrl;
 }
 
 function save() {
@@ -36,6 +44,12 @@ function save() {
     baseUrl: $('input-memory-baseurl').value.trim(),
     apiKey: $('input-memory-apikey').value.trim(),
     model: $('input-memory-model').value.trim(),
+  });
+  setCfSettings({
+    token: $('input-cf-token').value.trim(),
+    accountId: $('input-cf-account').value.trim(),
+    workerUrl: $('input-cf-worker-url').value.trim().replace(/\/+$/, ''),
+    workerName: (getCfSettings().workerName || 'clearcall-autopush'),
   });
 }
 
@@ -385,6 +399,287 @@ async function autoSummarizeIfNeeded() {
   } catch (_) { /* 自动整理失败静默 */ }
 }
 
+// ===== Cloudflare Worker 一键部署 =====
+const WORKER_SCRIPT = `// ClearCall Autopush Worker - 前端自部署\n` + `// 路径：/config(POST) /pull(GET) /generate(POST) /status(GET)\n` + WORKER_SOURCE;
+
+async function deployCfWorker() {
+  const token = $('input-cf-token').value.trim();
+  const accountId = $('input-cf-account').value.trim();
+  if (!token || !accountId) {
+    toast('请先填写 Token 和 Account ID');
+    return;
+  }
+
+  const workerName = 'clearcall-autopush';
+  const btn = $('btn-cf-deploy');
+  const status = $('cf-deploy-status');
+  btn.disabled = true;
+  btn.textContent = '部署中…';
+  status.hidden = false;
+  status.textContent = '正在连接 Cloudflare…';
+
+  try {
+    // 1. 检查 Worker 是否已存在
+    const checkResp = await fetch(
+      'https://api.cloudflare.com/client/v4/accounts/' + accountId + '/workers/services/' + workerName,
+      { headers: { 'Authorization': 'Bearer ' + token } }
+    );
+
+    let scriptBody;
+    try {
+      // 尝试把 worker 文件读进来（inline 嵌入）
+      scriptBody = await (await fetch('worker/autopush.js')).text();
+    } catch (_) {
+      // 如果 fetch 不到（部署后的静态托管环境），用内置 fallback
+      scriptBody = WORKER_FALLBACK;
+    }
+
+    // 2. 创建或更新 Worker（用 Scripts API）
+    // Workers Scripts API: PUT /accounts/{accountId}/workers/scripts/{scriptName}
+    const deployResp = await fetch(
+      'https://api.cloudflare.com/client/v4/accounts/' + accountId + '/workers/scripts/' + workerName,
+      {
+        method: 'PUT',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/javascript',
+        },
+        body: scriptBody,
+      }
+    );
+
+    const deployData = await deployResp.json();
+    if (!deployData.success) {
+      const msg = (deployData.errors && deployData.errors[0] && deployData.errors[0].message) || '部署失败';
+      throw new Error(msg);
+    }
+
+    // 3. 获取 subdomain → 构造 Worker URL
+    const subResp = await fetch(
+      'https://api.cloudflare.com/client/v4/accounts/' + accountId + '/workers/subdomain',
+      { headers: { 'Authorization': 'Bearer ' + token } }
+    );
+    const subData = await subResp.json();
+    const subdomain = subData.result && subData.result.subdomain;
+    let workerUrl = '';
+    if (subdomain) {
+      workerUrl = 'https://' + workerName + '.' + subdomain + '.workers.dev';
+    } else {
+      // 如果没开 subdomain，提示用户手动绑定
+      toast('Worker 已部署，但你的账号可能没开启 workers.dev subdomain，请到 Cloudflare 后台手动绑定路由');
+      workerUrl = 'https://' + workerName + '.your-subdomain.workers.dev';
+    }
+
+    // 4. 保存配置
+    const cf = getCfSettings();
+    setCfSettings({ ...cf, token, accountId, workerUrl, workerName });
+    $('input-cf-worker-url').value = workerUrl;
+
+    status.textContent = '✓ 部署成功！Worker 地址：' + workerUrl;
+    toast('Worker 部署成功');
+  } catch (err) {
+    status.textContent = '部署失败：' + (err && err.message ? err.message : err);
+    toast('部署失败：' + (err && err.message ? err.message : err));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '一键部署 Worker';
+  }
+}
+
+// Worker 脚本 fallback（内嵌在前端，确保在无文件 fetch 时也能部署）
+const WORKER_FALLBACK = String.raw`
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Content-Type': 'application/json',
+};
+const store = new Map();
+export default {
+  async fetch(request, env, ctx) {
+    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
+    const url = new URL(request.url);
+    try {
+      if (url.pathname === '/config' && request.method === 'POST') return await handleConfig(request);
+      if (url.pathname === '/pull' && request.method === 'GET') return await handlePull(url);
+      if (url.pathname === '/status' && request.method === 'GET') return new Response(JSON.stringify({ ok: true }), { headers: CORS });
+      return new Response(JSON.stringify({ ok: false, error: 'not found' }), { status: 404, headers: CORS });
+    } catch (err) {
+      return new Response(JSON.stringify({ ok: false, error: String(err.message || err) }), { status: 500, headers: CORS });
+    }
+  },
+};
+async function handleConfig(request) {
+  const b = await request.json();
+  const id = String(b.clientId || 'default');
+  const cfg = {
+    clientId: id, baseUrl: b.baseUrl || '', apiKey: b.apiKey || '', model: b.model || '',
+    persona: b.persona || '', memory: b.memory || '', intervalMin: parseInt(b.intervalMin, 10) || 0,
+    prompt: b.prompt || '', enabled: b.enabled !== false && parseInt(b.intervalMin, 10) > 0,
+    messages: [], nextAt: parseInt(b.intervalMin, 10) > 0 ? Date.now() + parseInt(b.intervalMin, 10) * 60000 : 0,
+  };
+  store.set(id, cfg);
+  return new Response(JSON.stringify({ ok: true, enabled: cfg.enabled }), { headers: CORS });
+}
+async function handlePull(url) {
+  const id = url.searchParams.get('clientId') || 'default';
+  const cfg = store.get(id);
+  if (!cfg) return new Response(JSON.stringify({ ok: true, messages: [] }), { headers: CORS });
+  const msgs = cfg.messages || []; cfg.messages = [];
+  if (cfg.enabled && cfg.intervalMin > 0 && msgs.length === 0) {
+    try { await generateFor(cfg); const f = cfg.messages.shift(); if (f) msgs.push(f); } catch (_) {}
+  }
+  return new Response(JSON.stringify({ ok: true, messages: msgs }), { headers: CORS });
+}
+async function generateFor(cfg) {
+  if (!cfg.baseUrl || !cfg.apiKey || !cfg.model) return;
+  const sys = cfg.persona ? ('你正在扮演以下角色：\n' + cfg.persona + '\n\n请根据角色人设，自然地发一句想对用户说的话。') : '请发一句自然的问候。';
+  const msgs = [{ role: 'system', content: sys }];
+  if (cfg.memory) msgs.push({ role: 'system', content: '用户记忆：\n' + cfg.memory });
+  msgs.push({ role: 'user', content: cfg.prompt || '现在你想对我说什么？用一句话回复。' });
+  const resp = await fetch(cfg.baseUrl.replace(/\/+$/, '') + '/chat/completions', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cfg.apiKey },
+    body: JSON.stringify({ model: cfg.model, messages: msgs, temperature: 0.9, max_tokens: 200 }),
+  });
+  if (!resp.ok) { cfg.nextAt = Date.now() + 300000; return; }
+  const d = await resp.json();
+  const c = d && d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content;
+  if (c) { if (!cfg.messages) cfg.messages = []; cfg.messages.push({ content: String(c).trim(), generatedAt: Date.now() }); }
+  cfg.nextAt = Date.now() + cfg.intervalMin * 60000;
+}
+`.trim();
+
+// ===== 主动消息：配置下发到 Worker + 前端定时拉取 =====
+async function pushAutopushConfigToWorker(enabled, intervalMin, prompt) {
+  const cf = getCfSettings();
+  if (!cf.workerUrl) { toast('请先在「设置」里部署 Worker'); return false; }
+  const c = await getChar();
+  const { entries } = await getMemory();
+  const s = getSettings();
+
+  try {
+    const resp = await fetch(cf.workerUrl + '/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clientId: CLIENT_ID,
+        baseUrl: s.baseUrl,
+        apiKey: s.apiKey,
+        model: s.model,
+        persona: c.persona,
+        memory: formatMemory(entries),
+        intervalMin: intervalMin || 0,
+        prompt: prompt || '',
+        enabled: enabled,
+      }),
+    });
+    const data = await resp.json();
+    if (!data.ok) throw new Error(data.error || '未知错误');
+    return true;
+  } catch (err) {
+    toast('Worker 配置失败：' + (err && err.message ? err.message : err));
+    return false;
+  }
+}
+
+async function pullAutopushMessages() {
+  const cf = getCfSettings();
+  if (!cf.workerUrl) return [];
+  try {
+    const resp = await fetch(cf.workerUrl + '/pull?clientId=' + encodeURIComponent(CLIENT_ID));
+    const data = await resp.json();
+    if (data.ok && Array.isArray(data.messages)) return data.messages;
+  } catch (_) { /* 静默 */ }
+  return [];
+}
+
+// 前端定期拉取主动消息（每 60 秒）
+async function pollAutopush() {
+  const msgs = await pullAutopushMessages();
+  if (!msgs || msgs.length === 0) return;
+  // 上屏为角色消息
+  await mutateHistory((arr) => {
+    msgs.forEach((m) => arr.push({ role: 'assistant', content: m.content, autopush: true }));
+  });
+  await renderChat();
+}
+
+function startAutopushPolling() {
+  stopAutopushPolling();
+  autopushInterval = setInterval(pollAutopush, 60 * 1000); // 每 60 秒拉一次
+  // 立即拉一次
+  pollAutopush();
+}
+
+function stopAutopushPolling() {
+  if (autopushInterval) { clearInterval(autopushInterval); autopushInterval = null; }
+}
+
+// 主动消息弹窗
+let autopushSelectedMin = 15;
+let autopushCustomMin = 30;
+
+async function openAutopushModal() {
+  // 重置 UI
+  document.querySelectorAll('.interval-tab').forEach((t) => {
+    t.classList.toggle('active', parseInt(t.dataset.min, 10) === autopushSelectedMin);
+  });
+  $('input-autopush-min').value = autopushCustomMin;
+  $('interval-custom-row').hidden = autopushSelectedMin !== 0;
+
+  // 检查当前状态
+  const cf = getCfSettings();
+  const statusRow = $('autopush-status-row');
+  const disableBtn = $('btn-autopush-disable');
+
+  if (!cf.workerUrl) {
+    statusRow.hidden = false;
+    statusRow.textContent = '⚠ 还没部署 Worker，请先到「设置 → 主动消息推送」里一键部署。';
+    statusRow.style.background = 'rgba(255, 80, 80, 0.12)';
+    disableBtn.hidden = true;
+  } else {
+    statusRow.hidden = false;
+    statusRow.textContent = '✓ Worker 已就绪：' + cf.workerUrl;
+    statusRow.style.background = 'rgba(80, 200, 120, 0.12)';
+    disableBtn.hidden = false;
+  }
+
+  $('modal-autopush').hidden = false;
+}
+
+function closeAutopushModal() {
+  $('modal-autopush').hidden = true;
+}
+
+function saveAutopushSettings() {
+  const intervalMin = autopushSelectedMin === 0 ? autopushCustomMin : autopushSelectedMin;
+  if (!intervalMin || intervalMin < 1) { toast('请设置有效的间隔时间'); return; }
+  const prompt = $('input-autopush-prompt').value.trim();
+
+  pushAutopushConfigToWorker(true, intervalMin, prompt).then((ok) => {
+    if (ok) {
+      startAutopushPolling();
+      closeAutopushModal();
+      toast('主动消息已开启，每 ' + intervalMin + ' 分钟尝试生成一次');
+    }
+  });
+}
+
+function disableAutopush() {
+  pushAutopushConfigToWorker(false, 0, '').then((ok) => {
+    if (ok) {
+      stopAutopushPolling();
+      closeAutopushModal();
+      toast('主动消息已关闭');
+    }
+  });
+}
+
+function togglePlusMenu(force) {
+  plusMenuOpen = force !== undefined ? force : !plusMenuOpen;
+  $('plus-menu').hidden = !plusMenuOpen;
+}
+
 // ===== 事件绑定 =====
 $('tab-select').addEventListener('click', () => setModelMode('select'));
 $('tab-manual').addEventListener('click', () => setModelMode('manual'));
@@ -601,7 +896,55 @@ $('chk-batch').addEventListener('change', saveTriggerSettings);
 $('chk-countdown').addEventListener('change', saveTriggerSettings);
 $('input-countdown-sec').addEventListener('input', saveTriggerSettings);
 
-// 启动：迁移旧数据 → 读取界面
+// Cloudflare Token 显示/隐藏
+$('btn-toggle-cf-token').addEventListener('click', () => {
+  const inp = $('input-cf-token');
+  const revealing = inp.type === 'password';
+  inp.type = revealing ? 'text' : 'password';
+  $('btn-toggle-cf-token').textContent = revealing ? '隐藏' : '显示';
+});
+
+// CF 设置输入即保存
+['input-cf-token', 'input-cf-account', 'input-cf-worker-url'].forEach((id) => {
+  $(id).addEventListener('blur', save);
+});
+
+// 一键部署 Worker
+$('btn-cf-deploy').addEventListener('click', deployCfWorker);
+
+// 加号菜单
+$('btn-chat-plus').addEventListener('click', (e) => { e.stopPropagation(); togglePlusMenu(); });
+document.addEventListener('click', (e) => {
+  if (plusMenuOpen && !$('plus-menu').contains(e.target) && !$('btn-chat-plus').contains(e.target)) {
+    togglePlusMenu(false);
+  }
+});
+
+// 加号菜单 → 主动消息
+$('btn-plus-autopush').addEventListener('click', () => {
+  togglePlusMenu(false);
+  openAutopushModal();
+});
+
+// 主动消息弹窗
+$('btn-autopush-close').addEventListener('click', closeAutopushModal);
+$('modal-autopush').addEventListener('click', (e) => {
+  if (e.target.id === 'modal-autopush') closeAutopushModal();
+});
+document.querySelectorAll('.interval-tab').forEach((tab) => {
+  tab.addEventListener('click', () => {
+    autopushSelectedMin = parseInt(tab.dataset.min, 10);
+    document.querySelectorAll('.interval-tab').forEach((t) => t.classList.toggle('active', t === tab));
+    $('interval-custom-row').hidden = autopushSelectedMin !== 0;
+  });
+});
+$('input-autopush-min').addEventListener('input', () => {
+  autopushCustomMin = parseInt($('input-autopush-min').value, 10) || 30;
+});
+$('btn-autopush-save').addEventListener('click', saveAutopushSettings);
+$('btn-autopush-disable').addEventListener('click', disableAutopush);
+
+// 启动：迁移旧数据 → 读取界面 → 启动主动消息轮询
 (async function init() {
   try {
     await migrate();
@@ -610,4 +953,7 @@ $('input-countdown-sec').addEventListener('input', saveTriggerSettings);
   }
   loadSaved();
   try { await loadCharConfig(); } catch (_) {}
+  // 如果 Worker URL 已配，启动轮询
+  const cf = getCfSettings();
+  if (cf.workerUrl) startAutopushPolling();
 })();

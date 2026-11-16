@@ -257,7 +257,8 @@ function fileToAvatar(file) {
     reader.onload = () => {
       const img = new Image();
       img.onload = () => {
-        const max = 200;
+        // 最大边 800px，兼顾清晰度和存储空间；JPEG 质量 0.92 保真
+        const max = 800;
         let w = img.width;
         let h = img.height;
         if (w > max || h > max) {
@@ -272,7 +273,7 @@ function fileToAvatar(file) {
         canvas.toBlob((blob) => {
           if (blob) resolve(blob);
           else reject(new Error('图片处理失败'));
-        }, 'image/jpeg', 0.85);
+        }, 'image/jpeg', 0.92);
       };
       img.onerror = () => reject(new Error('图片读取失败'));
       img.src = reader.result;

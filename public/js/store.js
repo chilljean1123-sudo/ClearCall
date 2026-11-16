@@ -42,6 +42,31 @@ const MEMORY_CATEGORY_LABELS = {
   style: '风格偏好',
 };
 
+// ---------- Cloudflare Worker 配置（用于主动消息推送） ----------
+// 用户自部署 Worker，填入 Token 和 Worker URL 后，系统自动完成配置
+const CF_KEYS = {
+  token: 'clearcall.cfToken',          // Cloudflare API Token（需具备 Workers Edit + Account Settings Read 权限）
+  accountId: 'clearcall.cfAccountId',  // Account ID（设置后可自动部署 Worker）
+  workerUrl: 'clearcall.cfWorkerUrl',  // Worker 已部署的 URL（部署后自动填入）
+  workerName: 'clearcall.cfWorkerName', // Worker 名称（部署后自动填入）
+};
+
+function getCfSettings() {
+  return {
+    token: localStorage.getItem(CF_KEYS.token) || '',
+    accountId: localStorage.getItem(CF_KEYS.accountId) || '',
+    workerUrl: localStorage.getItem(CF_KEYS.workerUrl) || '',
+    workerName: localStorage.getItem(CF_KEYS.workerName) || '',
+  };
+}
+
+function setCfSettings(s) {
+  localStorage.setItem(CF_KEYS.token, (s && s.token) || '');
+  localStorage.setItem(CF_KEYS.accountId, (s && s.accountId) || '');
+  localStorage.setItem(CF_KEYS.workerUrl, (s && s.workerUrl) || '');
+  localStorage.setItem(CF_KEYS.workerName, (s && s.workerName) || '');
+}
+
 // ---------- AI 接口设置（localStorage） ----------
 function getSettings() {
   return {
@@ -383,6 +408,7 @@ async function buildBackup() {
   const settings = getSettings();
   const trigger = getTriggerModes();
   const memorySettings = getMemorySettings();
+  const cfSettings = getCfSettings();
   const charDoc = (await getDoc(DOC_CHARACTER)) || {};
   const chatDoc = (await getDoc(DOC_CHAT)) || {};
   const memDoc = (await getDoc(DOC_MEMORY)) || {};
@@ -401,6 +427,7 @@ async function buildBackup() {
     settings,
     trigger,
     memorySettings,
+    cfSettings,
     character: { name: charDoc.name || '', persona: charDoc.persona || '', avatarId },
     chatHistory: Array.isArray(chatDoc.messages) ? chatDoc.messages : [],
     memory: {
@@ -417,6 +444,7 @@ async function applyBackup(data) {
   setSettings(data.settings || {});
   setTriggerModes(data.trigger || {});
   setMemorySettings(data.memorySettings || {});
+  setCfSettings(data.cfSettings || {});
 
   // 图片：先清空旧文件，再写入备份里的（Blob），避免残留孤儿文件
   await clearFiles();
