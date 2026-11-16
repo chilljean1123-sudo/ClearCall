@@ -353,22 +353,10 @@ function renderMessage(m, index, avatar, name, ctx) {
   const stack = document.createElement('div');
   stack.className = 'msg-stack';
 
-  if (m.error) {
-    const bubble = document.createElement('div');
-    bubble.className = 'msg-bubble assistant-bubble error-bubble';
-    bubble.textContent = '回复失败';
-    stack.appendChild(bubble);
-    const retry = document.createElement('button');
-    retry.type = 'button';
-    retry.className = 'retry-btn';
-    retry.textContent = '重试';
-    retry.dataset.index = String(index);
-    retry.addEventListener('click', () => retryReply(index));
-    stack.appendChild(retry);
-  } else {
-    const parts = splitReplyIntoBubbles(m.content);
-    parts.forEach((part) => renderAssistantPart(stack, part, ctx));
-  }
+  if (m.error) return null;
+
+  const parts = splitReplyIntoBubbles(m.content);
+  parts.forEach((part) => renderAssistantPart(stack, part, ctx));
 
   if (ctx && ctx.voiceEnabled && !m.error) {
     const voice = document.createElement('button');
@@ -442,9 +430,74 @@ async function renderMessagesInto(boxId, options) {
     voiceEnabled: !!(c.voice && c.voice.enabled),
   };
   for (let i = start; i < history.length; i++) {
-    box.appendChild(renderMessage(history[i], i, c.avatar, c.name, ctx));
+    const row = renderMessage(history[i], i, c.avatar, c.name, ctx);
+    if (row) box.appendChild(row);
   }
+  renderChatErrorNotice(history, !!(options && options.call));
   box.scrollTop = box.scrollHeight;
+}
+
+// 请求失败不占聊天气泡，单独以灰底浮层提示，附原因与重试
+function renderChatErrorNotice(history, isCall) {
+  const view = isCall ? document.getElementById('view-call') : document.getElementById('view-chat');
+  if (!view) return;
+  let layer = view.querySelector('.chat-notice-layer');
+  if (!layer) {
+    layer = document.createElement('div');
+    layer.className = 'chat-notice-layer';
+    view.appendChild(layer);
+  }
+  layer.classList.toggle('call', isCall);
+  layer.innerHTML = '';
+  const last = history[history.length - 1];
+  if (!last || !last.error) {
+    layer.hidden = true;
+    return;
+  }
+  layer.hidden = false;
+
+  const notice = document.createElement('div');
+  notice.className = 'chat-notice';
+
+  const title = document.createElement('div');
+  title.className = 'chat-notice-title';
+  title.textContent = '回复失败';
+  notice.appendChild(title);
+
+  const text = document.createElement('div');
+  text.className = 'chat-notice-text';
+  text.textContent = String(last.errorReason || '请求没有成功，请稍后重试。');
+  notice.appendChild(text);
+
+  const hints = Array.isArray(last.errorHints) ? last.errorHints.filter(Boolean) : [];
+  if (hints.length) {
+    const hintEl = document.createElement('div');
+    hintEl.className = 'chat-notice-hint';
+    hintEl.textContent = hints.join(' · ');
+    notice.appendChild(hintEl);
+  }
+
+  const actions = document.createElement('div');
+  actions.className = 'chat-notice-actions';
+  const retry = document.createElement('button');
+  retry.type = 'button';
+  retry.className = 'chat-notice-btn';
+  retry.textContent = '重试';
+  retry.addEventListener('click', () => {
+    layer.hidden = true;
+    retryReply(history.length - 1);
+  });
+  actions.appendChild(retry);
+
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.className = 'chat-notice-btn ghost';
+  close.textContent = '收起';
+  close.addEventListener('click', () => { layer.hidden = true; });
+  actions.appendChild(close);
+  notice.appendChild(actions);
+
+  layer.appendChild(notice);
 }
 
 async function renderChat() {
@@ -1564,6 +1617,94 @@ function renderCharacterForm(character, avatarUrl, refImageUrl, personaUrl) {
   btns.appendChild(saveBtn);
   btns.appendChild(cancelBtn);
   box.appendChild(btns);
+
+  // ---- 轻量卡片式重排：只调整层级与分组，保留全部字段、ID 与事件 ----
+  const pane = document.querySelector('.characters-body');
+  if (pane) pane.classList.add('char-form-open');
+
+  title.className = 'char-sheet-title';
+  const headWrap = document.createElement('div');
+  headWrap.className = 'char-sheet-head';
+  const sub = document.createElement('div');
+  sub.className = 'char-sheet-sub';
+  sub.textContent = character ? '修改后保存即可生效' : '填写角色档案，保存后开始聊天';
+  box.insertBefore(headWrap, title);
+  headWrap.appendChild(title);
+  headWrap.appendChild(sub);
+
+  const mainCard = document.createElement('div');
+  mainCard.className = 'char-form-card';
+  box.insertBefore(mainCard, name);
+
+  const cardHead = document.createElement('div');
+  cardHead.className = 'char-form-card-head';
+  const cardTitle = document.createElement('div');
+  cardTitle.className = 'char-form-card-title';
+  cardTitle.textContent = '角色档案';
+  const cardSub = document.createElement('div');
+  cardSub.className = 'char-form-card-sub';
+  cardSub.textContent = '头像、人设大图与基础资料';
+  cardHead.appendChild(cardTitle);
+  cardHead.appendChild(cardSub);
+  mainCard.appendChild(cardHead);
+
+  const photoRow = document.createElement('div');
+  photoRow.className = 'char-photo-row';
+  mainCard.appendChild(photoRow);
+
+  const avatarLabel = document.createElement('div');
+  avatarLabel.className = 'char-photo-label';
+  avatarLabel.textContent = '角色头像';
+  avatarRow.insertBefore(avatarLabel, preview);
+  avatarRow.className = 'char-photo-card';
+  uploadBtn.className = 'char-photo-btn';
+  clearBtn.className = 'char-photo-btn ghost';
+  photoRow.appendChild(avatarRow);
+
+  const personaLabel = document.createElement('div');
+  personaLabel.className = 'char-photo-label';
+  personaLabel.textContent = '人设大图';
+  personaRow.insertBefore(personaLabel, personaPreview);
+  personaRow.className = 'char-photo-card';
+  personaUpload.className = 'char-photo-btn';
+  personaClear.className = 'char-photo-btn ghost';
+  photoRow.appendChild(personaRow);
+
+  const fields = document.createElement('div');
+  fields.className = 'char-form-fields';
+  const wrapField = (control, labelText) => {
+    const fieldEl = document.createElement('div');
+    fieldEl.className = 'char-field';
+    const labelEl = document.createElement('div');
+    labelEl.className = 'char-field-label';
+    labelEl.textContent = labelText;
+    fieldEl.appendChild(labelEl);
+    fieldEl.appendChild(control);
+    fields.appendChild(fieldEl);
+  };
+  wrapField(name, '角色名');
+  wrapField(remark, '备注');
+  wrapField(persona, '人设');
+  mainCard.appendChild(fields);
+
+  const voiceCard = document.createElement('div');
+  voiceCard.className = 'char-bind-card';
+  box.insertBefore(voiceCard, voiceDrawer.root);
+  voiceCard.appendChild(voiceDrawer.root);
+
+  const imageCard = document.createElement('div');
+  imageCard.className = 'char-bind-card';
+  box.insertBefore(imageCard, imageDrawer.root);
+  imageCard.appendChild(imageDrawer.root);
+
+  btns.className = 'char-form-actions';
+  saveBtn.className = 'char-primary-btn';
+  cancelBtn.className = 'char-ghost-btn';
+  btns.innerHTML = '';
+  btns.appendChild(cancelBtn);
+  btns.appendChild(saveBtn);
+  box.classList.add('char-sheet');
+  if (box.scrollIntoView) box.scrollIntoView({ block: 'start' });
 }
 
 // ===== 通讯录：我的主页（用户人设，可多套） =====

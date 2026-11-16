@@ -448,12 +448,18 @@ function resetPendingImages() {
   resetPendingRefImage();
 }
 
+function setCharacterFormOpen(open) {
+  const pane = document.querySelector('.characters-body');
+  if (pane) pane.classList.toggle('char-form-open', !!open);
+}
+
 function cancelCharacterForm() {
   editingCharacterId = null;
   resetPendingImages();
   const box = $('character-form');
   box.hidden = true;
   box.innerHTML = '';
+  setCharacterFormOpen(false);
 }
 
 // 读取角色表单：基础信息 + 语音绑定 + 生图绑定
@@ -499,6 +505,7 @@ async function saveCharacterForm() {
     const box = $('character-form');
     box.hidden = true;
     box.innerHTML = '';
+    setCharacterFormOpen(false);
     await renderCharactersUI();
     await updateChatTitle();
     toast('角色已保存');
@@ -1287,7 +1294,13 @@ async function flushQueue() {
   removeTyping();
   const replyMsg = (result && result.ok)
     ? { role: 'assistant', content: result.reply }
-    : { role: 'assistant', content: '', error: true };
+    : {
+      role: 'assistant',
+      content: '',
+      error: true,
+      errorReason: (result && result.reason) || '请求没有成功，请稍后重试。',
+      errorHints: (result && result.hints) || [],
+    };
   // 角色可能在等待回复期间被删除：这时丢弃回复，避免重建数据
   const stillExists = !!(await getCharacter(characterId));
   if (stillExists) {
@@ -1351,7 +1364,13 @@ async function retryReply(index) {
   removeTyping();
   const replyMsg = (result && result.ok)
     ? { role: 'assistant', content: result.reply }
-    : { role: 'assistant', content: '', error: true };
+    : {
+      role: 'assistant',
+      content: '',
+      error: true,
+      errorReason: (result && result.reason) || '请求没有成功，请稍后重试。',
+      errorHints: (result && result.hints) || [],
+    };
   if (await getCharacter(characterId)) {
     await mutateHistory((arr) => {
       if (arr[index] && arr[index].role === 'assistant') arr[index] = replyMsg;
@@ -4265,17 +4284,17 @@ $('file-char-persona').addEventListener('change', async (e) => {
   const f = e.target.files && e.target.files[0];
   e.target.value = '';
   if (!f) return;
-  try {
-    const blob = await fileToAvatar(f);
-    if (pendingPersonaImageUrl) URL.revokeObjectURL(pendingPersonaImageUrl);
-    pendingPersonaImage = { blob, type: 'image/jpeg', name: f.name };
-    pendingPersonaImageUrl = URL.createObjectURL(blob);
-    const preview = $('char-persona-preview');
-    if (preview) preview.innerHTML = '<img class="msg-avatar-img" src="' + pendingPersonaImageUrl + '" alt="" />';
-    toast('人设大图已选择，保存角色后生效');
-  } catch (err) {
-    toast(err && err.message ? err.message : '人设大图读取失败');
+  if (!String(f.type || '').startsWith('image/')) {
+    toast('请选择图片文件');
+    return;
   }
+  // 人设大图保持原图，不缩放不压缩
+  if (pendingPersonaImageUrl) URL.revokeObjectURL(pendingPersonaImageUrl);
+  pendingPersonaImage = { blob: f, type: f.type, name: f.name };
+  pendingPersonaImageUrl = URL.createObjectURL(f);
+  const preview = $('char-persona-preview');
+  if (preview) preview.innerHTML = '<img class="msg-avatar-img" src="' + pendingPersonaImageUrl + '" alt="" />';
+  toast('人设大图已选择，保存角色后生效');
 });
 $('file-char-ref').addEventListener('change', async (e) => {
   const f = e.target.files && e.target.files[0];
