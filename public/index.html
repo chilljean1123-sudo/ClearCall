@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>我的虚拟手机</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -695,11 +695,20 @@
                 <div class="appearance-preview wallpaper-preview" id="wallpaper-preview">
                   <span class="preview-empty">默认渐变</span>
                 </div>
+                <div class="wallpaper-device" id="wallpaper-device">正在读取这块屏幕…</div>
+                <div class="backup-row">
+                  <select id="select-wallpaper-fit" class="wallpaper-fit-select" aria-label="壁纸铺满方式">
+                    <option value="cover">自动铺满</option>
+                    <option value="contain">完整显示</option>
+                    <option value="auto">原始大小</option>
+                  </select>
+                  <button type="button" class="fetch-btn" id="btn-wallpaper-fill">自动铺满</button>
+                </div>
                 <div class="backup-row">
                   <button type="button" class="fetch-btn" id="btn-wallpaper-pick">上传壁纸</button>
                   <button type="button" class="fetch-btn" id="btn-wallpaper-clear">恢复默认</button>
                 </div>
-                <span class="field-hint">一张竖图，铺满此刻。</span>
+                <span class="field-hint">按机型与屏幕比例，自动贴满。</span>
               </div>
 
               <div class="field">

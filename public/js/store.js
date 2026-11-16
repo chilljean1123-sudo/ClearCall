@@ -514,11 +514,16 @@ function normalizeHomeItems(raw) {
   return out;
 }
 
+function normalizeWallpaperFit(value) {
+  return value === 'contain' || value === 'auto' ? value : 'cover';
+}
+
 function normalizeAppearance(doc) {
   const d = doc || {};
   const color = (v) => (/^#[0-9a-f]{6}$/i.test(String(v || '')) ? String(v).toLowerCase() : '');
   return {
     wallpaperId: d.wallpaperId || null,
+    wallpaperFit: normalizeWallpaperFit(d.wallpaperFit),
     icons: normalizeIconIds(d.icons),
     widgets: normalizeWidgetIds(d.widgets),
     homeItems: normalizeHomeItems(d.homeItems),
@@ -539,6 +544,7 @@ function setAppearance(patch) {
   return mutateDoc(DOC_APPEARANCE, (doc) => {
     const next = Object.assign(normalizeAppearance(doc), patch || {});
     doc.wallpaperId = next.wallpaperId || null;
+    doc.wallpaperFit = normalizeWallpaperFit(next.wallpaperFit);
     doc.icons = normalizeIconIds(next.icons);
     doc.widgets = normalizeWidgetIds(next.widgets);
     doc.homeItems = normalizeHomeItems(next.homeItems);
@@ -3092,11 +3098,16 @@ async function applyBackup(data) {
   await putDoc({
     id: DOC_APPEARANCE,
     wallpaperId: appearance.wallpaperId,
+    wallpaperFit: appearance.wallpaperFit,
     icons: appearance.icons,
+    widgets: appearance.widgets,
+    homeItems: appearance.homeItems,
     statusBar: appearance.statusBar,
     bubbleColor: appearance.bubbleColor,
     fontColor: appearance.fontColor,
     fontFamily: appearance.fontFamily,
+    fontFileId: appearance.fontFileId,
+    fontFileName: appearance.fontFileName,
   });
   const notification = normalizeNotification(data.notification);
   await putDoc({

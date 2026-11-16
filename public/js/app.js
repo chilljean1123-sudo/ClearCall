@@ -282,6 +282,7 @@ async function refreshAppearance() {
   }));
   applyAppearance(cfg, wallpaperUrl, iconUrls, widgetUrls);
   refreshIconManagerIfOpen();
+  renderWallpaperDevice();
 }
 
 // ---- 通知：浏览器推送 / 自定义提示音 / 后台保活 ----
@@ -4482,6 +4483,7 @@ function initNativeShell() {
   if (!bridge || !entry) return;
   entry.hidden = false;
   document.documentElement.classList.add('native-shell');
+  renderWallpaperDevice();
   refreshShellSettings();
   window.__refreshShellState = refreshShellSettings;
   document.addEventListener('visibilitychange', () => {
@@ -6288,6 +6290,26 @@ $('file-wb-import').addEventListener('change', importWorldbookFile);
 $('wb-scope-select').addEventListener('change', (e) => switchWorldbookScope(e.target.value));
 
 // 美化：壁纸 / 图标壁纸 / 状态栏
+$('select-wallpaper-fit').addEventListener('change', async (e) => {
+  const fit = e.target.value;
+  try {
+    await setAppearance({ wallpaperFit: fit });
+    await refreshAppearance();
+    toast(fit === 'contain' ? '壁纸：完整显示' : fit === 'auto' ? '壁纸：原始大小' : '壁纸：自动铺满');
+  } catch (err) {
+    toast('铺满方式保存失败：' + (err && err.message ? err.message : err));
+  }
+});
+$('btn-wallpaper-fill').addEventListener('click', async () => {
+  try {
+    const cfg = await getAppearance();
+    await setAppearance({ wallpaperFit: 'cover' });
+    await refreshAppearance();
+    toast(cfg.wallpaperId ? '已铺满这块屏幕' : '先放一张壁纸，再自动铺满');
+  } catch (err) {
+    toast('自动铺满失败：' + (err && err.message ? err.message : err));
+  }
+});
 $('btn-wallpaper-pick').addEventListener('click', () => $('file-wallpaper').click());
 $('btn-wallpaper-clear').addEventListener('click', async () => {
   try {

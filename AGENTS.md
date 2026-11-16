@@ -42,7 +42,7 @@
 - 表情包按角色存在 `stickers:<角色id>` 文档，只保存远程 URL 与名称；导入时自动绑定当前角色。角色主动发表情包用 `[[sticker:名称]]` 标记（兼容 id），标记可能和正文混在同一回复里，渲染层必须逐段解析成图片并剥离标记，不能把代码原样显示。
 - 电话应用复用角色的聊天记录；通话内发送忽略回复触发设置，直接请求 AI；「重拨」会删掉最后一条角色回复后重新请求。语音合成走后端 `/api/tts`（Vercel 为 `api/tts.js`），无后端时直连 `/audio/speech`；只有角色开启语音才自动播放，浏览器拦截时降级为气泡上的「点按播放」。
 - 电话挂断后要把本次新增对话写入该角色记忆（`rememberCallToMemory`）：记忆服务可用时走摘要，未配置或失败时写一条本地摘要兜底，之后再把 `lastSummarizedCount` 推进到最新，避免重复整理。
-- 美化数据：主屏壁纸与每个应用图标的图片都存 `files`，`appearance` 用 `wallpaperId` + `icons: { appId: fileId }` 记录引用；禁止用一张图统一覆盖所有图标。单个应用设置自定义图标后，用 `.app-glyph.custom-icon` 隐藏默认底图、边框、线条图标，只显示上传图片。状态栏只做覆盖层，`.app-view` 统一用 `--statusbar-space` 预留安全区，关闭状态栏时只隐藏内容、不取消占位。
+- 美化数据：主屏壁纸与每个应用图标的图片都存 `files`，`appearance` 用 `wallpaperId` + `icons: { appId: fileId }` 记录引用；壁纸铺满方式存 `wallpaperFit`（`cover` 自动铺满 / `contain` 完整显示 / `auto` 原始大小），由 `applyAppearance` 写到 `#view-home` 的 `background-size`。安卓壳通过 `getDeviceInfo` 显示机型、物理分辨率与英寸数。禁止用一张图统一覆盖所有图标。单个应用设置自定义图标后，用 `.app-glyph.custom-icon` 隐藏默认底图、边框、线条图标，只显示上传图片。状态栏只做覆盖层，`.app-view` 统一用 `--statusbar-space` 预留安全区，关闭状态栏时只隐藏内容、不取消占位。
 - 桌面布局存 `appearance.homeItems`（应用与小组件混排的扁平数组），`appearance.widgets` 存三个图片小组件的 `fileId`（`small1` / `small2` / `large`）。主屏按 20 格容量自动分页，空间不足自动新建下一页，Dock 固定不随页面移动；小组件 `small` 占 2×2、`large` 占 4×2，图片 Blob 存 `files`。长按桌面图标或小组件进入整理，拖动可换位、可跨页；换图、取下小组件或恢复默认时要清理旧 Blob。
 - 通知数据：开关与后台保活存 `notification` 文档（`enabled`、`keepAlive`、`soundId` / `soundName` / `soundType`），自定义提示音 Blob 存 `files`，备份随 `files` 一起导出；换提示音或清除时要删除旧文件。
 - Dock 只放核心入口（电话、聊天、通讯录、设置），桌面网格放信息、相机、记忆、世界书、论坛、邮箱、阅读、日程；新增应用继续按「高频放 Dock、内容型放桌面」分配，主屏网格保持完整入口。
@@ -72,9 +72,9 @@
 ## 安卓壳（android/）
 
 - `android/` 是 WebView 壳，加载 `BuildConfig.APP_URL`（Gradle 属性 `clearcallAppUrl` 或环境变量 `CLEARCALL_APP_URL`）；加载失败时弹原生输入框填写站点地址，存 `SharedPreferences`。
-- 全屏采用 edge-to-edge：隐藏系统栏，按 `displayCutout` 顶/左/右与手势区、输入法底部动态加安全内边距；WebView 不因旋转重建。
+- 全屏采用 edge-to-edge：隐藏系统栏，WebView 一直铺到屏幕边缘；刘海高度、手势区高度按屏幕密度换算成 CSS px 写入 `--shell-inset-top/bottom`，网页再用这些变量留白，禁止给根布局加全局 padding（会出现上下色带）。只有软键盘弹出时才给根部加底部 padding。
 - 侧边返回通过 `window.__handleAndroidBack()` 回到网页上一个页面（优先点当前页返回按钮），主屏再按一次才退出；键盘打开时先收起键盘。
-- 原生能力由 `ClearCallNative` 注入：`getShellState / notify / scheduleNotification / enableNativePush / disableNativePush / requestIgnoreBatteryOptimizations / openBatteryOptimizationSettings / saveTextFile`；网页端「设置 → 手机壳」按桥是否存在显示。备份与世界书导出在壳内走 `saveTextFile`（系统文件选择器），浏览器仍用 Blob 下载。
+- 原生能力由 `ClearCallNative` 注入：`getDeviceInfo / getShellState / notify / scheduleNotification / enableNativePush / disableNativePush / requestIgnoreBatteryOptimizations / openBatteryOptimizationSettings / saveTextFile`；网页端「设置 → 手机壳」按桥是否存在显示。备份与世界书导出在壳内走 `saveTextFile`（系统文件选择器），浏览器仍用 Blob 下载。
 - 推送走 WorkManager（`PushWorker`）+ 通知渠道，网页 `sendBrowserNotification()` 在壳内优先走原生。
 - GitHub Actions `.github/workflows/android.yml` 构建 debug APK 并上传 artifact；打 `v*` tag 时附加到 Release。
 
@@ -129,6 +129,7 @@
 - 壁纸必须给 `#view-home` 显式写 `background-size: cover; background-position: center; background-repeat: no-repeat;`，只改 inline `background-image` 会沿用 CSS 简写的 `auto`，大图只露左上角，看起来像「没换壁纸」。选图时同时兼容空 MIME 的手机相册文件（按扩展名判断）。
 - 天气使用免 Key 的 Open-Meteo：`geocoding-api.open-meteo.com/v1/search` 取坐标，`api.open-meteo.com/v1/forecast?current=temperature_2m,weather_code` 取实况；定位坐标反查城市用 `api.bigdatacloud.net/data/reverse-geocode-client`。天气失败时显示「天气暂时迷路了」，不能静默。
 - WebView 壳里不要调用 `webView.onPause()`，否则网页定时任务与后台保活会停；只在 `onResume` 里 `resumeTimers()`。返回键先判断输入法是否可见，再看网页返回栈，避免键盘打开时直接跳页。
+- 安卓安全区不要给根布局整圈 padding：系统栏隐藏后露出的窗口底色会形成上下色带。只把刘海/手势区换算成 CSS px 注入 `--shell-inset-*`，键盘弹出时才临时加底部 padding。
 
 ## 待补充
 

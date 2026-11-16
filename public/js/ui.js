@@ -4,6 +4,17 @@
 
 const $ = (id) => document.getElementById(id);
 
+// 安卓壳把刘海、手势区的真实像素传进来，网页按需留白但不铺色块
+window.__setShellInsets = function (insets) {
+  const root = document.documentElement;
+  const px = (v) => Math.max(0, Number(v) || 0) + 'px';
+  const src = insets || {};
+  root.style.setProperty('--shell-inset-top', px(src.top));
+  root.style.setProperty('--shell-inset-right', px(src.right));
+  root.style.setProperty('--shell-inset-bottom', px(src.bottom));
+  root.style.setProperty('--shell-inset-left', px(src.left));
+};
+
 const viewHome = $('view-home');
 const viewSettings = $('view-settings');
 const viewSettingsSub = $('view-settings-sub');
@@ -2221,6 +2232,12 @@ function fileToCustomIcon(file) {
 // ===== 美化：壁纸 / 单个应用图标 / 状态栏 =====
 function applyAppearance(cfg, wallpaperUrl, iconUrls, widgetUrls) {
   const home = $('view-home');
+  const fit = cfg && cfg.wallpaperFit === 'contain'
+    ? 'contain'
+    : cfg && cfg.wallpaperFit === 'auto' ? 'auto' : 'cover';
+  home.style.backgroundSize = fit;
+  const fitSelect = $('select-wallpaper-fit');
+  if (fitSelect) fitSelect.value = fit;
   if (wallpaperUrl) {
     home.style.backgroundImage = 'url("' + wallpaperUrl + '")';
     home.classList.add('has-wallpaper');
@@ -2251,6 +2268,28 @@ function applyAppearance(cfg, wallpaperUrl, iconUrls, widgetUrls) {
   renderHomeLayout(cfg, widgetUrls || {});
   renderWidgetManager(cfg);
   renderAppearancePreview(wallpaperUrl, urls);
+}
+
+function renderWallpaperDevice() {
+  const el = $('wallpaper-device');
+  if (!el) return;
+  const bridge = window.ClearCallNative;
+  let info = null;
+  if (bridge && typeof bridge.getDeviceInfo === 'function') {
+    try { info = JSON.parse(bridge.getDeviceInfo()); } catch (_) { info = null; }
+  }
+  if (!info) {
+    const ratio = window.devicePixelRatio || 1;
+    info = {
+      model: '当前屏幕',
+      width: Math.round((window.screen.width || 0) * ratio),
+      height: Math.round((window.screen.height || 0) * ratio),
+    };
+  }
+  const model = [info.manufacturer, info.model].filter(Boolean).join(' ') || '本机';
+  const size = info.width && info.height ? info.width + ' × ' + info.height : '尺寸未知';
+  const inches = Number(info.inches) > 0 ? ' · ' + Number(info.inches).toFixed(1) + ' 英寸' : '';
+  el.textContent = model + ' · ' + size + inches;
 }
 
 // ===== 主屏分页 / 小组件 / 图标整理 =====

@@ -15,6 +15,7 @@ import android.os.Bundle;
 import android.os.PowerManager;
 import android.provider.Settings;
 import android.text.InputType;
+import android.util.DisplayMetrics;
 import android.view.View;
 import android.view.WindowManager;
 import android.webkit.GeolocationPermissions;
@@ -67,6 +68,10 @@ public class MainActivity extends AppCompatActivity {
     private String geoOrigin;
     private long lastBackAt = 0;
     private boolean urlDialogShowing = false;
+    private int insetTop = 0;
+    private int insetRight = 0;
+    private int insetBottom = 0;
+    private int insetLeft = 0;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -78,6 +83,7 @@ public class MainActivity extends AppCompatActivity {
         getWindow().setStatusBarColor(Color.TRANSPARENT);
         getWindow().setNavigationBarColor(Color.TRANSPARENT);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            getWindow().setNavigationBarDividerColor(Color.TRANSPARENT);
             WindowManager.LayoutParams lp = getWindow().getAttributes();
             lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
             getWindow().setAttributes(lp);
@@ -149,11 +155,29 @@ public class MainActivity extends AppCompatActivity {
             Insets cutout = windowInsets.getInsets(WindowInsetsCompat.Type.displayCutout());
             Insets gestures = windowInsets.getInsets(WindowInsetsCompat.Type.systemGestures());
             Insets ime = windowInsets.getInsets(WindowInsetsCompat.Type.ime());
-            int bottom = Math.max(gestures.bottom, ime.bottom);
-            view.setPadding(cutout.left, cutout.top, cutout.right, bottom);
+            insetTop = cutout.top;
+            insetRight = cutout.right;
+            insetLeft = cutout.left;
+            insetBottom = Math.max(cutout.bottom, gestures.bottom);
+            // 键盘弹出时只缩 WebView 的底部，其余时间铺到屏幕边缘，避免出现色带
+            view.setPadding(0, 0, 0, ime.bottom);
+            injectShellInsets();
             return windowInsets;
         });
         ViewCompat.requestApplyInsets(root);
+    }
+
+    private void injectShellInsets() {
+        if (webView == null) return;
+        float density = getResources().getDisplayMetrics().density;
+        if (density <= 0) density = 1f;
+        int top = Math.round(insetTop / density);
+        int right = Math.round(insetRight / density);
+        int bottom = Math.round(insetBottom / density);
+        int left = Math.round(insetLeft / density);
+        String js = "window.__setShellInsets&&window.__setShellInsets({top:" + top
+                + ",right:" + right + ",bottom:" + bottom + ",left:" + left + "})";
+        webView.evaluateJavascript(js, null);
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -171,7 +195,7 @@ public class MainActivity extends AppCompatActivity {
         settings.setBuiltInZoomControls(false);
         settings.setJavaScriptCanOpenWindowsAutomatically(true);
         settings.setUserAgentString(settings.getUserAgentString() + " ClearCallShell/1.0");
-        webView.setBackgroundColor(Color.parseColor("#F6F3F1"));
+        webView.setBackgroundColor(Color.parseColor("#FEFCFD"));
         if (BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(true);
 
         webView.addJavascriptInterface(new NativeBridge(), "ClearCallNative");
@@ -191,6 +215,7 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onPageFinished(WebView view, String url) {
+                injectShellInsets();
                 refreshShellStateInWeb();
             }
 
@@ -348,6 +373,33 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private class NativeBridge {
+
+        @JavascriptInterface
+        public String getDeviceInfo() {
+            try {
+                DisplayMetrics dm = getResources().getDisplayMetrics();
+                JSONObject info = new JSONObject();
+                info.put("model", Build.MODEL == null ? "" : Build.MODEL);
+                info.put("manufacturer", Build.MANUFACTURER == null ? "" : Build.MANUFACTURER);
+                info.put("width", dm.widthPixels);
+                info.put("height", dm.heightPixels);
+                info.put("density", dm.density);
+                double inches = 0;
+                if (dm.xdpi > 0 && dm.ydpi > 0) {
+                    double w = dm.widthPixels / (double) dm.xdpi;
+                    double h = dm.heightPixels / (double) dm.ydpi;
+                    inches = Math.sqrt(w * w + h * h);
+                }
+                info.put("inches", Math.round(inches * 10) / 10.0);
+                info.put("insetTop", insetTop);
+                info.put("insetRight", insetRight);
+                info.put("insetBottom", insetBottom);
+                info.put("insetLeft", insetLeft);
+                return info.toString();
+            } catch (Exception e) {
+                return "{}";
+            }
+        }
 
         @JavascriptInterface
         public String getShellState() {
