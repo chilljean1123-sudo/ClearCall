@@ -703,6 +703,25 @@ function renderChatToolMenu(body) {
     grid.appendChild(tile);
   });
   body.appendChild(grid);
+
+  // 简单开关不必进抽屉：直接在菜单里滑动开启/关闭
+  const cfg = getAutopushSettings();
+  const quick = uiEl('div', 'tool-quick');
+  const row = uiEl('div', 'switch-row');
+  row.appendChild(uiEl('span', 'switch-label', '主动消息'));
+  const sw = uiEl('button', 'ui-switch' + (cfg.enabled ? ' on' : ''));
+  sw.type = 'button';
+  sw.id = 'switch-autopush';
+  sw.setAttribute('role', 'switch');
+  sw.setAttribute('aria-checked', cfg.enabled ? 'true' : 'false');
+  sw.appendChild(uiEl('span', 'ui-switch-knob'));
+  row.appendChild(sw);
+  quick.appendChild(row);
+  quick.appendChild(uiEl('div', 'field-hint', cfg.enabled
+    ? ('开启中：每 ' + (cfg.intervalMin >= 60 ? (cfg.intervalMin / 60) + ' 小时' : cfg.intervalMin + ' 分钟') + '一条，点右侧开关可关闭。')
+    : '一键开启后，角色会按设定间隔主动发消息；具体间隔点「主动消息」调整。'));
+  body.appendChild(quick);
+
   body.appendChild(uiEl('div', 'tool-hint', '位置、图片、表情包、转账、邮件和日记会进入对应页面；聊天方式按当前角色设置口吻；系统指令不会显示，只影响下一轮回复。'));
 }
 
@@ -2012,6 +2031,8 @@ function applyChatAppearance(cfg) {
     setOrRemove(el, '--chat-font-family', cfg && cfg.fontFamily);
   });
 
+  applyLocalFontFile(cfg, targets);
+
   const bubble = $('input-bubble-color');
   const bubbleLabel = $('bubble-color-value');
   const fontColor = $('input-font-color');
@@ -2024,6 +2045,36 @@ function applyChatAppearance(cfg) {
   if (fontColor) fontColor.value = fontColorValue;
   if (fontColorLabel) fontColorLabel.textContent = (cfg && cfg.fontColor) ? fontColorValue : '默认';
   if (font) font.value = (cfg && cfg.fontFamily) || '';
+
+  const clearBtn = $('btn-font-import-clear');
+  const status = $('font-import-status');
+  if (clearBtn) clearBtn.hidden = !(cfg && cfg.fontFileId);
+  if (status) {
+    status.textContent = (cfg && cfg.fontFileId)
+      ? ('已导入：' + (cfg.fontFileName || '自定义字体') + '（优先于上方字体名）')
+      : '支持 .ttf / .otf / .woff / .woff2，导入后优先于上面的字体名。';
+  }
+}
+
+// 本机字体文件：用 blob URL 注册 @font-face，再挂到聊天窗口
+const LOCAL_FONT_FAMILY = 'ClearCallLocalFont';
+async function applyLocalFontFile(cfg, targets) {
+  const styleEl = $('local-font-face');
+  if (!cfg || !cfg.fontFileId) {
+    if (styleEl) styleEl.textContent = '';
+    return;
+  }
+  const url = await getFileUrl(cfg.fontFileId);
+  if (!url) return;
+  let face = $('local-font-face');
+  if (!face) {
+    face = document.createElement('style');
+    face.id = 'local-font-face';
+    document.head.appendChild(face);
+  }
+  face.textContent = '@font-face{font-family:"' + LOCAL_FONT_FAMILY + '";src:url("' + url + '");font-display:swap;}';
+  const stack = '"' + LOCAL_FONT_FAMILY + '", ' + ((cfg && cfg.fontFamily) || 'inherit');
+  targets.forEach((el) => el.style.setProperty('--chat-font-family', stack));
 }
 
 function renderAppearancePreview(wallpaperUrl) {

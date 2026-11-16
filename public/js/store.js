@@ -426,6 +426,8 @@ function normalizeAppearance(doc) {
     bubbleColor: color(d.bubbleColor),
     fontColor: color(d.fontColor),
     fontFamily: String(d.fontFamily || '').trim().slice(0, 160),
+    fontFileId: d.fontFileId || null,
+    fontFileName: String(d.fontFileName || '').trim().slice(0, 120),
   };
 }
 
@@ -442,7 +444,37 @@ function setAppearance(patch) {
     doc.bubbleColor = next.bubbleColor || '';
     doc.fontColor = next.fontColor || '';
     doc.fontFamily = next.fontFamily || '';
+    doc.fontFileId = next.fontFileId || null;
+    doc.fontFileName = next.fontFileName || '';
   });
+}
+
+// 本机字体文件：存 files，外观文档只留引用
+async function setAppearanceFontBlob(blob, type, name) {
+  const cfg = await getAppearance();
+  const oldId = cfg.fontFileId;
+  const id = genId();
+  await putFile({
+    id,
+    name: name || 'chat-font',
+    type: type || (blob && blob.type) || 'font/ttf',
+    blob,
+  });
+  await setAppearance({ fontFileId: id, fontFileName: name || '自定义字体' });
+  if (oldId) {
+    revokeFileUrl(oldId);
+    try { await deleteFile(oldId); } catch (_) {}
+  }
+  return id;
+}
+
+async function clearAppearanceFont() {
+  const cfg = await getAppearance();
+  if (cfg.fontFileId) {
+    revokeFileUrl(cfg.fontFileId);
+    try { await deleteFile(cfg.fontFileId); } catch (_) {}
+  }
+  await setAppearance({ fontFileId: null, fontFileName: '' });
 }
 
 // 仅主屏幕壁纸
@@ -2411,6 +2443,7 @@ async function buildBackup() {
   const books = await getBooksBackup();
   const appearanceFileIds = [
     appearance.wallpaperId,
+    appearance.fontFileId,
     ...Object.values(appearance.icons),
     notification.soundId,
     forum.profile.avatarId,

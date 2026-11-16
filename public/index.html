@@ -665,6 +665,12 @@
                   <option value="STXingkai, cursive">行楷</option>
                 </datalist>
                 <span class="field-hint">填写本机已安装的字体名，多个用逗号分隔；只作用于聊天窗口。</span>
+                <div class="font-import-row">
+                  <button type="button" class="fetch-btn" id="btn-font-import">导入本机字体文件</button>
+                  <button type="button" class="fetch-btn" id="btn-font-import-clear" hidden>移除字体文件</button>
+                </div>
+                <span class="field-hint" id="font-import-status">支持 .ttf / .otf / .woff / .woff2，导入后优先于上面的字体名。</span>
+                <input type="file" id="file-chat-font" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2" hidden />
               </div>
 
               <div class="field">
@@ -813,11 +819,16 @@
 
       <!-- 角色聊天 -->
       <div class="app-view" id="view-chat">
-        <header class="app-header">
-          <button class="back-btn" id="btn-chat-back" type="button">返回</button>
-          <span class="app-title" id="chat-title">角色聊天</span>
-          <div class="chat-head-actions">
-            <button class="chat-config-btn" id="btn-chat-config" type="button">切换</button>
+        <header class="chat-head">
+          <button class="chat-back-circle" id="btn-chat-back" type="button" aria-label="返回">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5 8 12l7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="chat-capsule">
+            <button class="chat-capsule-btn" id="btn-chat-switch" type="button" aria-haspopup="listbox" aria-expanded="false">
+              <span class="chat-capsule-name" id="chat-title">角色聊天</span>
+              <svg class="chat-capsule-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <div class="chat-char-menu" id="chat-char-menu" role="listbox" hidden></div>
           </div>
         </header>
 

@@ -585,6 +585,82 @@ async function switchActiveCharacter(id) {
   }
 }
 
+// ---- 聊天顶栏胶囊：角色名下拉切换 ----
+async function renderChatCharMenu() {
+  const menu = $('chat-char-menu');
+  if (!menu) return;
+  const { list, activeId } = await getCharacters();
+  menu.innerHTML = '';
+  if (!list.length) {
+    menu.appendChild(uiEl('div', 'chat-char-empty', '还没有角色，去通讯录新建一个'));
+    return;
+  }
+  const ordered = list.slice().sort((a, b) => {
+    if (a.id === activeId) return -1;
+    if (b.id === activeId) return 1;
+    return 0;
+  });
+  for (let i = 0; i < ordered.length; i += 1) {
+    const c = ordered[i];
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'chat-char-item' + (c.id === activeId ? ' active' : '');
+    item.dataset.charId = c.id;
+    item.setAttribute('role', 'option');
+    item.setAttribute('aria-selected', c.id === activeId ? 'true' : 'false');
+    item.style.animationDelay = (i * 24) + 'ms';
+
+    const avatar = document.createElement('span');
+    avatar.className = 'chat-char-avatar';
+    const url = await getAvatarUrlById(c.avatarId);
+    if (url) {
+      const img = document.createElement('img');
+      img.src = url;
+      img.alt = '';
+      avatar.appendChild(img);
+    } else {
+      avatar.textContent = (c.name || '?').slice(0, 1);
+    }
+    item.appendChild(avatar);
+    item.appendChild(uiEl('span', 'chat-char-name', c.name || '未命名角色'));
+    if (c.id === activeId) {
+      const check = document.createElement('span');
+      check.className = 'chat-char-check';
+      check.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 13 4 4L19 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      item.appendChild(check);
+    }
+    menu.appendChild(item);
+  }
+}
+
+async function openChatCharMenu() {
+  const menu = $('chat-char-menu');
+  const btn = $('btn-chat-switch');
+  if (!menu) return;
+  await renderChatCharMenu();
+  menu.hidden = false;
+  btn.setAttribute('aria-expanded', 'true');
+  btn.classList.add('open');
+}
+
+function closeChatCharMenu() {
+  const menu = $('chat-char-menu');
+  const btn = $('btn-chat-switch');
+  if (!menu || menu.hidden) return;
+  menu.hidden = true;
+  if (btn) {
+    btn.setAttribute('aria-expanded', 'false');
+    btn.classList.remove('open');
+  }
+}
+
+async function pickChatCharacter(id) {
+  closeChatCharMenu();
+  if (!id) return;
+  charactersReturnTo = 'chat';
+  await switchActiveCharacter(id);
+}
+
 async function deleteCharacterConfirm(id) {
   const c = await getCharacter(id);
   if (!c) return;
@@ -721,6 +797,7 @@ async function openChat() {
   await renderChat();
   await updateGenerateButton();
   await refreshDirectiveChip();
+  closeChatCharMenu();
   showView(viewChat);
 }
 
@@ -4344,6 +4421,29 @@ async function disableAutopush() {
   toast('已关闭主动消息');
 }
 
+// 抽屉菜单里的一键开关
+async function toggleAutopushQuick() {
+  const cfg = getAutopushSettings();
+  if (cfg.enabled) {
+    setAutopushSettings({ enabled: false, intervalMin: cfg.intervalMin, prompt: cfg.prompt });
+    stopAutopushPolling();
+    await renderChatSheet('menu');
+    toast('已关闭主动消息');
+    return;
+  }
+  if (!getCfSettings().workerUrl) {
+    await renderChatSheet('autopush');
+    toast('请先到「设置 → 主动消息推送」部署 Worker');
+    return;
+  }
+  const min = cfg.intervalMin || 30;
+  setAutopushSettings({ enabled: true, intervalMin: min, prompt: cfg.prompt });
+  setAutopushLastAt(0);
+  startAutopushPolling();
+  await renderChatSheet('menu');
+  toast('主动消息已开启：每 ' + min + ' 分钟一条');
+}
+
 // ===== 事件绑定 =====
 function bindKeyToggle(inputId, btnId) {
   const btn = $(btnId);
@@ -4456,8 +4556,23 @@ $('btn-test').addEventListener('click', async () => {
 });
 
 // 角色聊天导航
-$('btn-chat-back').addEventListener('click', () => { closeChatSheet(); showView(viewHome); });
-$('btn-chat-config').addEventListener('click', () => openCharacters('chat'));
+$('btn-chat-back').addEventListener('click', () => { closeChatCharMenu(); closeChatSheet(); showView(viewHome); });
+$('btn-chat-switch').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const menu = $('chat-char-menu');
+  if (menu && menu.hidden) openChatCharMenu();
+  else closeChatCharMenu();
+});
+$('chat-char-menu').addEventListener('click', (e) => {
+  const item = e.target.closest('[data-char-id]');
+  if (item) pickChatCharacter(item.dataset.charId);
+});
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.chat-capsule')) closeChatCharMenu();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeChatCharMenu();
+});
 $('btn-chat-style-back').addEventListener('click', () => showView(viewChat));
 $('btn-chat-style-save').addEventListener('click', saveChatStyle);
 $('btn-diary-back').addEventListener('click', () => showView(viewChat));
@@ -4681,6 +4796,38 @@ $('input-chat-font').addEventListener('change', async () => {
   }
 });
 
+// 本机字体文件：导入 / 移除
+$('btn-font-import').addEventListener('click', () => $('file-chat-font').click());
+$('file-chat-font').addEventListener('change', async (e) => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  if (!/\.(ttf|otf|woff2?)$/i.test(f.name || '') && !/^font\//.test(f.type || '')) {
+    toast('请选择 .ttf / .otf / .woff / .woff2 字体文件');
+    return;
+  }
+  if (f.size > 12 * 1024 * 1024) {
+    toast('字体文件太大（上限 12MB）');
+    return;
+  }
+  try {
+    await setAppearanceFontBlob(f, f.type || '', f.name || '自定义字体');
+    await refreshAppearance();
+    toast('字体已导入');
+  } catch (err) {
+    toast('字体导入失败：' + (err && err.message ? err.message : err));
+  }
+});
+$('btn-font-import-clear').addEventListener('click', async () => {
+  try {
+    await clearAppearanceFont();
+    await refreshAppearance();
+    toast('已移除导入的字体');
+  } catch (err) {
+    toast('移除失败：' + (err && err.message ? err.message : err));
+  }
+});
+
 // 备份：导出 / 导入
 $('btn-export').addEventListener('click', async () => {
   try {
@@ -4788,6 +4935,9 @@ $('chat-sheet-body').addEventListener('click', async (e) => {
     if (row) row.hidden = apTab.dataset.autopushMin !== '0';
     return;
   }
+
+  const apSwitch = e.target.closest('#switch-autopush');
+  if (apSwitch) { await toggleAutopushQuick(); return; }
 
   const btn = e.target.closest('button');
   if (!btn) return;
