@@ -7,11 +7,7 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <h1 class="page-title">我的虚拟手机</h1>
-  <p class="page-subtitle">在浏览器里运行 · 先在「设置」里配置 AI 接口即可使用</p>
-
   <div class="phone">
-    <div class="phone-notch"></div>
     <div class="screen">
       <div class="statusbar">
         <span class="status-time">9:41</span>
@@ -21,38 +17,473 @@
         </span>
       </div>
 
+      <!-- 小手机通知横幅 -->
+      <div class="phone-notice" id="phone-notice" hidden>
+        <span class="phone-notice-icon" aria-hidden="true"></span>
+        <span class="phone-notice-main">
+          <span class="phone-notice-title" id="phone-notice-title">日记</span>
+          <span class="phone-notice-text" id="phone-notice-text"></span>
+        </span>
+      </div>
+
       <!-- 主屏幕 -->
       <div class="app-view active" id="view-home">
-        <div class="wallpaper">
-          <div class="wallpaper-brand">ClearCall</div>
-          <div class="wallpaper-slogan">你的虚拟手机</div>
+        <div class="wallpaper home-clock">
+          <div class="home-clock-time" id="home-clock-time">00:00</div>
+          <div class="home-clock-date" id="home-clock-date"></div>
         </div>
         <div class="app-grid">
-          <button class="app-icon" data-app="phone">
-            <span class="app-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg></span>
-            <span class="app-name">电话</span>
-          </button>
           <button class="app-icon" data-app="sms">
-            <span class="app-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+            <span class="app-glyph glyph-sms"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M5 3h14a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3H9l-5 4v-4.2A3 3 0 0 1 2 15V6a3 3 0 0 1 3-3Z"/><path d="M6.5 8.5h11M6.5 12.5h7" fill="none" stroke="var(--glyph-cutout)" stroke-width="2.4" stroke-linecap="round"/></svg></span>
             <span class="app-name">信息</span>
           </button>
           <button class="app-icon" data-app="camera">
-            <span class="app-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></span>
+            <span class="app-glyph glyph-camera"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="m8 4-1.7 3H4a3 3 0 0 0-3 3v9a3 3 0 0 0 3 3h16a3 3 0 0 0 3-3v-9a3 3 0 0 0-3-3h-2.3L16 4H8Z"/><circle cx="12" cy="14" r="4.5" fill="var(--glyph-cutout)"/><circle cx="12" cy="14" r="2.5" fill="currentColor"/><circle cx="19" cy="10" r="1.2" fill="var(--glyph-cutout)"/></svg></span>
             <span class="app-name">相机</span>
           </button>
-          <button class="app-icon" data-app="chat">
-            <span class="app-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span>
-            <span class="app-name">聊天</span>
+          <button class="app-icon" data-app="moments">
+            <span class="app-glyph glyph-moments"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="3"/><circle cx="12" cy="12" r="3.3" fill="currentColor"/><path d="M12 3v5.7M21 12h-5.7M12 21v-5.7M3 12h5.7" fill="none" stroke="currentColor" stroke-width="2.7" stroke-linecap="round"/></svg></span>
+            <span class="app-name">动态</span>
           </button>
           <button class="app-icon" data-app="memory">
-            <span class="app-glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></span>
+            <span class="app-glyph glyph-memory"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2C7.6 2 4 2.9 4 4s3.6 2 8 2 8-.9 8-2-3.6-2-8-2ZM4 6.2C5.6 7.3 8.6 8 12 8s6.4-.7 8-1.8V11c0 1.1-3.6 2-8 2s-8-.9-8-2V6.2Zm0 6C5.6 13.3 8.6 14 12 14s6.4-.7 8-1.8V17c0 1.1-3.6 2-8 2s-8-.9-8-2v-4.8Zm0 6C5.6 19.3 8.6 20 12 20s6.4-.7 8-1.8V20c0 1.1-3.6 2-8 2s-8-.9-8-2v-1.8Z"/></svg></span>
             <span class="app-name">记忆</span>
           </button>
-          <button class="app-icon" data-app="settings">
-            <span class="app-glyph accent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span>
-            <span class="app-name">设置</span>
+          <button class="app-icon" data-app="worldbook">
+            <span class="app-glyph glyph-worldbook"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M2 4c3.7-.8 7 0 10 2.3v14.2C9 18.3 5.7 17.5 2 18.3V4Zm20 0c-3.7-.8-7 0-10 2.3v14.2c3-2.2 6.3-3 10-2.2V4Z"/><path d="M12 7v13" stroke="var(--glyph-cutout)" stroke-width="2.2" stroke-linecap="round"/></svg></span>
+            <span class="app-name">世界书</span>
+          </button>
+          <button class="app-icon" data-app="forum">
+            <span class="app-glyph glyph-forum"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 3h16a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3h-9l-6 4v-4.8A3 3 0 0 1 2 15V6a3 3 0 0 1 2-3Z"/><path d="M7 8h10M7 12h7" fill="none" stroke="var(--glyph-cutout)" stroke-width="2.6" stroke-linecap="round"/></svg></span>
+            <span class="app-name">论坛</span>
+          </button>
+          <button class="app-icon" data-app="mail">
+            <span class="app-glyph glyph-mail"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="3" fill="currentColor"/><path d="m4 7 8 6 8-6" fill="none" stroke="var(--glyph-cutout)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span class="app-name">邮箱</span>
+          </button>
+          <button class="app-icon" data-app="books">
+            <span class="app-glyph glyph-books"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 2h14v20H6a3 3 0 0 1-3-3V5a3 3 0 0 1 3-3Z"/><path d="M8 2v7l2.5-1.8L13 9V2M7 16h9" fill="none" stroke="var(--glyph-cutout)" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span class="app-name">阅读</span>
+          </button>
+          <button class="app-icon" data-app="schedule">
+            <span class="app-glyph glyph-schedule"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="20" height="18" rx="3" fill="currentColor"/><path d="M2 9h20" stroke="var(--glyph-cutout)" stroke-width="2.6"/><path d="M7 1.6v4.4M17 1.6v4.4" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M6.5 13h4M6.5 17.4h7" stroke="var(--glyph-cutout)" stroke-width="2.6" stroke-linecap="round"/><circle cx="16.6" cy="16.6" r="2.6" fill="var(--glyph-cutout)"/></svg></span>
+            <span class="app-name">日程</span>
           </button>
         </div>
+
+        <!-- iOS 风格胶囊 Dock：电话 / 聊天 / 通讯录 / 设置 -->
+        <nav class="dock">
+          <button class="dock-icon" data-app="phone" type="button">
+            <span class="app-glyph glyph-phone"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8.7 2.5 11 7.9c.2.6 0 1.3-.5 1.7l-2 1.6a15.5 15.5 0 0 0 4.3 4.3l1.6-2c.4-.5 1.1-.7 1.7-.5l5.4 2.3c.7.3 1 1 .8 1.7l-.7 3.1c-.2.8-.9 1.4-1.7 1.4C10.4 21.5 2.5 13.6 2.5 4.1c0-.8.6-1.5 1.4-1.7l3.1-.7c.6-.1 1.4.1 1.7.8Z"/></svg></span>
+            <span class="app-name">电话</span>
+          </button>
+          <button class="dock-icon" data-app="chat" type="button">
+            <span class="app-glyph glyph-chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2C6 2 2 5.9 2 10.7c0 2.8 1.6 5.2 4.1 6.8L5 22l4.6-2.3c.8.2 1.6.2 2.4.2 6 0 10-3.9 10-8.7S18 2 12 2Z"/><circle cx="7.5" cy="11" r="1.5" fill="var(--glyph-cutout)"/><circle cx="12" cy="11" r="1.5" fill="var(--glyph-cutout)"/><circle cx="16.5" cy="11" r="1.5" fill="var(--glyph-cutout)"/></svg></span>
+            <span class="app-name">聊天</span>
+          </button>
+          <button class="dock-icon" data-app="characters" type="button">
+            <span class="app-glyph glyph-characters"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="7" r="4.5" fill="currentColor"/><path fill="currentColor" d="M3 22v-2.2C3 15.5 7 13 12 13s9 2.5 9 6.8V22H3Z"/></svg></span>
+            <span class="app-name">通讯录</span>
+          </button>
+          <button class="dock-icon" data-app="settings" type="button">
+            <span class="app-glyph glyph-settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3v18M12 3v18M19 3v18" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/><circle cx="5" cy="15" r="3" fill="var(--glyph-cutout)" stroke="currentColor" stroke-width="2.5"/><circle cx="12" cy="8" r="3" fill="var(--glyph-cutout)" stroke="currentColor" stroke-width="2.5"/><circle cx="19" cy="16" r="3" fill="var(--glyph-cutout)" stroke="currentColor" stroke-width="2.5"/></svg></span>
+            <span class="app-name">设置</span>
+          </button>
+        </nav>
+      </div>
+
+      <!-- 论坛应用 -->
+      <div class="app-view" id="view-forum">
+        <header class="forum-header">
+          <button class="back-btn" id="btn-forum-back" type="button">返回</button>
+          <span class="forum-header-title" id="forum-header-title">论坛</span>
+          <button class="forum-icon-btn" id="btn-forum-settings" type="button">设置</button>
+        </header>
+
+        <div class="forum-board-tabs" id="forum-board-tabs"></div>
+
+        <div class="forum-board" id="forum-board">
+          <div class="forum-board-label">正在逛</div>
+          <div class="forum-board-title" id="forum-board-title">闲聊广场</div>
+          <div class="forum-board-desc" id="forum-board-desc">今天的瓜，比昨天甜一点</div>
+        </div>
+
+        <div class="forum-refresh" id="forum-refresh">
+          <button class="forum-refresh-toggle" id="btn-forum-refresh-toggle" type="button" aria-expanded="false">
+            <span>刷新帖子</span>
+            <span class="forum-refresh-arrow" aria-hidden="true"></span>
+          </button>
+          <div class="forum-refresh-body" id="forum-refresh-body" hidden>
+            <label class="forum-refresh-count">
+              <span>生成条数</span>
+              <input id="input-forum-refresh-count" type="number" min="1" max="10" step="1" value="3">
+            </label>
+            <button class="forum-refresh-go" id="btn-forum-refresh-go" type="button">
+              <span class="forum-refresh-icon" aria-hidden="true"></span>
+              生成新帖
+            </button>
+          </div>
+        </div>
+
+        <div class="forum-scroll" id="forum-scroll">
+          <div class="forum-feed" id="forum-feed"></div>
+        </div>
+
+        <div class="forum-fab">
+          <button class="forum-fab-btn compose" id="btn-forum-compose" type="button" aria-label="发布帖子"><span class="fab-plus-glyph" aria-hidden="true"></span></button>
+        </div>
+
+        <nav class="forum-tabs">
+          <button class="forum-tab active" data-forum-tab="home" type="button">首页</button>
+          <button class="forum-tab" data-forum-tab="following" type="button">关注</button>
+          <button class="forum-tab" data-forum-tab="me" type="button">我的</button>
+        </nav>
+
+        <!-- 论坛设置 -->
+        <section class="forum-panel" id="forum-settings" hidden>
+          <header class="forum-panel-head">
+            <button class="back-btn" id="btn-forum-settings-close" type="button">返回</button>
+            <span class="forum-panel-title">论坛设置</span>
+            <span class="app-header-spacer"></span>
+          </header>
+          <div class="forum-panel-body">
+            <p class="settings-note">论坛可以使用独立 API，并绑定世界书与角色，生成的路人帖子和角色帖子会带上板块设定。</p>
+
+            <div class="field">
+              <span class="field-label">论坛 API 地址</span>
+              <input id="input-forum-base" type="text" placeholder="https://api.deepseek.com/v1" autocomplete="off" />
+            </div>
+            <div class="field">
+              <span class="field-label">论坛 API Key</span>
+              <input id="input-forum-key" type="password" placeholder="留空则沿用主 AI 接口" autocomplete="off" />
+            </div>
+            <div class="field">
+              <span class="field-label">论坛模型名</span>
+              <input id="input-forum-model" type="text" placeholder="例如 deepseek-chat" autocomplete="off" />
+            </div>
+            <div class="field">
+              <span class="field-label">每次刷新生成帖数</span>
+              <input id="input-forum-count" type="number" min="1" max="10" step="1" />
+              <span class="field-hint">默认 3 条，包含路人与角色帖子。</span>
+            </div>
+
+            <div class="field">
+              <span class="field-label">绑定世界书</span>
+              <div class="forum-check-list" id="forum-worldbook-list"></div>
+              <span class="field-hint">勾选后，生成帖子时会读取这些世界书条目。</span>
+            </div>
+
+            <div class="field">
+              <span class="field-label">绑定角色</span>
+              <div class="forum-check-list" id="forum-character-list"></div>
+              <span class="field-hint">勾选的角色会以本人身份在论坛发帖，也会出现在分享列表。</span>
+            </div>
+
+            <div class="field">
+              <span class="field-label">论坛板块</span>
+              <div class="forum-board-editor-list" id="forum-board-editor-list"></div>
+              <button class="fetch-btn" id="btn-forum-board-add" type="button">＋ 添加板块</button>
+              <span class="field-hint">可以添加多个板块，每个板块有自己的主题、简介和路人提示词。</span>
+            </div>
+
+            <button class="test-btn" id="btn-forum-settings-save" type="button">保存论坛设置</button>
+            <span class="field-hint" id="forum-settings-hint"></span>
+          </div>
+        </section>
+
+        <!-- 发帖 / 编辑帖子 -->
+        <section class="forum-panel" id="forum-compose" hidden>
+          <header class="forum-panel-head">
+            <button class="back-btn" id="btn-forum-compose-cancel" type="button">取消</button>
+            <span class="forum-panel-title" id="forum-compose-heading">发帖</span>
+            <span class="app-header-spacer"></span>
+          </header>
+          <div class="forum-panel-body">
+            <div class="field">
+              <span class="field-label">标题（可选）</span>
+              <input id="forum-compose-title" type="text" placeholder="起个吸引人的标题" />
+            </div>
+            <div class="field">
+              <span class="field-label">正文</span>
+              <textarea id="forum-compose-content" rows="9" placeholder="说点什么吧..."></textarea>
+            </div>
+            <button class="test-btn" id="btn-forum-compose-submit" type="button">发布</button>
+          </div>
+        </section>
+
+        <!-- 帖子详情 -->
+        <section class="forum-panel" id="forum-detail" hidden>
+          <header class="forum-panel-head">
+            <button class="back-btn" id="btn-forum-detail-back" type="button">返回</button>
+            <span class="forum-panel-title">帖子详情</span>
+            <button class="forum-icon-btn" id="btn-forum-share" type="button">分享</button>
+          </header>
+          <div class="forum-panel-body forum-detail-body" id="forum-detail-body"></div>
+        </section>
+
+        <!-- 分享给角色 -->
+        <section class="forum-panel" id="forum-share" hidden>
+          <header class="forum-panel-head">
+            <button class="back-btn" id="btn-forum-share-close" type="button">返回</button>
+            <span class="forum-panel-title">分享给角色</span>
+            <span class="app-header-spacer"></span>
+          </header>
+          <div class="forum-panel-body">
+            <p class="settings-note">选择角色后，帖子会以卡片形式发送到对应聊天室。</p>
+            <div class="forum-share-list" id="forum-share-list"></div>
+          </div>
+        </section>
+
+        <!-- 我的主页编辑 -->
+        <section class="forum-panel" id="forum-profile-editor" hidden>
+          <header class="forum-panel-head">
+            <button class="back-btn" id="btn-forum-profile-close" type="button">取消</button>
+            <span class="forum-panel-title">编辑我的主页</span>
+            <span class="app-header-spacer"></span>
+          </header>
+          <div class="forum-panel-body">
+            <div class="field">
+              <span class="field-label">头像</span>
+              <div class="forum-image-row">
+                <div class="forum-image-preview forum-avatar-preview" id="forum-profile-avatar-preview"></div>
+                <button class="fetch-btn" id="btn-forum-avatar-pick" type="button">上传头像</button>
+                <button class="fetch-btn" id="btn-forum-avatar-clear" type="button">清除</button>
+              </div>
+            </div>
+            <div class="field">
+              <span class="field-label">背景图</span>
+              <div class="forum-image-row">
+                <div class="forum-image-preview forum-cover-preview" id="forum-profile-cover-preview"></div>
+                <button class="fetch-btn" id="btn-forum-cover-pick" type="button">上传背景</button>
+                <button class="fetch-btn" id="btn-forum-cover-clear" type="button">清除</button>
+              </div>
+            </div>
+            <div class="field">
+              <span class="field-label">昵称</span>
+              <input id="forum-profile-name" type="text" placeholder="你的论坛昵称" />
+            </div>
+            <div class="field">
+              <span class="field-label">个性签名</span>
+              <textarea id="forum-profile-signature" rows="3" placeholder="介绍一下自己"></textarea>
+            </div>
+            <button class="test-btn" id="btn-forum-profile-save" type="button">保存主页</button>
+          </div>
+        </section>
+
+        <input type="file" id="file-forum-avatar" accept="image/*" hidden />
+        <input type="file" id="file-forum-cover" accept="image/*" hidden />
+      </div>
+
+      <!-- 小说应用 -->
+      <div class="app-view" id="view-books">
+        <header class="forum-header">
+          <button class="back-btn" id="btn-books-back" type="button">返回</button>
+          <span class="forum-header-title" id="books-header-title">阅读</span>
+          <button class="forum-icon-btn" id="btn-books-import" type="button">导入</button>
+        </header>
+
+        <div class="books-library" id="books-library">
+          <div class="books-hero">
+            <div class="books-hero-title">我的书架</div>
+            <div class="books-hero-desc">导入 epub / txt / pdf，和角色一起读，边读边聊。</div>
+            <button class="books-import-btn" id="btn-books-import-main" type="button">＋ 导入小说</button>
+          </div>
+          <div class="books-list" id="books-list"></div>
+        </div>
+
+        <div class="books-reader" id="books-reader" hidden>
+          <div class="reader-bar">
+            <button class="reader-bar-btn" id="btn-reader-toc" type="button">目录</button>
+            <span class="reader-bar-title" id="reader-chapter-title"></span>
+            <button class="reader-bar-btn" id="btn-reader-discuss" type="button">讨论</button>
+          </div>
+          <div class="reader-scroll" id="reader-scroll">
+            <div class="reader-chapter-head" id="reader-chapter-head"></div>
+            <div class="reader-content" id="reader-content"></div>
+          </div>
+          <div class="reader-footer">
+            <button class="reader-nav-btn" id="btn-reader-prev" type="button">上一章</button>
+            <button class="reader-annotate-btn" id="btn-reader-annotate" type="button">角色批注本章</button>
+            <button class="reader-nav-btn" id="btn-reader-next" type="button">下一章</button>
+          </div>
+        </div>
+
+        <div class="forum-panel books-panel" id="reader-toc" hidden>
+          <div class="forum-panel-head">
+            <button class="back-btn" id="btn-reader-toc-close" type="button">返回</button>
+            <span class="forum-panel-title">目录</span>
+            <span class="forum-panel-action" id="reader-toc-count"></span>
+          </div>
+          <div class="forum-panel-body" id="reader-toc-list"></div>
+        </div>
+
+        <div class="forum-panel books-panel" id="reader-discuss" hidden>
+          <div class="forum-panel-head">
+            <button class="back-btn" id="btn-reader-discuss-close" type="button">返回</button>
+            <span class="forum-panel-title">一起读</span>
+            <span class="forum-panel-action"></span>
+          </div>
+          <div class="reader-discuss-top">
+            <select class="reader-character-select" id="reader-character"></select>
+          </div>
+          <div class="reader-chat" id="reader-chat"></div>
+          <div class="reader-chat-input">
+            <textarea id="reader-chat-text" rows="1" placeholder="说说你读到这里的想法…"></textarea>
+            <button class="reader-send-btn" id="btn-reader-send" type="button">发送</button>
+          </div>
+        </div>
+
+        <input type="file" id="file-book-import" accept=".txt,.epub,.pdf,text/plain,application/epub+zip,application/pdf" multiple hidden>
+      </div>
+
+      <!-- 动态（朋友圈） -->
+      <div class="app-view" id="view-moments">
+        <header class="app-header moments-header">
+          <button class="back-btn" id="btn-moments-back" type="button">返回</button>
+          <span class="app-title">动态</span>
+          <button class="moments-settings-btn" id="btn-moments-settings" type="button">设置</button>
+        </header>
+
+        <div class="moments-scroll" id="moments-scroll">
+          <div class="moments-cover">
+            <div class="moments-cover-bg" id="moments-cover-bg"></div>
+            <div class="moments-cover-bottom">
+              <div class="moments-cover-name" id="moments-user-name">我</div>
+              <div class="moments-cover-avatar" id="moments-user-avatar">我</div>
+            </div>
+          </div>
+          <div class="moments-toolbar">
+            <span class="moments-status" id="moments-status">绑定角色后，他们会按间隔发布动态。</span>
+            <button class="moments-publish-btn" id="btn-moments-publish-now" type="button">立即发布</button>
+          </div>
+          <div class="moments-feed" id="moments-feed"></div>
+        </div>
+
+        <button class="mail-fab moments-fab" id="btn-moments-compose" type="button" aria-label="发布动态"><span class="fab-plus-glyph" aria-hidden="true"></span></button>
+
+        <section class="forum-panel" id="moments-compose-panel" hidden>
+          <header class="forum-panel-head">
+            <button class="back-btn" id="btn-moments-compose-close" type="button">取消</button>
+            <span class="forum-panel-title">发布动态</span>
+            <button class="moments-publish-btn" id="btn-moments-compose-submit" type="button">发布</button>
+          </header>
+          <div class="forum-panel-body">
+            <label class="field">
+              <span class="field-label">这一刻的想法</span>
+              <textarea id="moments-compose-text" rows="5" placeholder="写点什么…"></textarea>
+            </label>
+            <div class="field">
+              <span class="field-label">配图</span>
+              <div class="moment-compose-preview" id="moments-compose-preview">尚未选择图片</div>
+              <div class="backup-row">
+                <button class="fetch-btn" id="btn-moments-compose-image" type="button">选择图片</button>
+                <button class="fetch-btn" id="btn-moments-compose-image-clear" type="button" disabled>移除图片</button>
+              </div>
+              <span class="field-hint">可以从相册选一张图；不选图也可以只发文字。</span>
+              <input type="file" id="file-moment-image" accept="image/*" hidden />
+            </div>
+          </div>
+        </section>
+
+        <section class="forum-panel" id="moments-settings" hidden>
+          <header class="forum-panel-head">
+            <button class="back-btn" id="btn-moments-settings-close" type="button">返回</button>
+            <span class="forum-panel-title">动态设置</span>
+            <span class="app-header-spacer"></span>
+          </header>
+          <div class="forum-panel-body">
+            <p class="field-hint">勾选会定时发动态的角色。每条角色动态都会带图，绑定生图时生成图片，否则用文字画面描述代替。</p>
+            <div class="field">
+              <span class="field-label">发动态的角色</span>
+              <div class="forum-check-list" id="moments-character-list"></div>
+            </div>
+            <label class="field">
+              <span class="field-label">发布间隔（小时）</span>
+              <input id="moments-interval-hours" type="number" min="1" max="720" step="1" value="24" />
+              <span class="field-hint">默认 24 小时；填 1 表示每小时最多一条。</span>
+            </label>
+            <button class="test-btn" id="btn-moments-settings-save" type="button">保存动态设置</button>
+            <div class="field-hint" id="moments-settings-hint"></div>
+          </div>
+        </section>
+      </div>
+
+      <!-- 邮箱应用 -->
+      <div class="app-view" id="view-email">
+        <header class="mail-header">
+          <button class="back-btn" id="btn-mail-back" type="button">返回</button>
+          <span class="mail-header-title">邮箱</span>
+          <button class="mail-icon-btn" id="btn-mail-settings" type="button">设置</button>
+        </header>
+
+        <div class="mail-toolbar">
+          <div class="mail-filters">
+            <button class="mail-filter active" data-mail-folder="inbox" type="button">收件箱</button>
+            <button class="mail-filter" data-mail-folder="sent" type="button">已发送</button>
+          </div>
+          <button class="mail-check-btn" id="btn-mail-check" type="button">检查新邮件</button>
+        </div>
+
+        <div class="mail-scroll">
+          <div class="mail-list" id="mail-list"></div>
+        </div>
+
+        <button class="mail-fab" id="btn-mail-compose" type="button" aria-label="写邮件"><span class="fab-plus-glyph" aria-hidden="true"></span></button>
+
+        <section class="forum-panel mail-panel" id="mail-detail" hidden>
+          <header class="forum-panel-head">
+            <button class="back-btn" id="btn-mail-detail-back" type="button">返回</button>
+            <span class="forum-panel-title">邮件详情</span>
+            <button class="mail-icon-btn" id="btn-mail-delete" type="button">删除</button>
+          </header>
+          <div class="forum-panel-body mail-detail-body" id="mail-detail-body"></div>
+        </section>
+
+        <section class="forum-panel mail-panel" id="mail-compose" hidden>
+          <header class="forum-panel-head">
+            <button class="back-btn" id="btn-mail-compose-close" type="button">取消</button>
+            <span class="forum-panel-title" id="mail-compose-title">写邮件</span>
+            <span class="app-header-spacer"></span>
+          </header>
+          <div class="forum-panel-body">
+            <label class="field">
+              <span class="field-label">收件角色</span>
+              <select id="mail-compose-to"></select>
+            </label>
+            <label class="field">
+              <span class="field-label">主题</span>
+              <input id="mail-compose-subject" type="text" placeholder="给这封信起个主题" />
+            </label>
+            <label class="field">
+              <span class="field-label">正文</span>
+              <textarea id="mail-compose-text" rows="12" placeholder="写下你想说的话…"></textarea>
+            </label>
+            <button class="test-btn" id="btn-mail-send" type="button">发送</button>
+            <div class="field-hint" id="mail-compose-hint"></div>
+          </div>
+        </section>
+
+        <section class="forum-panel mail-panel" id="mail-settings" hidden>
+          <header class="forum-panel-head">
+            <button class="back-btn" id="btn-mail-settings-close" type="button">返回</button>
+            <span class="forum-panel-title">邮箱设置</span>
+            <span class="app-header-spacer"></span>
+          </header>
+          <div class="forum-panel-body">
+            <p class="field-hint">勾选会定时给你写信的角色。每个角色按下面的间隔各写一封，内容会参考人设与记忆。</p>
+            <div class="field">
+              <span class="field-label">写信角色</span>
+              <div class="forum-check-list" id="mail-character-list"></div>
+            </div>
+            <label class="field">
+              <span class="field-label">来信间隔（小时）</span>
+              <input id="mail-interval-hours" type="number" min="1" max="720" step="1" value="24" />
+              <span class="field-hint">默认 24 小时；填 1 表示每小时最多一封。</span>
+            </label>
+            <button class="test-btn" id="btn-mail-settings-save" type="button">保存邮箱设置</button>
+            <div class="field-hint" id="mail-settings-hint"></div>
+          </div>
+        </section>
       </div>
 
       <!-- 设置应用 -->
@@ -64,108 +495,284 @@
         </header>
 
         <div class="settings-body">
-          <h2 class="settings-title">AI 接口设置</h2>
-          <p class="settings-note">配置只保存在你本机浏览器里，不会上传到服务器，也不会写进日志。</p>
+          <p class="settings-note">配置只保存在你本机浏览器里，不会上传到服务器，也不会写进日志。点开下面每一项进行设置。</p>
 
-          <label class="field">
-            <span class="field-label">接口地址（Base URL）</span>
-            <input id="input-baseurl" type="text" placeholder="例如 https://api.deepseek.com 或 https://api.openai.com/v1" autocomplete="off" />
-            <span class="field-hint">留空会自动补 https://，并追加 /chat/completions</span>
-          </label>
+          <details class="drawer">
+            <summary class="drawer-head">
+              <span class="drawer-title">AI 接口</span>
+              <span class="drawer-arrow"></span>
+            </summary>
+            <div class="drawer-body">
+              <label class="field">
+                <span class="field-label">接口地址（Base URL）</span>
+                <input id="input-baseurl" type="text" placeholder="例如 https://api.deepseek.com 或 https://api.openai.com/v1" autocomplete="off" />
+                <span class="field-hint">留空会自动补 https://，并追加 /chat/completions</span>
+              </label>
 
-          <label class="field">
-            <span class="field-label">API Key</span>
-            <span class="key-wrap">
-              <input id="input-apikey" type="password" placeholder="sk-..." autocomplete="off" />
-              <button type="button" class="toggle-key" id="btn-toggle-key">显示</button>
-            </span>
-          </label>
+              <label class="field">
+                <span class="field-label">API Key</span>
+                <span class="key-wrap">
+                  <input id="input-apikey" type="password" placeholder="sk-..." autocomplete="off" />
+                  <button type="button" class="toggle-key" id="btn-toggle-key">显示</button>
+                </span>
+              </label>
 
-          <div class="field">
-            <span class="field-label">模型名</span>
-            <div class="mode-tabs">
-              <button type="button" class="mode-tab active" id="tab-select" data-mode="select">选择模型</button>
-              <button type="button" class="mode-tab" id="tab-manual" data-mode="manual">手动填写</button>
+              <div class="field">
+                <span class="field-label">模型名</span>
+                <div class="mode-tabs">
+                  <button type="button" class="mode-tab active" id="tab-select" data-mode="select">选择模型</button>
+                  <button type="button" class="mode-tab" id="tab-manual" data-mode="manual">手动填写</button>
+                </div>
+
+                <div class="model-select-wrap" id="wrap-select">
+                  <select id="select-model">
+                    <option value="">请先点「拉取模型」获取列表</option>
+                  </select>
+                  <button type="button" class="fetch-btn" id="btn-fetch-models">拉取模型</button>
+                </div>
+
+                <div class="model-manual-wrap" id="wrap-manual" hidden>
+                  <input id="input-model" type="text" placeholder="例如 deepseek-chat / gpt-4o-mini" autocomplete="off" />
+                </div>
+                <span class="field-hint">可先「拉取模型」从列表选择，或切到「手动填写」直接输入</span>
+              </div>
+
+              <button class="test-btn" id="btn-test" type="button">连接测试</button>
+
+              <div class="result" id="result" hidden></div>
             </div>
+          </details>
 
-            <div class="model-select-wrap" id="wrap-select">
-              <select id="select-model">
-                <option value="">请先点「拉取模型」获取列表</option>
-              </select>
-              <button type="button" class="fetch-btn" id="btn-fetch-models">拉取模型</button>
+          <details class="drawer">
+            <summary class="drawer-head">
+              <span class="drawer-title">记忆服务</span>
+              <span class="drawer-arrow"></span>
+            </summary>
+            <div class="drawer-body">
+              <div class="field">
+                <span class="field-label">记忆服务地址</span>
+                <input id="input-memory-baseurl" type="text" placeholder="例如 https://api.deepseek.com" autocomplete="off" />
+              </div>
+              <div class="field">
+                <span class="field-label">记忆服务 Key</span>
+                <span class="key-wrap">
+                  <input id="input-memory-apikey" type="password" placeholder="sk-..." autocomplete="off" />
+                  <button type="button" class="toggle-key" id="btn-toggle-memory-key">显示</button>
+                </span>
+              </div>
+              <div class="field">
+                <span class="field-label">记忆服务模型</span>
+                <input id="input-memory-model" type="text" placeholder="例如 deepseek-chat" autocomplete="off" />
+                <span class="field-hint">留空则复用上面的 AI 接口做记忆整理。</span>
+              </div>
             </div>
+          </details>
 
-            <div class="model-manual-wrap" id="wrap-manual" hidden>
-              <input id="input-model" type="text" placeholder="例如 deepseek-chat / gpt-4o-mini" autocomplete="off" />
+          <details class="drawer">
+            <summary class="drawer-head">
+              <span class="drawer-title">语音服务</span>
+              <span class="drawer-arrow"></span>
+            </summary>
+            <div class="drawer-body">
+              <div class="field">
+                <span class="field-label">语音接口地址</span>
+                <input id="input-voice-baseurl" type="text" placeholder="例如 https://api.openai.com/v1" autocomplete="off" />
+                <span class="field-hint">用于语音合成（TTS）的服务地址。</span>
+              </div>
+              <div class="field">
+                <span class="field-label">语音服务 Key</span>
+                <span class="key-wrap">
+                  <input id="input-voice-apikey" type="password" placeholder="sk-..." autocomplete="off" />
+                  <button type="button" class="toggle-key" id="btn-toggle-voice-key">显示</button>
+                </span>
+              </div>
+              <div class="field">
+                <span class="field-label">语音模型</span>
+                <input id="input-voice-model" type="text" placeholder="例如 tts-1" autocomplete="off" />
+              </div>
+              <div class="field">
+                <span class="field-label">默认音色 / Voice ID</span>
+                <input id="input-voice-name" type="text" placeholder="例如 alloy、zh-CN-XiaoxiaoNeural" autocomplete="off" />
+                <span class="field-hint">角色里可以单独绑定音色和模型；留空则使用这里的默认值。</span>
+              </div>
             </div>
-            <span class="field-hint">可先「拉取模型」从列表选择，或切到「手动填写」直接输入</span>
-          </div>
+          </details>
 
-          <button class="test-btn" id="btn-test" type="button">连接测试</button>
-
-          <div class="result" id="result" hidden></div>
-
-          <div class="divider"></div>
-
-          <div class="field">
-            <span class="field-label">记忆服务（独立配置，用于整理长期记忆）</span>
-            <input id="input-memory-baseurl" type="text" placeholder="记忆服务地址，例如 https://api.deepseek.com" autocomplete="off" />
-          </div>
-          <div class="field">
-            <span class="field-label">记忆服务 Key</span>
-            <span class="key-wrap">
-              <input id="input-memory-apikey" type="password" placeholder="sk-..." autocomplete="off" />
-              <button type="button" class="toggle-key" id="btn-toggle-memory-key">显示</button>
-            </span>
-          </div>
-          <div class="field">
-            <span class="field-label">记忆服务模型</span>
-            <input id="input-memory-model" type="text" placeholder="例如 deepseek-chat" autocomplete="off" />
-            <span class="field-hint">留空则复用上面的 AI 接口做记忆整理。</span>
-          </div>
-
-          <div class="divider"></div>
-
-          <!-- Cloudflare Worker 主动消息 -->
-          <h2 class="settings-title">主动消息推送</h2>
-          <p class="settings-note">角色可以定时主动给你发消息。需要先在 Cloudflare 自部署一个 Worker 作为推送中转。</p>
-
-          <div class="field">
-            <span class="field-label">Cloudflare API Token</span>
-            <span class="key-wrap">
-              <input id="input-cf-token" type="password" placeholder="Create Token → Custom → Workers Edit + Account Settings Read" autocomplete="off" />
-              <button type="button" class="toggle-key" id="btn-toggle-cf-token">显示</button>
-            </span>
-            <span class="field-hint">到 dash.cloudflare.com → My Profile → API Tokens → Create Token → Custom，权限选 Workers:Edit 和 Account Settings:Read。</span>
-          </div>
-
-          <div class="field">
-            <span class="field-label">Account ID</span>
-            <input id="input-cf-account" type="text" placeholder="Dashboard 右上角下拉菜单里能看到" autocomplete="off" />
-          </div>
-
-          <div class="cf-deploy-row">
-            <button type="button" class="fetch-btn primary" id="btn-cf-deploy">一键部署 Worker</button>
-            <span class="field-hint" id="cf-deploy-status">填好 Token 和 Account ID 后点击这里，系统会自动把 Worker 脚本部署到你的 Cloudflare 账号。</span>
-          </div>
-
-          <div class="field">
-            <span class="field-label">Worker 访问地址（部署后自动填入）</span>
-            <input id="input-cf-worker-url" type="text" placeholder="例如 https://clearcall-autopush.your-subdomain.workers.dev" autocomplete="off" />
-            <span class="field-hint">部署成功后会自动填好；如果手动部署 Worker，把 URL 填到这里即可。</span>
-          </div>
-
-          <div class="divider"></div>
-
-          <div class="field">
-            <span class="field-label">备份与恢复</span>
-            <div class="backup-row">
-              <button type="button" class="fetch-btn" id="btn-export">导出备份</button>
-              <button type="button" class="fetch-btn" id="btn-import">导入备份</button>
-              <input type="file" id="file-import" accept="application/json,.json" hidden />
+          <details class="drawer">
+            <summary class="drawer-head">
+              <span class="drawer-title">生图服务</span>
+              <span class="drawer-arrow"></span>
+            </summary>
+            <div class="drawer-body">
+              <div class="field">
+                <span class="field-label">生图接口地址</span>
+                <input id="input-image-baseurl" type="text" placeholder="例如 https://api.openai.com/v1" autocomplete="off" />
+              </div>
+              <div class="field">
+                <span class="field-label">生图服务 Key</span>
+                <span class="key-wrap">
+                  <input id="input-image-apikey" type="password" placeholder="sk-..." autocomplete="off" />
+                  <button type="button" class="toggle-key" id="btn-toggle-image-key">显示</button>
+                </span>
+              </div>
+              <div class="field">
+                <span class="field-label">生图模型</span>
+                <input id="input-image-model" type="text" placeholder="例如 dall-e-3、flux-dev" autocomplete="off" />
+              </div>
+              <div class="field">
+                <span class="field-label">图片尺寸（可选）</span>
+                <input id="input-image-size" type="text" placeholder="例如 1024x1024" autocomplete="off" />
+                <span class="field-hint">角色里可以填写外观提示词并上传参考图，与这里的生图服务配合使用。</span>
+              </div>
             </div>
-            <span class="field-hint">备份包含 AI 设置、记忆服务设置、角色（含头像图片）、聊天记录和记忆；导入会覆盖当前数据。备份文件内含 API Key，请妥善保管。</span>
-          </div>
+          </details>
+
+          <details class="drawer">
+            <summary class="drawer-head">
+              <span class="drawer-title">美化</span>
+              <span class="drawer-arrow"></span>
+            </summary>
+            <div class="drawer-body">
+              <div class="field">
+                <span class="field-label">主屏幕壁纸</span>
+                <div class="appearance-preview wallpaper-preview" id="wallpaper-preview">
+                  <span class="preview-empty">默认渐变</span>
+                </div>
+                <div class="backup-row">
+                  <button type="button" class="fetch-btn" id="btn-wallpaper-pick">上传壁纸</button>
+                  <button type="button" class="fetch-btn" id="btn-wallpaper-clear">恢复默认</button>
+                </div>
+                <span class="field-hint">铺满主屏幕，建议使用竖图；图片只保存在本机。</span>
+              </div>
+
+              <div class="field">
+                <span class="field-label">聊天气泡颜色</span>
+                <div class="color-field">
+                  <input type="color" id="input-bubble-color" value="#d8b8c4" />
+                  <span class="color-value" id="bubble-color-value">#d8b8c4</span>
+                  <button type="button" class="memory-link" id="btn-bubble-color-clear">恢复默认</button>
+                </div>
+                <span class="field-hint">只改变「我」发出的气泡背景色。</span>
+              </div>
+
+              <div class="field">
+                <span class="field-label">聊天字体</span>
+                <input id="input-chat-font" type="text" list="chat-font-presets" placeholder="留空使用系统默认字体" autocomplete="off" />
+                <datalist id="chat-font-presets">
+                  <option value="PingFang SC, Microsoft YaHei, sans-serif">系统无衬线</option>
+                  <option value="Songti SC, SimSun, serif">宋体</option>
+                  <option value="Kaiti SC, KaiTi, STKaiti, serif">楷体</option>
+                  <option value="STXingkai, cursive">行楷</option>
+                </datalist>
+                <span class="field-hint">填写本机已安装的字体名，多个用逗号分隔；只作用于聊天窗口。</span>
+              </div>
+
+              <div class="field">
+                <span class="field-label">聊天字体颜色</span>
+                <div class="color-field">
+                  <input type="color" id="input-font-color" value="#3a3a40" />
+                  <span class="color-value" id="font-color-value">#3a3a40</span>
+                  <button type="button" class="memory-link" id="btn-font-color-clear">恢复默认</button>
+                </div>
+                <span class="field-hint">应用于聊天气泡与输入框文字，请选与气泡颜色对比明显的颜色。</span>
+              </div>
+
+              <div class="field">
+                <span class="field-label">应用图标</span>
+                <button type="button" class="fetch-btn" id="btn-icon-manager">管理应用图标</button>
+                <span class="field-hint">在独立窗口里逐个应用设置图标；设置后会隐藏该应用默认的线条图标与底图，不影响其它应用。</span>
+              </div>
+
+              <div class="field">
+                <label class="check-row">
+                  <input type="checkbox" id="chk-statusbar" checked />
+                  <span>显示顶部状态栏（时间、信号、电量）</span>
+                </label>
+                <span class="field-hint">关闭后隐藏状态栏内容，但仍保留顶部安全区，聊天和页面内容不会贴到屏幕最上方。</span>
+              </div>
+
+              <input type="file" id="file-wallpaper" accept="image/*" hidden />
+              <input type="file" id="file-icon-custom" accept="image/*" hidden />
+            </div>
+          </details>
+
+          <details class="drawer">
+            <summary class="drawer-head">
+              <span class="drawer-title">回复触发模式</span>
+              <span class="drawer-arrow"></span>
+            </summary>
+            <div class="drawer-body">
+              <label class="check-row">
+                <input type="checkbox" id="chk-instant" />
+                <span>发送即回复（点「发送」立刻上屏并请求 AI）</span>
+              </label>
+              <label class="check-row">
+                <input type="checkbox" id="chk-batch" />
+                <span>攒消息手动触发（消息上屏缓存，点「生成回复」一起发）</span>
+              </label>
+              <label class="check-row">
+                <input type="checkbox" id="chk-countdown" />
+                <span>空闲倒计时自动回复（无草稿且失焦后倒计时自动发）</span>
+              </label>
+              <div class="countdown-row">
+                <span class="countdown-label">倒计时秒数</span>
+                <input type="number" id="input-countdown-sec" min="1" max="60" value="3" />
+              </div>
+              <span class="field-hint">可多选；同时开启时优先级：即时 &gt; 倒计时 &gt; 批量。全关则等同「即时」。</span>
+            </div>
+          </details>
+
+          <details class="drawer">
+            <summary class="drawer-head">
+              <span class="drawer-title">通知</span>
+              <span class="drawer-arrow"></span>
+            </summary>
+            <div class="drawer-body">
+              <label class="check-row">
+                <input type="checkbox" id="chk-notify-enabled" />
+                <span>角色回复通知（页面在后台时用浏览器推送）</span>
+              </label>
+              <span class="field-hint" id="notify-status-hint">首次开启会请求浏览器通知权限。</span>
+
+              <div class="notify-actions">
+                <button type="button" class="fetch-btn" id="btn-notify-test">发送测试通知</button>
+              </div>
+
+              <div class="field">
+                <span class="field-label">提示音</span>
+                <div class="notify-actions">
+                  <button type="button" class="fetch-btn" id="btn-notify-sound-pick">上传提示音</button>
+                  <button type="button" class="fetch-btn" id="btn-notify-sound-test" disabled>试听</button>
+                  <button type="button" class="fetch-btn" id="btn-notify-sound-clear" disabled>清除</button>
+                </div>
+                <span class="field-hint" id="notify-sound-name">未设置，使用系统默认提示音</span>
+                <input type="file" id="file-notify-sound" accept="audio/*" hidden />
+              </div>
+
+              <div class="field">
+                <label class="check-row">
+                  <input type="checkbox" id="chk-keepalive" />
+                  <span>后台保活（循环播放静音音频）</span>
+                </label>
+                <span class="field-hint">部分手机浏览器会暂停后台页面；开启后尝试用静音音频保持页面运行。仅在浏览器允许后台播放时有效，被拦截时点一下页面重试。</span>
+              </div>
+            </div>
+          </details>
+
+          <details class="drawer">
+            <summary class="drawer-head">
+              <span class="drawer-title">备份与恢复</span>
+              <span class="drawer-arrow"></span>
+            </summary>
+            <div class="drawer-body">
+              <div class="backup-row">
+                <button type="button" class="fetch-btn" id="btn-export">导出备份</button>
+                <button type="button" class="fetch-btn" id="btn-import">导入备份</button>
+                <input type="file" id="file-import" accept="application/json,.json" hidden />
+              </div>
+              <span class="field-hint">备份包含 AI / 记忆 / 语音 / 生图设置、触发模式、通知与提示音、壁纸与图标、气泡颜色与聊天字体、所有联系人（含头像与参考图）、各自的聊天记录与三层记忆、「我」的多套人设、世界书；导入会覆盖当前数据。备份文件内含 API Key，请妥善保管。</span>
+            </div>
+          </details>
         </div>
       </div>
 
@@ -174,27 +781,212 @@
         <header class="app-header">
           <button class="back-btn" id="btn-chat-back" type="button">返回</button>
           <span class="app-title" id="chat-title">角色聊天</span>
-          <button class="chat-config-btn" id="btn-chat-config" type="button">角色</button>
+          <div class="chat-head-actions">
+            <button class="chat-config-btn" id="btn-chat-config" type="button">切换</button>
+          </div>
         </header>
 
         <div class="chat-messages" id="chat-messages"></div>
 
         <button type="button" class="generate-btn" id="btn-batch-send" hidden>生成回复</button>
 
+        <div class="directive-chip" id="directive-chip" hidden>
+          <span class="directive-chip-label">系统指令</span>
+          <span class="directive-chip-text" id="directive-chip-text"></span>
+          <button type="button" class="directive-chip-clear" id="btn-directive-clear" aria-label="清除系统指令"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg></button>
+        </div>
+
         <div class="chat-inputbar">
-          <button type="button" class="chat-plus-btn" id="btn-chat-plus" title="更多">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <button type="button" class="chat-plus-btn" id="btn-chat-plus" aria-label="更多功能" aria-expanded="false">
+            <span class="chat-plus-glyph" aria-hidden="true"></span>
           </button>
           <input id="input-chat" type="text" placeholder="输入消息…" autocomplete="off" />
           <button type="button" class="chat-send-btn" id="btn-chat-send">发送</button>
         </div>
 
-        <!-- 加号展开菜单 -->
-        <div class="plus-menu" id="plus-menu" hidden>
-          <button type="button" class="plus-menu-item" id="btn-plus-autopush">
-            <span class="plus-menu-icon">🔔</span>
-            <span class="plus-menu-text">主动消息</span>
+        <!-- 聊天功能抽屉 -->
+        <div class="chat-sheet" id="chat-sheet" hidden>
+          <div class="chat-sheet-backdrop" id="chat-sheet-backdrop"></div>
+          <div class="chat-sheet-panel">
+            <span class="chat-sheet-handle" aria-hidden="true"></span>
+            <div class="chat-sheet-head">
+              <span class="chat-sheet-title" id="chat-sheet-title">更多功能</span>
+              <button type="button" class="chat-sheet-close" id="btn-chat-sheet-close">关闭</button>
+            </div>
+            <div class="chat-sheet-body" id="chat-sheet-body"></div>
+          </div>
+        </div>
+
+        <input type="file" id="file-chat-image" accept="image/*" hidden />
+        <input type="file" id="file-sticker-import" accept=".txt,.docx,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden />
+      </div>
+
+      <!-- 聊天方式 -->
+      <div class="app-view" id="view-chat-style">
+        <header class="app-header">
+          <button class="back-btn" id="btn-chat-style-back" type="button">返回</button>
+          <span class="app-title" id="chat-style-title">聊天方式</span>
+          <span class="app-header-spacer"></span>
+        </header>
+
+        <div class="chat-style-body">
+          <div class="chat-style-hero">
+            <div class="chat-style-hero-title">口吻与语料</div>
+            <div class="chat-style-hero-desc">规则写短，例子写具体</div>
+            <div class="chat-style-hero-note" id="chat-style-hero-note">勾选后只影响该角色，下一轮回复开始生效。</div>
+          </div>
+          <div class="chat-style-grid" id="chat-style-grid"></div>
+          <div class="chat-style-preview">
+            <div class="chat-style-preview-head">将注入的提示词</div>
+            <div class="chat-style-preview-body" id="chat-style-preview"></div>
+          </div>
+        </div>
+
+        <div class="chat-style-footer">
+          <button class="fetch-btn" id="btn-chat-style-save" type="button">保存聊天方式</button>
+        </div>
+      </div>
+
+      <!-- 应用图标管理 -->
+      <div class="app-view" id="view-icon-manager">
+        <header class="app-header">
+          <button class="back-btn" id="btn-icon-manager-back" type="button">返回</button>
+          <span class="app-title" id="icon-manager-title">应用图标</span>
+          <span class="app-header-spacer"></span>
+        </header>
+        <div class="icon-manager-body">
+          <div class="icon-manager-grid" id="icon-manager-grid"></div>
+          <div class="icon-manager-detail" id="icon-manager-detail" hidden>
+            <button class="back-btn icon-manager-detail-back" id="btn-icon-manager-detail-back" type="button">返回列表</button>
+            <div class="icon-manager-preview" id="icon-manager-preview"></div>
+            <div class="icon-manager-app-name" id="icon-manager-app-name"></div>
+            <div class="icon-manager-actions">
+              <button type="button" class="fetch-btn" id="btn-icon-manager-upload">上传图片</button>
+              <button type="button" class="fetch-btn" id="btn-icon-manager-clear">恢复默认</button>
+            </div>
+            <span class="field-hint">上传后只替换这个应用的图标，其它应用保持不变。</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 日程 -->
+      <div class="app-view" id="view-schedule">
+        <header class="app-header">
+          <button class="back-btn" id="btn-schedule-back" type="button">返回</button>
+          <span class="app-title" id="schedule-title">日程</span>
+          <button class="forum-icon-btn" id="btn-schedule-refresh" type="button">刷新</button>
+        </header>
+        <div class="schedule-charbar">
+          <label class="schedule-charbar-label" for="select-schedule-char">角色</label>
+          <select class="schedule-charbar-select" id="select-schedule-char"></select>
+        </div>
+        <div class="schedule-scroll" id="schedule-body"></div>
+      </div>
+
+      <!-- 日记 -->
+      <div class="app-view" id="view-diary">
+        <header class="app-header diary-header">
+          <button class="back-btn" id="btn-diary-back" type="button">返回</button>
+          <span class="app-title" id="diary-title">日记</span>
+          <button class="diary-write-btn" id="btn-diary-write" type="button">写一篇</button>
+        </header>
+        <div class="diary-body" id="diary-body"></div>
+      </div>
+
+      <!-- 电话：选择角色 -->
+      <div class="app-view" id="view-call-picker">
+        <header class="app-header">
+          <button class="back-btn" id="btn-call-picker-back" type="button">返回</button>
+          <span class="app-title">电话</span>
+          <span class="app-header-spacer"></span>
+        </header>
+        <div class="call-picker-body">
+          <p class="call-picker-note">选择一位角色拨打电话。通话中发送一条消息就会立即收到回复。</p>
+          <div class="call-picker-list" id="call-picker-list"></div>
+        </div>
+      </div>
+
+      <!-- 电话：通话中 -->
+      <div class="app-view" id="view-call">
+        <div class="call-bg" aria-hidden="true">
+          <span class="call-ripple r1"></span>
+          <span class="call-ripple r2"></span>
+          <span class="call-ripple r3"></span>
+        </div>
+
+        <div class="call-top">
+          <div class="call-status" id="call-status">正在通话</div>
+          <div class="call-timer" id="call-timer">00:00</div>
+        </div>
+
+        <div class="call-avatar-wrap">
+          <div class="call-avatar" id="call-avatar"></div>
+        </div>
+        <div class="call-name" id="call-name">角色</div>
+
+        <div class="call-messages" id="call-messages"></div>
+
+        <div class="call-inputbar">
+          <button type="button" class="call-redial-btn" id="btn-call-redial" title="重新生成上一轮回复（重 roll）">重拨</button>
+          <input id="input-call" type="text" placeholder="说点什么…" autocomplete="off" />
+          <button type="button" class="call-send-btn" id="btn-call-send">发送</button>
+        </div>
+        <div class="call-actions">
+          <button type="button" class="call-hangup-btn" id="btn-call-hangup" title="挂断" aria-label="挂断">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8.7 2.5 11 7.9c.2.6 0 1.3-.5 1.7l-2 1.6a15.5 15.5 0 0 0 4.3 4.3l1.6-2c.4-.5 1.1-.7 1.7-.5l5.4 2.3c.7.3 1 1 .8 1.7l-.7 3.1c-.2.8-.9 1.4-1.7 1.4C10.4 21.5 2.5 13.6 2.5 4.1c0-.8.6-1.5 1.4-1.7l3.1-.7c.6-.1 1.4.1 1.7.8Z"/></svg>
           </button>
+        </div>
+      </div>
+
+      <!-- 通讯录应用 -->
+      <div class="app-view" id="view-characters">
+        <header class="app-header">
+          <button class="back-btn" id="btn-characters-back" type="button">返回</button>
+          <span class="app-title" id="contacts-title">通讯录</span>
+          <span class="app-header-spacer"></span>
+        </header>
+
+        <div class="contacts-pane" id="contacts-pane-characters">
+          <div class="characters-body">
+            <button type="button" class="fetch-btn" id="btn-character-add">新建联系人</button>
+            <p class="wb-hint">每个联系人都有独立的人设、头像、人设大图、聊天记录、记忆、世界书绑定，以及可选的语音与生图绑定；轻点卡片查看大图，再点一次翻到背面查看设定。</p>
+            <div class="wb-form" id="character-form" hidden></div>
+            <div class="char-list" id="character-list"></div>
+            <input type="file" id="file-char-avatar" accept="image/*" hidden />
+            <input type="file" id="file-char-persona" accept="image/*" hidden />
+            <input type="file" id="file-char-ref" accept="image/*" hidden />
+          </div>
+        </div>
+
+        <div class="contacts-pane" id="contacts-pane-me" hidden>
+          <div class="characters-body">
+            <button type="button" class="fetch-btn" id="btn-user-profile-add">新建人设</button>
+            <p class="wb-hint">这里填写你在聊天里的身份。可以保存多套人设，点卡片切换当前使用的一套；当前人设会注入角色聊天的系统提示，让联系人知道「我」是谁。</p>
+            <div class="wb-form" id="user-profile-form" hidden></div>
+            <div class="char-list" id="user-profile-list"></div>
+          </div>
+        </div>
+
+        <nav class="contacts-tabs">
+          <button type="button" class="contacts-tab active" data-contacts-tab="characters">
+            <span class="contacts-tab-icon icon-contacts" aria-hidden="true"></span>
+            <span class="contacts-tab-text">角色</span>
+          </button>
+          <button type="button" class="contacts-tab" data-contacts-tab="me">
+            <span class="contacts-tab-icon icon-me" aria-hidden="true"></span>
+            <span class="contacts-tab-text">我的</span>
+          </button>
+        </nav>
+      </div>
+
+      <!-- 聊天室切换角色过场 -->
+      <div class="char-switch-overlay" id="char-switch-overlay" hidden>
+        <div class="char-switch-stage">
+          <div class="char-switch-ring">
+            <div class="char-switch-avatar" id="char-switch-avatar"></div>
+          </div>
+          <div class="char-switch-name" id="char-switch-name"></div>
+          <div class="char-switch-remark" id="char-switch-remark" hidden></div>
         </div>
       </div>
 
@@ -207,61 +999,62 @@
         </header>
 
         <div class="memory-body">
-          <button type="button" class="fetch-btn" id="btn-memory-add">添加记忆</button>
-          <div class="memory-form" id="memory-form" hidden></div>
-          <div class="memory-list" id="memory-list"></div>
+          <section class="memory-section">
+            <div class="memory-section-head">
+              <div>
+                <div class="memory-section-title">短期记忆</div>
+                <div class="memory-section-sub">从聊天和应用里整理出的事实，点「整理」补充；每满 30 条自动总结成一条长期记忆</div>
+              </div>
+              <button type="button" class="fetch-btn memory-add-btn" id="btn-memory-add">添加</button>
+            </div>
+            <div class="memory-form" id="memory-form" hidden></div>
+            <div class="memory-list" id="memory-list"></div>
+          </section>
+
+          <section class="memory-section">
+            <div class="memory-section-head">
+              <div>
+                <div class="memory-section-title">长期记忆</div>
+                <div class="memory-section-sub">每 30 条短期记忆总结一条；每 5 条长期记忆再总结一条核心记忆</div>
+              </div>
+            </div>
+            <div class="memory-list" id="memory-long-list"></div>
+          </section>
+
+          <section class="memory-section">
+            <div class="memory-section-head">
+              <div>
+                <div class="memory-section-title">核心记忆</div>
+                <div class="memory-section-sub">从长期记忆里提炼出的最重要设定，聊天时会优先注入</div>
+              </div>
+            </div>
+            <div class="memory-list" id="memory-core-list"></div>
+          </section>
         </div>
       </div>
 
-      <!-- 角色设置 -->
-      <div class="app-view" id="view-char-settings">
+      <!-- 世界书 -->
+      <div class="app-view" id="view-worldbook">
         <header class="app-header">
-          <button class="back-btn" id="btn-char-settings-back" type="button">返回</button>
-          <span class="app-title">角色设置</span>
+          <button class="back-btn" id="btn-wb-back" type="button">返回</button>
+          <span class="app-title">世界书</span>
           <span class="app-header-spacer"></span>
         </header>
 
-        <div class="settings-body">
-          <div class="field">
-            <span class="field-label">角色名字</span>
-            <input id="input-char-name" type="text" placeholder="例如：小助手" autocomplete="off" />
+        <div class="wb-body">
+          <div class="wb-scope-row">
+            <span class="wb-scope-label">当前列表</span>
+            <select class="wb-select" id="wb-scope-select"></select>
           </div>
-          <div class="field">
-            <span class="field-label">头像</span>
-            <span class="avatar-row">
-              <span class="avatar-preview" id="avatar-preview"></span>
-              <button type="button" class="fetch-btn" id="btn-upload-avatar">上传头像</button>
-              <input type="file" id="file-avatar" accept="image/*" hidden />
-              <button type="button" class="fetch-btn" id="btn-clear-avatar">清除</button>
-            </span>
+          <div class="wb-toolbar">
+            <button type="button" class="fetch-btn" id="btn-wb-add">添加条目</button>
+            <button type="button" class="fetch-btn" id="btn-wb-export">导出</button>
+            <button type="button" class="fetch-btn" id="btn-wb-import">导入</button>
+            <input type="file" id="file-wb-import" accept="application/json,.json" hidden />
           </div>
-          <div class="field">
-            <span class="field-label">人设</span>
-            <textarea id="input-char-persona" rows="5" placeholder="例如：你是一个温柔耐心的助手，用中文回复…"></textarea>
-          </div>
-
-          <div class="divider"></div>
-
-          <div class="field">
-            <span class="field-label">回复触发模式</span>
-            <label class="check-row">
-              <input type="checkbox" id="chk-instant" />
-              <span>发送即回复（点「发送」立刻上屏并请求 AI）</span>
-            </label>
-            <label class="check-row">
-              <input type="checkbox" id="chk-batch" />
-              <span>攒消息手动触发（消息上屏缓存，点「生成回复」一起发）</span>
-            </label>
-            <label class="check-row">
-              <input type="checkbox" id="chk-countdown" />
-              <span>空闲倒计时自动回复（无草稿且失焦后倒计时自动发）</span>
-            </label>
-            <div class="countdown-row">
-              <span class="countdown-label">倒计时秒数</span>
-              <input type="number" id="input-countdown-sec" min="1" max="60" value="3" />
-            </div>
-            <span class="field-hint">可多选；同时开启时优先级：即时 &gt; 倒计时 &gt; 批量。全关则等同「即时」。</span>
-          </div>
+          <p class="wb-hint">关键词命中才注入；关键词留空表示无条件触发。概率开关打开后，命中还要通过随机判定才注入。添加条目时可在表单里选择绑定「全局」或某个角色；导出 / 导入作用于当前选中的列表。</p>
+          <div class="wb-form" id="wb-form" hidden></div>
+          <div class="wb-list" id="wb-list"></div>
         </div>
       </div>
 
@@ -309,6 +1102,7 @@
 
   <div class="toast" id="toast" hidden></div>
 
+  <script src="js/books.js"></script>
   <script src="js/store.js"></script>
   <script src="js/api.js"></script>
   <script src="js/ui.js"></script>

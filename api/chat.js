@@ -10,6 +10,9 @@ module.exports = async (req, res) => {
     memory: payload.memory,
     history: payload.history,
     message: payload.message,
+    worldBefore: payload.worldBefore,
+    worldAfter: payload.worldAfter,
+    worldDepth: payload.worldDepth,
   });
   sendJson(res, result);
 };
