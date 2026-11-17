@@ -9110,20 +9110,40 @@ async function loadUncleMessages() {
   renderUncleMessages();
 }
 
+function uncleAvatarEl() {
+  const wrap = document.createElement('div');
+  wrap.className = 'uncle-avatar';
+  const fallback = uiEl('span', 'uncle-avatar-fallback', '余');
+  wrap.appendChild(fallback);
+  const img = document.createElement('img');
+  img.src = 'assets/uncle.jpg';
+  img.alt = '余叔叔';
+  img.addEventListener('load', () => wrap.classList.add('has-image'));
+  img.addEventListener('error', () => img.remove());
+  wrap.appendChild(img);
+  return wrap;
+}
+
 function renderUncleMessages() {
   const box = $('uncle-messages');
   if (!box) return;
   box.innerHTML = '';
   if (!uncleMessages.length) {
-    const intro = uiEl('div', 'uncle-intro');
+    const introRow = document.createElement('div');
+    introRow.className = 'uncle-row assistant';
+    introRow.appendChild(uncleAvatarEl());
+    const intro = document.createElement('div');
+    intro.className = 'uncle-bubble uncle-intro';
     intro.appendChild(uiEl('div', 'uncle-intro-name', '余叔叔，也有人叫我肥鱼叔叔'));
     intro.appendChild(uiEl('div', 'uncle-intro-text', '手机有 bug、不会设置、报了错看不懂，都可以直接丢给我。报错弹窗里点「复制给余叔叔」会连环境信息一起复制过来，我查起来更快。'));
-    box.appendChild(intro);
+    introRow.appendChild(intro);
+    box.appendChild(introRow);
     return;
   }
   uncleMessages.forEach((m) => {
     const row = document.createElement('div');
     row.className = 'uncle-row ' + (m.role === 'user' ? 'user' : 'assistant');
+    if (m.role !== 'user') row.appendChild(uncleAvatarEl());
     const bubble = uiEl('div', 'uncle-bubble', String(m.content || ''));
     row.appendChild(bubble);
     box.appendChild(row);
