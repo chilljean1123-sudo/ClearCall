@@ -119,7 +119,8 @@
 - 语音、图片等媒体标记不能漏到界面：`[语音消息：0:05]` 渲染成可点的语音条，`[图片]` / `[图片：描述]` / `[[image:...]]` 渲染成图片占位卡；TTS 朗读前必须剥离这些标记。
 - 「消息上屏」和「请求 AI」是两个阶段：三种触发模式都先上屏，区别只在何时调 AI。
 - 消息要「立刻可见」再谈触发，不要出现发送后看不到自己消息的情况。
-- 「居中」不要用固定列数的 grid：图标隐藏或增删后会偏左。Dock 改用 flex + `justify-content: space-evenly`，数量变化也自动居中。
+- 「居中」不要用固定列数的 grid：图标隐藏或增删后会偏左。Dock 改用固定高度 + 四等分格子，图标在格内居中，标签去掉后外框高度不变。
+- 感知里的电量用 `navigator.getBattery()`，读不到再走壳的 `getBatteryInfo`；使用时长/睡眠依赖壳的 `getUsageSummary`，必须引导用户去系统「使用情况访问」授权，未授权时要给入口而不是静默失败。
 - 角色回复只输出角色说的话，格式/身份指令走 system 消息注入，别写进用户消息。
 - 页面是否铺满看定位：`.app-view` 是 `position:absolute; inset:0`，若某个 view 用 ID 改成 `position:relative`，它会退回流式布局、高度由内容撑开；聊天页要 `flex:1 1 auto; min-height:0` 才能让输入框贴底。
 - 浏览器通知：移动端 Chrome 必须通过 Service Worker 的 `showNotification` 才能弹出，`new Notification()` 只作桌面兜底；仅页面切到后台且非通话中时推送。

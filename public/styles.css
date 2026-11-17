@@ -2034,16 +2034,19 @@ body.statusbar-off .statusbar { visibility: hidden; }
   position: relative;
   z-index: 2;
   flex: 0 0 auto;
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
   align-items: center;
-  justify-content: space-evenly;
+  justify-items: center;
   gap: var(--space-1);
   /* 和应用网格同一中线，四个图标等距居中 */
   width: calc(100% - var(--space-2) * 2);
   max-width: 664px;
   box-sizing: border-box;
+  /* 删掉文字后保持原来的外框高度，图标在格子里上下居中 */
+  height: 96px;
   margin: auto auto calc(var(--space-2) + var(--safe-bottom));
-  padding: var(--space-1) var(--space-2);
+  padding: 0 var(--space-2);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   background: rgba(255, 255, 255, 0.82);
@@ -2053,9 +2056,10 @@ body.statusbar-off .statusbar { visibility: hidden; }
 .dock-icon {
   flex: 0 0 auto;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: var(--space-1);
+  justify-content: center;
+  width: 100%;
+  height: 100%;
   padding: 0;
   border: none;
   background: none;
@@ -5587,6 +5591,8 @@ body.home-dragging .home-pages { scroll-snap-type: none; }
   line-height: var(--leading-subheading);
   color: var(--color-text-secondary);
 }
+.perception-row-main .perception-status { display: block; margin-top: 4px; }
+#btn-usage-permission { margin-top: var(--space-1); }
 .perception-card .api-profile-row { margin-bottom: var(--space-2); }
 .perception-future { padding: var(--space-2); }
 .perception-future-title {

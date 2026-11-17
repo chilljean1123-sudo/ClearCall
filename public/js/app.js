@@ -4598,15 +4598,99 @@ function renderHomeWeather(perception) {
   el.hidden = !parts.length;
 }
 
+// ---- 设备感知：电量 / 使用时长 / 睡眠 ----
+let deviceSnapshotCache = { at: 0, data: null };
+
+function durationText(minutes) {
+  const m = Math.max(0, Math.round(Number(minutes) || 0));
+  if (m < 60) return m + ' 分钟';
+  const h = Math.floor(m / 60);
+  const rest = m % 60;
+  return rest ? h + ' 小时 ' + rest + ' 分' : h + ' 小时';
+}
+
+async function readDeviceSnapshot(force) {
+  if (!force && deviceSnapshotCache.data && Date.now() - deviceSnapshotCache.at < 60 * 1000) {
+    return deviceSnapshotCache.data;
+  }
+  const data = { battery: null, usage: null, sleep: null };
+  try {
+    if (navigator.getBattery) {
+      const b = await navigator.getBattery();
+      data.battery = { level: Math.round(b.level * 100), charging: !!b.charging };
+    }
+  } catch (_) {}
+  const bridge = shellBridge();
+  if (!data.battery && bridge && typeof bridge.getBatteryInfo === 'function') {
+    try {
+      const b = JSON.parse(bridge.getBatteryInfo()) || null;
+      if (b && typeof b.level === 'number' && b.level >= 0) {
+        data.battery = { level: b.level, charging: !!b.charging };
+      }
+    } catch (_) {}
+  }
+  if (bridge && typeof bridge.getUsageSummary === 'function') {
+    try {
+      const u = JSON.parse(bridge.getUsageSummary()) || {};
+      if (u.granted === false) {
+        data.usage = { denied: true };
+      } else {
+        data.usage = { minutes: Number(u.usageMinutes) || 0, date: u.date || '' };
+        data.sleep = { minutes: Number(u.sleepMinutes) || 0, date: u.date || '' };
+      }
+    } catch (_) {}
+  }
+  deviceSnapshotCache = { at: Date.now(), data };
+  return data;
+}
+
+function renderDeviceStatus(snap) {
+  const batteryEl = $('perception-battery-status');
+  const usageEl = $('perception-usage-status');
+  const sleepEl = $('perception-sleep-status');
+  const permBtn = $('btn-usage-permission');
+  const bridge = shellBridge();
+
+  if (batteryEl) {
+    batteryEl.textContent = snap.battery
+      ? snap.battery.level + '%' + (snap.battery.charging ? ' · 充电中' : '')
+      : '这台设备读不到电量';
+  }
+
+  if (!bridge) {
+    if (usageEl) usageEl.textContent = '需在手机壳里使用';
+    if (sleepEl) sleepEl.textContent = '需在手机壳里使用';
+    if (permBtn) permBtn.hidden = true;
+    return;
+  }
+  if (!snap.usage || snap.usage.denied) {
+    if (usageEl) usageEl.textContent = '还没有授权使用情况访问';
+    if (sleepEl) sleepEl.textContent = '还没有授权使用情况访问';
+    if (permBtn) permBtn.hidden = false;
+    return;
+  }
+  if (permBtn) permBtn.hidden = true;
+  if (usageEl) usageEl.textContent = '今天 ' + durationText(snap.usage.minutes);
+  if (sleepEl) {
+    sleepEl.textContent = snap.sleep && snap.sleep.minutes >= 60
+      ? '昨晚约 ' + durationText(snap.sleep.minutes)
+      : '昨晚没有记录到明显的睡眠';
+  }
+}
+
 async function renderPerception() {
   const p = await getPerception();
   $('chk-perceive-time').checked = p.timeEnabled;
   $('chk-perceive-location').checked = p.locationEnabled;
+  $('chk-perceive-battery').checked = p.batteryEnabled;
+  $('chk-perceive-usage').checked = p.usageEnabled;
+  $('chk-perceive-sleep').checked = p.sleepEnabled;
   $('input-weather-address').value = p.weather.address;
   $('perception-weather-status').textContent = p.weather.text
     ? p.weather.text + (p.weather.temp != null ? ' · ' + Math.round(p.weather.temp) + '°C' : '') + ' · 已落在主屏'
     : '写下城市，天气会落在主屏。';
   renderHomeWeather(p);
+  renderDeviceStatus(await readDeviceSnapshot());
 }
 
 async function openPerception() {
@@ -4703,7 +4787,8 @@ async function refreshWeather(force) {
 async function buildPerceptionPrompt(characterId) {
   const p = await getPerception();
   const hasWeather = !!(p.weather && p.weather.text);
-  if (!p.timeEnabled && !p.locationEnabled && !hasWeather) return '';
+  const deviceOn = p.batteryEnabled || p.usageEnabled || p.sleepEnabled;
+  if (!p.timeEnabled && !p.locationEnabled && !hasWeather && !deviceOn) return '';
   const key = characterId || 'default';
   const lastAt = (p.lastByChar && p.lastByChar[key]) || p.lastActiveAt || 0;
   const now = new Date();
@@ -4725,6 +4810,21 @@ async function buildPerceptionPrompt(characterId) {
   }
   if (hasWeather) {
     lines.push('当地天气：' + p.weather.text + (p.weather.temp != null ? '，约 ' + Math.round(p.weather.temp) + '°C' : '') + '。');
+  }
+  if (deviceOn) {
+    const snap = await readDeviceSnapshot();
+    if (p.batteryEnabled && snap.battery) {
+      lines.push('对方手机电量 ' + snap.battery.level + '%' + (snap.battery.charging ? '，正在充电' : '') + '。');
+      if (!snap.battery.charging && snap.battery.level <= 20) {
+        lines.push('电量很低了，可以顺口提醒对方充电。');
+      }
+    }
+    if (p.usageEnabled && snap.usage && !snap.usage.denied) {
+      lines.push('对方今天在手机上已经花了 ' + durationText(snap.usage.minutes) + '。');
+    }
+    if (p.sleepEnabled && snap.sleep && snap.sleep.minutes >= 60) {
+      lines.push('对方昨晚大约睡了 ' + durationText(snap.sleep.minutes) + '。');
+    }
   }
   lines.push('你知道这些，但不要提到系统、定位或数据；让它们悄悄影响你的关心与开场。');
   if (p.timeEnabled) await setPerception({ lastByChar: { [key]: Date.now() } });
@@ -5725,7 +5825,8 @@ document.querySelectorAll('.app-icon, .dock-icon').forEach((btn) => {
     } else if (app === 'worldbook') {
       openWorldbook();
     } else {
-      const name = btn.querySelector('.app-name').textContent;
+      const nameEl = btn.querySelector('.app-name');
+      const name = nameEl ? nameEl.textContent : (btn.getAttribute('aria-label') || '这个应用');
       toast('「' + name + '」功能开发中，请先使用「设置」');
     }
   });
@@ -6126,6 +6227,53 @@ if ($('btn-open-shell')) {
     setTimeout(refreshShellSettings, 900);
   });
 }
+$('chk-perceive-battery').addEventListener('change', async (e) => {
+  try {
+    await setPerception({ batteryEnabled: e.target.checked });
+    toast(e.target.checked ? '那个人会留意你的电量' : '已收起电量感知');
+    renderDeviceStatus(await readDeviceSnapshot(true));
+  } catch (err) {
+    e.target.checked = !e.target.checked;
+    toast('没能保存，再试一次');
+  }
+});
+
+$('chk-perceive-usage').addEventListener('change', async (e) => {
+  try {
+    await setPerception({ usageEnabled: e.target.checked });
+    toast(e.target.checked ? '那个人会知道你今天的屏幕时间' : '已收起使用时长');
+    renderDeviceStatus(await readDeviceSnapshot(true));
+  } catch (err) {
+    e.target.checked = !e.target.checked;
+    toast('没能保存，再试一次');
+  }
+});
+
+$('chk-perceive-sleep').addEventListener('change', async (e) => {
+  try {
+    await setPerception({ sleepEnabled: e.target.checked });
+    toast(e.target.checked ? '那个人会留意你睡得好不好' : '已收起睡眠感知');
+    renderDeviceStatus(await readDeviceSnapshot(true));
+  } catch (err) {
+    e.target.checked = !e.target.checked;
+    toast('没能保存，再试一次');
+  }
+});
+
+$('btn-usage-permission').addEventListener('click', () => {
+  const bridge = shellBridge();
+  if (!bridge || typeof bridge.openUsageAccessSettings !== 'function') {
+    toast('请在手机壳里打开');
+    return;
+  }
+  try {
+    bridge.openUsageAccessSettings();
+    toast('授权后回来即可读取');
+  } catch (_) {
+    toast('没能打开系统设置');
+  }
+});
+
 $('chk-perceive-time').addEventListener('change', async (e) => {
   try {
     await setPerception({ timeEnabled: e.target.checked });

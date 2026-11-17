@@ -4,17 +4,25 @@ import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.AppOpsManager;
+import android.app.usage.UsageEvents;
+import android.app.usage.UsageStats;
+import android.app.usage.UsageStatsManager;
 import android.content.ClipData;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
+import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.os.Process;
 import android.provider.Settings;
 import android.text.InputType;
 import android.util.DisplayMetrics;
@@ -54,6 +62,8 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.Calendar;
+import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -627,6 +637,121 @@ public class MainActivity extends AppCompatActivity {
                 return state.toString();
             } catch (Exception e) {
                 return "{}";
+            }
+        }
+
+        @JavascriptInterface
+        public String getBatteryInfo() {
+            try {
+                Intent battery = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+                if (battery == null) return "{}";
+                int level = battery.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+                int scale = battery.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
+                int pct = (level >= 0 && scale > 0) ? Math.round(level * 100f / scale) : -1;
+                int status = battery.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
+                boolean charging = status == BatteryManager.BATTERY_STATUS_CHARGING
+                        || status == BatteryManager.BATTERY_STATUS_FULL;
+                JSONObject info = new JSONObject();
+                info.put("level", pct);
+                info.put("charging", charging);
+                return info.toString();
+            } catch (Exception e) {
+                return "{}";
+            }
+        }
+
+        @JavascriptInterface
+        public String getUsageSummary() {
+            JSONObject out = new JSONObject();
+            try {
+                boolean granted = hasUsageAccess();
+                out.put("granted", granted);
+                if (!granted) return out.toString();
+
+                UsageStatsManager usm = (UsageStatsManager) getSystemService(Context.USAGE_STATS_SERVICE);
+                if (usm == null) return out.toString();
+                long now = System.currentTimeMillis();
+
+                Calendar c = Calendar.getInstance();
+                c.set(Calendar.HOUR_OF_DAY, 0);
+                c.set(Calendar.MINUTE, 0);
+                c.set(Calendar.SECOND, 0);
+                c.set(Calendar.MILLISECOND, 0);
+                long dayStart = c.getTimeInMillis();
+                long total = 0;
+                List<UsageStats> stats = usm.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, dayStart, now);
+                if (stats != null) {
+                    for (UsageStats s : stats) {
+                        if (s.getLastTimeUsed() >= dayStart) {
+                            total += Math.max(0, s.getTotalTimeInForeground());
+                        }
+                    }
+                }
+                out.put("usageMinutes", total / 60000L);
+
+                // 睡眠：近 24 小时里最长的一段「没人碰手机」的空档，且结束在清晨到中午之间
+                long last = 0;
+                long longest = 0;
+                long longestEnd = 0;
+                UsageEvents events = usm.queryEvents(now - 24L * 60 * 60 * 1000, now);
+                if (events != null) {
+                    UsageEvents.Event ev = new UsageEvents.Event();
+                    while (events.hasNextEvent()) {
+                        events.getNextEvent(ev);
+                        if (ev.getEventType() != UsageEvents.Event.MOVE_TO_FOREGROUND) continue;
+                        long t = ev.getTimeStamp();
+                        if (last > 0) {
+                            long gap = t - last;
+                            if (gap > longest) {
+                                longest = gap;
+                                longestEnd = t;
+                            }
+                        }
+                        last = t;
+                    }
+                }
+                if (last > 0) {
+                    long tail = now - last;
+                    if (tail > longest) {
+                        longest = tail;
+                        longestEnd = now;
+                    }
+                }
+                Calendar end = Calendar.getInstance();
+                end.setTimeInMillis(longestEnd);
+                int h = end.get(Calendar.HOUR_OF_DAY);
+                long minutes = Math.round(longest / 60000.0);
+                boolean night = h >= 5 && h <= 12;
+                out.put("sleepMinutes", (night && minutes >= 120 && minutes <= 16 * 60) ? minutes : 0);
+                return out.toString();
+            } catch (Exception e) {
+                return out.toString();
+            }
+        }
+
+        @JavascriptInterface
+        public void openUsageAccessSettings() {
+            runOnUiThread(() -> {
+                try {
+                    startActivity(new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS));
+                } catch (Exception e) {
+                    try {
+                        startActivity(new Intent(Settings.ACTION_SETTINGS));
+                    } catch (Exception ignored) {
+                    }
+                }
+            });
+        }
+
+        private boolean hasUsageAccess() {
+            try {
+                AppOpsManager appOps = (AppOpsManager) getSystemService(Context.APP_OPS_SERVICE);
+                if (appOps == null) return false;
+                int mode = appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS,
+                        Process.myUid(), getPackageName());
+                return mode == AppOpsManager.MODE_ALLOWED;
+            } catch (Exception e) {
+                return false;
             }
         }
 

@@ -92,21 +92,17 @@
 
         <!-- iOS 风格胶囊 Dock：电话 / 聊天 / 通讯录 / 设置 -->
         <nav class="dock">
-          <button class="dock-icon" data-app="phone" type="button">
+          <button class="dock-icon" data-app="phone" type="button" aria-label="电话">
             <span class="app-glyph glyph-phone"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8.7 2.5 11 7.9c.2.6 0 1.3-.5 1.7l-2 1.6a15.5 15.5 0 0 0 4.3 4.3l1.6-2c.4-.5 1.1-.7 1.7-.5l5.4 2.3c.7.3 1 1 .8 1.7l-.7 3.1c-.2.8-.9 1.4-1.7 1.4C10.4 21.5 2.5 13.6 2.5 4.1c0-.8.6-1.5 1.4-1.7l3.1-.7c.6-.1 1.4.1 1.7.8Z"/></svg></span>
-            <span class="app-name">电话</span>
           </button>
-          <button class="dock-icon" data-app="chat" type="button">
+          <button class="dock-icon" data-app="chat" type="button" aria-label="聊天">
             <span class="app-glyph glyph-chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2C6 2 2 5.9 2 10.7c0 2.8 1.6 5.2 4.1 6.8L5 22l4.6-2.3c.8.2 1.6.2 2.4.2 6 0 10-3.9 10-8.7S18 2 12 2Z"/><circle cx="7.5" cy="11" r="1.5" fill="var(--glyph-cutout)"/><circle cx="12" cy="11" r="1.5" fill="var(--glyph-cutout)"/><circle cx="16.5" cy="11" r="1.5" fill="var(--glyph-cutout)"/></svg></span>
-            <span class="app-name">聊天</span>
           </button>
-          <button class="dock-icon" data-app="characters" type="button">
+          <button class="dock-icon" data-app="characters" type="button" aria-label="通讯录">
             <span class="app-glyph glyph-characters"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="7" r="4.5" fill="currentColor"/><path fill="currentColor" d="M3 22v-2.2C3 15.5 7 13 12 13s9 2.5 9 6.8V22H3Z"/></svg></span>
-            <span class="app-name">通讯录</span>
           </button>
-          <button class="dock-icon" data-app="settings" type="button">
+          <button class="dock-icon" data-app="settings" type="button" aria-label="设置">
             <span class="app-glyph glyph-settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3v18M12 3v18M19 3v18" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/><circle cx="5" cy="15" r="3" fill="var(--glyph-cutout)" stroke="currentColor" stroke-width="2.5"/><circle cx="12" cy="8" r="3" fill="var(--glyph-cutout)" stroke="currentColor" stroke-width="2.5"/><circle cx="19" cy="16" r="3" fill="var(--glyph-cutout)" stroke="currentColor" stroke-width="2.5"/></svg></span>
-            <span class="app-name">设置</span>
           </button>
         </nav>
       </div>
@@ -975,10 +971,37 @@
             </div>
           </section>
 
+          <section class="perception-card">
+            <label class="perception-row">
+              <span class="perception-row-main">
+                <span class="perception-title">电量检测</span>
+                <span class="perception-sub">知道你的手机还剩多少电，会催你充电。</span>
+                <span class="perception-status" id="perception-battery-status">正在读取…</span>
+              </span>
+              <input type="checkbox" id="chk-perceive-battery" class="perception-switch" />
+            </label>
+            <label class="perception-row">
+              <span class="perception-row-main">
+                <span class="perception-title">使用时长</span>
+                <span class="perception-sub">今天在手机上花了多久。</span>
+                <span class="perception-status" id="perception-usage-status">需要手机壳授权</span>
+              </span>
+              <input type="checkbox" id="chk-perceive-usage" class="perception-switch" />
+            </label>
+            <label class="perception-row">
+              <span class="perception-row-main">
+                <span class="perception-title">睡眠时长</span>
+                <span class="perception-sub">昨晚大概睡了多久，从手机安静的空档里读出来。</span>
+                <span class="perception-status" id="perception-sleep-status">需要手机壳授权</span>
+              </span>
+              <input type="checkbox" id="chk-perceive-sleep" class="perception-switch" />
+            </label>
+            <button type="button" class="fetch-btn" id="btn-usage-permission" hidden>去授权使用情况访问</button>
+          </section>
+
           <section class="perception-card perception-future">
             <div class="perception-future-title">更多感知</div>
             <div class="perception-future-row"><span>步数</span><span>正在路上</span></div>
-            <div class="perception-future-row"><span>电量</span><span>正在路上</span></div>
             <div class="perception-future-row"><span>音乐</span><span>正在路上</span></div>
           </section>
         </div>

@@ -2192,6 +2192,9 @@ function normalizePerception(doc) {
   return {
     timeEnabled: !!d.timeEnabled,
     locationEnabled: !!d.locationEnabled,
+    batteryEnabled: !!d.batteryEnabled,
+    usageEnabled: !!d.usageEnabled,
+    sleepEnabled: !!d.sleepEnabled,
     location: {
       lat: num(loc.lat),
       lng: num(loc.lng),
@@ -2223,6 +2226,9 @@ function setPerception(patch) {
     next.lastByChar = Object.assign({}, base.lastByChar, (patch && patch.lastByChar) || {});
     doc.timeEnabled = !!next.timeEnabled;
     doc.locationEnabled = !!next.locationEnabled;
+    doc.batteryEnabled = !!next.batteryEnabled;
+    doc.usageEnabled = !!next.usageEnabled;
+    doc.sleepEnabled = !!next.sleepEnabled;
     doc.location = next.location;
     doc.weather = next.weather;
     doc.lastActiveAt = next.lastActiveAt || 0;

@@ -2756,7 +2756,7 @@ function iconManagerApps() {
     const nameEl = btn.querySelector('.app-name');
     apps.push({
       id: app,
-      name: nameEl ? nameEl.textContent : app,
+      name: nameEl ? nameEl.textContent : (btn.getAttribute('aria-label') || app),
       glyph: btn.querySelector('.app-glyph'),
     });
   });
