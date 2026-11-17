@@ -3374,3 +3374,26 @@ async function migrateToCharacters() {
 
   await putDoc({ id: DOC_CHARACTERS, list, activeId });
 }
+
+// 一键还原：删除整个本地数据库，并清空本机保存的接口配置等设置
+async function resetAllData() {
+  revokeAllFileUrls();
+  try {
+    if (_dbPromise) {
+      const db = await _dbPromise.catch(() => null);
+      if (db && typeof db.close === 'function') db.close();
+    }
+  } catch (_) {}
+  _dbPromise = null;
+
+  if (typeof indexedDB !== 'undefined') {
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase(DB_NAME);
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(friendlyError(req.error));
+      req.onblocked = () => reject(new Error('还有别的页面占用着数据，关掉后再试'));
+    });
+  }
+
+  try { localStorage.clear(); } catch (_) {}
+}

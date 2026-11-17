@@ -70,6 +70,63 @@ function toast(msg) {
   t._timer = setTimeout(() => { t.hidden = true; }, 2200);
 }
 
+// 自绘确认框：壳内 window.confirm 不一定生效，涉及删除/还原统一走这里
+function appConfirm(options) {
+  const opts = options || {};
+  return new Promise((resolve) => {
+    const mask = document.createElement('div');
+    mask.className = 'confirm-mask';
+
+    const card = document.createElement('div');
+    card.className = 'confirm-card';
+    card.setAttribute('role', 'dialog');
+    card.setAttribute('aria-modal', 'true');
+
+    const title = document.createElement('div');
+    title.className = 'confirm-title';
+    title.textContent = opts.title || '确认';
+
+    const actions = document.createElement('div');
+    actions.className = 'confirm-actions';
+
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'confirm-btn confirm-cancel';
+    cancel.textContent = opts.cancelText || '取消';
+
+    const ok = document.createElement('button');
+    ok.type = 'button';
+    ok.className = 'confirm-btn confirm-ok' + (opts.danger ? ' is-danger' : '');
+    ok.textContent = opts.confirmText || '确定';
+
+    const onKey = (e) => { if (e.key === 'Escape') close(false); };
+    const close = (value) => {
+      document.removeEventListener('keydown', onKey);
+      mask.remove();
+      resolve(value);
+    };
+
+    cancel.addEventListener('click', () => close(false));
+    ok.addEventListener('click', () => close(true));
+    mask.addEventListener('click', (e) => { if (e.target === mask) close(false); });
+    document.addEventListener('keydown', onKey);
+
+    card.appendChild(title);
+    if (opts.message) {
+      const text = document.createElement('p');
+      text.className = 'confirm-text';
+      text.textContent = opts.message;
+      card.appendChild(text);
+    }
+    actions.appendChild(cancel);
+    actions.appendChild(ok);
+    card.appendChild(actions);
+    mask.appendChild(card);
+    document.body.appendChild(mask);
+    ok.focus();
+  });
+}
+
 // 顶栏导航图标：返回统一左箭头，设置统一齿轮；透明底、无圆框、无阴影
 const NAV_ARROW_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>';
 const NAV_GEAR_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>';

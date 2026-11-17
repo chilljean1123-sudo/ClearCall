@@ -614,6 +614,8 @@ public class MainActivity extends AppCompatActivity {
                 PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
                 JSONObject state = new JSONObject();
                 state.put("native", true);
+                state.put("versionName", BuildConfig.VERSION_NAME);
+                state.put("versionCode", BuildConfig.VERSION_CODE);
                 state.put("batteryUnrestricted", pm != null && pm.isIgnoringBatteryOptimizations(getPackageName()));
                 state.put("pushEnabled", prefs.getBoolean(KEY_PUSH, false));
                 boolean granted = true;

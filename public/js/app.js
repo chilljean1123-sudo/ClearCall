@@ -6936,6 +6936,104 @@ $('file-import').addEventListener('change', async (e) => {
   }
 });
 
+// ---- 版本更新检查 ----
+const WEB_VERSION_KEY = 'clearcall_web_version';
+
+function shortVersion(v) {
+  if (!v) return '';
+  return v.length > 8 ? v.slice(0, 8) : v;
+}
+
+async function fetchVersionInfo() {
+  const urls = ['/api/version', '/version.json'];
+  for (const u of urls) {
+    try {
+      const res = await fetch(u + '?t=' + Date.now(), { cache: 'no-store' });
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (data && typeof data === 'object') return data;
+    } catch (_) {}
+  }
+  return null;
+}
+
+function shellVersionName() {
+  const state = shellState();
+  return state && state.versionName ? String(state.versionName) : '';
+}
+
+function renderVersionLabel(info) {
+  const el = $('version-current');
+  if (!el) return;
+  const shell = shellVersionName();
+  const web = info && info.webVersion ? shortVersion(info.webVersion) : '';
+  if (shell && web) el.textContent = '当前 ' + shell + ' · 网页 ' + web;
+  else if (shell) el.textContent = '当前 ' + shell;
+  else if (web) el.textContent = '当前网页 ' + web;
+  else el.textContent = '本机预览版';
+}
+
+async function initVersionCheck() {
+  const info = await fetchVersionInfo();
+  renderVersionLabel(info);
+  // 第一次运行只记下当前版本，不惊动
+  if (info && info.webVersion && !localStorage.getItem(WEB_VERSION_KEY)) {
+    localStorage.setItem(WEB_VERSION_KEY, info.webVersion);
+  }
+}
+
+async function checkVersionManually() {
+  const btn = $('btn-version-check');
+  if (!btn || btn.classList.contains('is-loading')) return;
+  btn.classList.add('is-loading');
+  const started = Date.now();
+  const info = await fetchVersionInfo();
+  const wait = 650 - (Date.now() - started);
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  btn.classList.remove('is-loading');
+  renderVersionLabel(info);
+
+  if (!info || !info.webVersion) { toast('暂时读不到版本，稍后再试'); return; }
+  const seen = localStorage.getItem(WEB_VERSION_KEY) || '';
+  if (!seen || seen === info.webVersion) {
+    localStorage.setItem(WEB_VERSION_KEY, info.webVersion);
+    toast('已是最新版本');
+    return;
+  }
+  const ok = await appConfirm({
+    title: '发现新版本',
+    message: '刷新后即刻更新到 ' + shortVersion(info.webVersion) + '。\n聊天记录和存档都不会丢。',
+    confirmText: '刷新更新',
+    cancelText: '稍后',
+  });
+  if (!ok) return;
+  localStorage.setItem(WEB_VERSION_KEY, info.webVersion);
+  toast('正在更新…');
+  setTimeout(() => location.reload(), 400);
+}
+
+$('btn-version-check').addEventListener('click', () => { checkVersionManually(); });
+
+// ---- 一键还原 ----
+$('btn-reset-all').addEventListener('click', async () => {
+  const ok = await appConfirm({
+    title: '还原最初设置',
+    message: '聊天、角色、记忆、动态、各应用存档和上传的图片都会清空，且无法恢复。\n确定要还原到最初吗？',
+    confirmText: '还原',
+    cancelText: '取消',
+    danger: true,
+  });
+  if (!ok) return;
+  try {
+    await resetAllData();
+  } catch (err) {
+    toast('还原失败：' + (err && err.message ? err.message : err));
+    return;
+  }
+  toast('已还原，正在重启…');
+  setTimeout(() => location.reload(), 500);
+});
+
 // 聊天输入
 $('btn-chat-send').addEventListener('click', () => { handleSendTap(); });
 $('input-chat').addEventListener('keydown', (e) => {
@@ -7911,6 +8009,7 @@ $('chk-keepalive').addEventListener('change', async () => {
   loadSaved();
   initNavIcons();
   initNativeShell();
+  initVersionCheck().catch(() => {});
   initHomeGestures();
   loadTriggerSettings();
   try { await refreshAppearance(); } catch (_) {}
