@@ -394,6 +394,8 @@ const DOC_DIARY_PREFIX = 'diary:';     // 角色日记：按角色分仓
 const DEFAULT_DIARY_TIME = '22:00';    // 默认每天写日记的时间
 const DOC_SCHEDULE_PREFIX = 'schedule:'; // 角色日程：按角色分仓
 const DEFAULT_SCHEDULE_TIME = '07:00';   // 默认每天刷新日程的时间
+const DOC_GROUPS = 'groups';             // 群聊：群列表与成员
+const DOC_GROUP_CHAT_PREFIX = 'groupChat:'; // 群聊记录：按群分仓
 const DOC_SHOP = 'shop';               // 商城：按角色分仓的购物车 + 订单记录
 const DOC_FOOD = 'food';               // 外卖：按角色分仓的购物车 + 订单记录
 const DOC_MUSIC = 'music';             // 音乐：本地歌曲 + 网易云导入曲目
@@ -1882,10 +1884,12 @@ async function toggleDiaryTodo(characterId, entryId, todoId) {
 function scheduleDocId(characterId) { return DOC_SCHEDULE_PREFIX + characterId; }
 
 function normalizeClock(value) {
-  const m = String(value || '').trim().match(/^(\d{1,2}):(\d{2})$/);
+  const s = String(value || '').trim().replace(/：/g, ':').replace(/\s+/g, '');
+  let m = s.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) m = s.match(/^(\d{1,2})点(\d{1,2})?分?$/);
   if (!m) return '';
   const h = Number(m[1]);
-  const min = Number(m[2]);
+  const min = Number(m[2] || 0);
   if (!(h >= 0 && h <= 23) || !(min >= 0 && min <= 59)) return '';
   return String(h).padStart(2, '0') + ':' + String(min).padStart(2, '0');
 }
@@ -1902,17 +1906,25 @@ function normalizeScheduleTime(value) {
 
 function normalizeScheduleItem(raw) {
   if (!raw || typeof raw !== 'object') return null;
-  const title = String(raw.title || raw.activity || raw.what || '').trim();
-  const start = normalizeClock(raw.start || raw.time);
+  const title = String(raw.title || raw.activity || raw.what || raw.name || raw.task || raw.content || raw.desc || raw['内容'] || '').trim();
+  let startRaw = raw.start || raw.begin || raw.from || raw.time || raw.startTime || raw['开始时间'] || '';
+  let endRaw = raw.end || raw.until || raw.to || raw.endTime || raw['结束时间'] || '';
+  // 有些模型会写成 "07:30-08:10"，拆开用
+  const range = String(startRaw).match(/^\s*(\d{1,2}[:：]\d{2})\s*[-–—~～至到]\s*(\d{1,2}[:：]\d{2})\s*$/);
+  if (range) {
+    startRaw = range[1];
+    endRaw = endRaw || range[2];
+  }
+  const start = normalizeClock(startRaw);
   if (!title || !start) return null;
-  let end = normalizeClock(raw.end || raw.until || '');
+  let end = normalizeClock(endRaw);
   if (!end || end <= start) end = addClockMinutes(start, 60);
   return {
     start,
     end,
     title,
-    place: String(raw.place || raw.location || '').trim(),
-    note: String(raw.note || raw.detail || '').trim(),
+    place: String(raw.place || raw.location || raw['地点'] || '').trim(),
+    note: String(raw.note || raw.detail || raw['备注'] || '').trim(),
   };
 }
 
@@ -1975,6 +1987,109 @@ async function saveSchedule(characterId, payload) {
     doc.lastRunDate = date;
   });
   return { date, items };
+}
+
+// ===== 群聊 =====
+function normalizeGroupActivity(raw) {
+  const a = raw || {};
+  return {
+    enabled: !!a.enabled,
+    minutes: Math.max(1, Math.min(1440, parseInt(a.minutes, 10) || 10)),
+    lastAt: Number(a.lastAt) || 0,
+    lastSpeakerId: String(a.lastSpeakerId || ''),
+  };
+}
+
+function normalizeGroup(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const memberIds = [];
+  (Array.isArray(raw.memberIds) ? raw.memberIds : []).forEach((id) => {
+    const v = String(id || '').trim();
+    if (v && memberIds.indexOf(v) === -1) memberIds.push(v);
+  });
+  return {
+    id: String(raw.id || genId()),
+    name: String(raw.name || '').trim().slice(0, 30) || '新群聊',
+    memberIds,
+    activity: normalizeGroupActivity(raw.activity),
+    createdAt: Number(raw.createdAt) || Date.now(),
+    updatedAt: Number(raw.updatedAt) || Date.now(),
+  };
+}
+
+async function getGroups() {
+  const doc = await getDoc(DOC_GROUPS);
+  return (doc && Array.isArray(doc.list) ? doc.list : [])
+    .map(normalizeGroup)
+    .filter(Boolean)
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+async function getGroup(id) {
+  if (!id) return null;
+  const list = await getGroups();
+  return list.find((g) => g.id === id) || null;
+}
+
+async function addGroup({ name, memberIds, activity } = {}) {
+  const record = normalizeGroup({ name, memberIds, activity });
+  await mutateDoc(DOC_GROUPS, (doc) => {
+    if (!Array.isArray(doc.list)) doc.list = [];
+    doc.list.push(record);
+  });
+  return record;
+}
+
+async function updateGroup(id, patch) {
+  const p = patch || {};
+  await mutateDoc(DOC_GROUPS, (doc) => {
+    if (!Array.isArray(doc.list)) doc.list = [];
+    const g = doc.list.find((x) => x.id === id);
+    if (!g) return;
+    if (p.name !== undefined) g.name = String(p.name || '').trim().slice(0, 30) || '新群聊';
+    if (p.memberIds !== undefined) {
+      const next = [];
+      (Array.isArray(p.memberIds) ? p.memberIds : []).forEach((mid) => {
+        const v = String(mid || '').trim();
+        if (v && next.indexOf(v) === -1) next.push(v);
+      });
+      g.memberIds = next;
+    }
+    if (p.activity !== undefined) {
+      g.activity = normalizeGroupActivity(Object.assign({}, g.activity, p.activity));
+    }
+    g.updatedAt = Date.now();
+  });
+}
+
+function groupChatDocId(groupId) { return DOC_GROUP_CHAT_PREFIX + groupId; }
+
+async function deleteGroup(id) {
+  if (!id) return;
+  await mutateDoc(DOC_GROUPS, (doc) => {
+    if (!Array.isArray(doc.list)) doc.list = [];
+    doc.list = doc.list.filter((g) => g.id !== id);
+  });
+  try { await deleteDoc(groupChatDocId(id)); } catch (_) {}
+}
+
+async function getGroupHistory(groupId) {
+  if (!groupId) return [];
+  const doc = await getDoc(groupChatDocId(groupId));
+  return doc && Array.isArray(doc.messages) ? doc.messages : [];
+}
+
+async function mutateGroupHistory(groupId, mutator) {
+  if (!groupId) throw new Error('群聊不存在');
+  return mutateDoc(groupChatDocId(groupId), (doc) => {
+    if (!Array.isArray(doc.messages)) doc.messages = [];
+    mutator(doc.messages);
+  });
+}
+
+async function clearGroupHistory(groupId) {
+  if (!groupId) return;
+  await putDoc({ id: groupChatDocId(groupId), messages: [] });
 }
 
 // ===== 商城 =====
@@ -2790,6 +2905,16 @@ async function deleteCharacter(id) {
     });
   } catch (_) {}
 
+  // 群聊里移除该成员；群聊消息保留名字快照
+  try {
+    await mutateDoc(DOC_GROUPS, (doc) => {
+      if (!Array.isArray(doc.list)) doc.list = [];
+      doc.list.forEach((g) => {
+        if (Array.isArray(g.memberIds)) g.memberIds = g.memberIds.filter((x) => x !== id);
+      });
+    });
+  } catch (_) {}
+
   const wb = await getWorldbook();
   if (wb.some((e) => e.scope === 'character' && e.characterId === id)) {
     await putDoc({ id: DOC_WORLDBOOK, entries: wb.filter((e) => !(e.scope === 'character' && e.characterId === id)) });
@@ -3267,6 +3392,9 @@ async function buildBackup() {
   const memories = {};
   const diaries = {};
   const schedules = {};
+  const groups = await getGroups();
+  const groupChats = {};
+  for (const g of groups) groupChats[g.id] = await getGroupHistory(g.id);
 
   for (const c of list) {
     const chatDoc = (await getDoc(chatDocId(c.id))) || {};
@@ -3363,6 +3491,8 @@ async function buildBackup() {
     memories,
     diaries,
     schedules,
+    groups,
+    groupChats,
     worldbook: {
       entries: Array.isArray(wbDoc.entries) ? wbDoc.entries : [],
     },
@@ -3525,6 +3655,16 @@ async function applyBackup(data) {
   }
 
   const wb = data.worldbook || {};
+  const groupList = (Array.isArray(data.groups) ? data.groups : []).map(normalizeGroup).filter(Boolean);
+  await putDoc({ id: DOC_GROUPS, list: groupList });
+  const groupChats = data.groupChats || {};
+  for (const g of groupList) {
+    await putDoc({
+      id: groupChatDocId(g.id),
+      messages: Array.isArray(groupChats[g.id]) ? groupChats[g.id] : [],
+    });
+  }
+
   const fallbackCharId = characters[0] ? characters[0].id : null;
   const wbEntries = (Array.isArray(wb.entries) ? wb.entries : [])
     .map((x) => {

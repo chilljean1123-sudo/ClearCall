@@ -25,6 +25,7 @@ const viewWorldbookEdit = $('view-worldbook-edit');
 const viewPinie = $('view-pinie');
 const viewPinieWb = $('view-pinie-wb');
 const viewAlbum = $('view-album');
+const viewGroups = $('view-groups');
 const viewCharacters = $('view-characters');
 const viewCallPicker = $('view-call-picker');
 const viewCall = $('view-call');
@@ -1090,10 +1091,257 @@ async function appendCallTyping() {
 }
 
 function removeTyping() {
-  ['typing-row', 'call-typing-row'].forEach((id) => {
+  ['typing-row', 'call-typing-row', 'group-typing-row'].forEach((id) => {
     const t = document.getElementById(id);
     if (t) t.remove();
   });
+}
+
+// ===== 群聊 =====
+function scrollChatToBottom() {
+  const box = $('chat-messages');
+  if (box) box.scrollTop = box.scrollHeight;
+}
+
+function groupMemberById(characters, id) {
+  return (characters || []).find((c) => c.id === id) || null;
+}
+
+function groupSenderName(message, characters) {
+  if (message.role === 'user') return '我';
+  const member = groupMemberById(characters, message.senderId);
+  return member && member.name ? member.name : (message.senderName || '群成员');
+}
+
+async function renderGroupChat(group, characters, history) {
+  const box = $('chat-messages');
+  box.innerHTML = '';
+  const avatarUrls = {};
+  for (const member of characters) {
+    avatarUrls[member.id] = await getAvatarUrlById(member.avatarId);
+  }
+  const imageUrls = {};
+  for (const m of history) {
+    if (m && m.imageId) {
+      const url = await getFileUrl(m.imageId);
+      if (url) imageUrls[m.imageId] = url;
+    }
+  }
+  const ctx = { stickers: await getStickers(), imageUrls };
+  if (!history.length) {
+    const empty = document.createElement('div');
+    empty.className = 'group-empty';
+    empty.textContent = '群里还很安静，先说句话，或者开个话题把人叫出来。';
+    box.appendChild(empty);
+    return;
+  }
+  history.forEach((m, index) => {
+    if (m.role === 'user') {
+      box.appendChild(renderMessage(m, index, '', '', ctx));
+      return;
+    }
+    const member = groupMemberById(characters, m.senderId);
+    const avatar = avatarUrls[m.senderId] || '';
+    const row = document.createElement('div');
+    row.className = 'msg-row assistant';
+    const avatarEl = document.createElement('div');
+    avatarEl.className = 'msg-avatar';
+    avatarEl.innerHTML = charAvatarHTML(avatar, m.senderName || (member && member.name) || '群');
+    row.appendChild(avatarEl);
+
+    const stack = document.createElement('div');
+    stack.className = 'msg-stack';
+    const name = document.createElement('div');
+    name.className = 'msg-sender-name';
+    name.textContent = groupSenderName(m, characters);
+    stack.appendChild(name);
+
+    splitReplyIntoBubbles(m.content).forEach((part) => {
+      const bubble = document.createElement('div');
+      bubble.className = 'msg-bubble assistant-bubble';
+      bubble.textContent = part;
+      stack.appendChild(bubble);
+    });
+    row.appendChild(stack);
+    box.appendChild(row);
+  });
+  scrollChatToBottom();
+}
+
+async function appendGroupTyping(name, avatar) {
+  const row = document.createElement('div');
+  row.className = 'msg-row assistant';
+  row.id = 'group-typing-row';
+  const avatarEl = document.createElement('div');
+  avatarEl.className = 'msg-avatar';
+  avatarEl.innerHTML = charAvatarHTML(avatar || '', name || '群');
+  row.appendChild(avatarEl);
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble assistant-bubble typing-bubble';
+  bubble.textContent = (name ? name + ' 正在输入…' : '群里正在输入…');
+  row.appendChild(bubble);
+  $('chat-messages').appendChild(row);
+  scrollChatToBottom();
+}
+
+function groupActivityLabel(group) {
+  const a = group.activity || {};
+  if (!a.enabled) return '活跃度关闭';
+  return '每 ' + a.minutes + ' 分钟自主发消息';
+}
+
+async function renderGroupsPage() {
+  const box = $('group-list');
+  box.innerHTML = '';
+  const groups = await getGroups();
+  const { list: characters } = await getCharacters();
+  if (!groups.length) {
+    const empty = document.createElement('div');
+    empty.className = 'group-empty';
+    empty.textContent = '还没有群聊。点右上角「新建」，把几个角色拉到一个群里。';
+    box.appendChild(empty);
+    return;
+  }
+  for (const group of groups) {
+    const members = group.memberIds
+      .map((id) => groupMemberById(characters, id))
+      .filter(Boolean);
+
+    const card = document.createElement('div');
+    card.className = 'group-card';
+
+    const head = document.createElement('div');
+    head.className = 'group-card-head';
+    head.appendChild(uiEl('div', 'group-card-name', group.name));
+    head.appendChild(uiEl('div', 'group-card-meta', members.length + ' 人'));
+    card.appendChild(head);
+
+    const meta = uiEl('div', 'group-card-meta', groupActivityLabel(group));
+    card.appendChild(meta);
+
+    const avatars = document.createElement('div');
+    avatars.className = 'group-avatars';
+    const shown = members.slice(0, 5);
+    for (const member of shown) {
+      const chip = document.createElement('span');
+      chip.className = 'group-avatar';
+      const url = await getAvatarUrlById(member.avatarId);
+      if (url) {
+        const img = document.createElement('img');
+        img.src = url;
+        img.alt = '';
+        chip.appendChild(img);
+      } else {
+        chip.textContent = (member.name || '?').slice(0, 1);
+      }
+      avatars.appendChild(chip);
+    }
+    if (members.length > shown.length) {
+      avatars.appendChild(uiEl('span', 'group-avatar-more', '+' + (members.length - shown.length)));
+    }
+    card.appendChild(avatars);
+
+    const history = await getGroupHistory(group.id);
+    const last = history.length ? history[history.length - 1] : null;
+    card.appendChild(uiEl('div', 'group-card-meta', last
+      ? groupSenderName(last, characters) + '：' + String(last.content || '').replace(/<split>/g, ' ').slice(0, 40)
+      : '还没有消息'));
+
+    const actions = document.createElement('div');
+    actions.className = 'group-card-actions';
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.textContent = '编辑';
+    editBtn.addEventListener('click', (e) => { e.stopPropagation(); openGroupForm(group.id); });
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'danger';
+    delBtn.textContent = '删除';
+    delBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteGroupConfirm(group.id); });
+    actions.appendChild(editBtn);
+    actions.appendChild(delBtn);
+    card.appendChild(actions);
+
+    card.addEventListener('click', () => openGroupChat(group.id));
+    box.appendChild(card);
+  }
+}
+
+async function renderGroupForm(group) {
+  const form = $('group-form');
+  const { list: characters } = await getCharacters();
+  form.hidden = false;
+  $('group-name-input').value = group ? group.name : '';
+  const activity = (group && group.activity) || { enabled: false, minutes: 10 };
+  $('group-activity-enabled').checked = !!activity.enabled;
+  $('group-activity-minutes').value = String(activity.minutes || 10);
+
+  const picker = $('group-member-picker');
+  picker.innerHTML = '';
+  if (!characters.length) {
+    picker.appendChild(uiEl('div', 'field-hint', '还没有角色，先去「通讯录」添加。'));
+  } else {
+    characters.forEach((c) => {
+      const label = document.createElement('label');
+      label.className = 'group-member-option';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.value = c.id;
+      checkbox.dataset.groupMember = '1';
+      if (group && group.memberIds.indexOf(c.id) !== -1) checkbox.checked = true;
+      label.appendChild(checkbox);
+      label.appendChild(uiEl('span', '', c.name || '未命名角色'));
+      picker.appendChild(label);
+    });
+  }
+  if (form.scrollIntoView) form.scrollIntoView({ block: 'start' });
+}
+
+function hideGroupForm() {
+  const form = $('group-form');
+  if (!form) return;
+  form.hidden = true;
+}
+
+async function renderGroupActivityTool(body) {
+  const group = typeof activeGroupId !== 'undefined' && activeGroupId
+    ? await getGroup(activeGroupId)
+    : null;
+  if (!group) {
+    body.appendChild(uiEl('div', 'field-hint', '先打开一个群，再设置活跃度。'));
+    return;
+  }
+  const activity = group.activity || { enabled: false, minutes: 10 };
+  body.appendChild(uiEl('div', 'field-hint', '开启后，群里每隔一段时间会随机挑一位成员主动开口。新话题不一定接着上文，可能是他自己想说的。'));
+
+  const toggle = uiEl('label', 'group-activity-toggle');
+  const checkbox = document.createElement('input');
+  checkbox.type = 'checkbox';
+  checkbox.id = 'group-sheet-activity-enabled';
+  checkbox.checked = !!activity.enabled;
+  toggle.appendChild(checkbox);
+  toggle.appendChild(uiEl('span', '', '开启群聊活跃度'));
+  body.appendChild(toggle);
+
+  const row = uiEl('div', 'backup-row');
+  row.appendChild(uiEl('span', 'field-hint', '每隔'));
+  const minutes = document.createElement('input');
+  minutes.id = 'group-sheet-activity-minutes';
+  minutes.type = 'number';
+  minutes.min = '1';
+  minutes.max = '1440';
+  minutes.step = '1';
+  minutes.value = String(activity.minutes || 10);
+  row.appendChild(minutes);
+  row.appendChild(uiEl('span', 'field-hint', '分钟'));
+  body.appendChild(row);
+
+  const saveBtn = uiEl('button', 'fetch-btn', '保存活跃度');
+  saveBtn.type = 'button';
+  saveBtn.id = 'btn-group-activity-save';
+  saveBtn.addEventListener('click', () => { saveGroupActivityFromSheet().catch(() => {}); });
+  body.appendChild(saveBtn);
+  body.appendChild(uiEl('div', 'field-hint', '提示：页面开着时才会自主发消息；关掉网页就等下次打开再继续。'));
 }
 
 // ===== 电话应用 =====
@@ -1205,6 +1453,7 @@ const CHAT_TOOL_TITLES = {
   style: '聊天方式',
   diary: '日记',
   autopush: '主动消息',
+  groupActivity: '群聊活跃度',
 };
 
 function uiEl(tag, className, text) {
@@ -1232,11 +1481,12 @@ const CHAT_TOOL_ICON_SVGS = {
   style: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><circle cx="8" cy="6" r="3" fill="var(--tool-cutout)" stroke="currentColor" stroke-width="2.4"/><circle cx="16" cy="12" r="3" fill="var(--tool-cutout)" stroke="currentColor" stroke-width="2.4"/><circle cx="10" cy="18" r="3" fill="var(--tool-cutout)" stroke="currentColor" stroke-width="2.4"/></svg>',
   diary: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M5 2h15v20H5a3 3 0 0 1-3-3V5a3 3 0 0 1 3-3Z"/><path d="M7 2v20M10 7h6M10 11h6M10 15h4" fill="none" stroke="var(--tool-cutout)" stroke-width="2.3" stroke-linecap="round"/></svg>',
   autopush: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 22a2.6 2.6 0 0 0 2.6-2.6H9.4A2.6 2.6 0 0 0 12 22Z"/><path fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" d="M18 9a6 6 0 1 0-12 0c0 5-2 6-2 6h16s-2-1-2-6Z"/></svg>',
+  groupActivity: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0 2c-3.9 0-7 2.2-7 5v3h14v-3c0-2.8-3.1-5-7-5Zm8-2a3.4 3.4 0 1 0 0-6.8 3.4 3.4 0 0 0 0 6.8Zm1.6 2.2c-1 0-1.9.2-2.7.6 1.4 1.3 2.2 3 2.2 5.2V21h5v-2.6c0-2.7-2.5-5-4.5-5Z"/></svg>',
 };
 
 function renderChatToolMenu(body) {
   const grid = uiEl('div', 'tool-grid');
-  [
+  const tools = [
     ['location', '位置'],
     ['image', '图片'],
     ['sticker', '表情包'],
@@ -1246,7 +1496,9 @@ function renderChatToolMenu(body) {
     ['style', '聊天方式'],
     ['diary', '日记'],
     ['autopush', '主动消息'],
-  ].forEach(([tool, label]) => {
+  ];
+  if (typeof groupMode !== 'undefined' && groupMode) tools.push(['groupActivity', '群聊活跃度']);
+  tools.forEach(([tool, label]) => {
     const tile = uiEl('button', 'tool-tile');
     tile.type = 'button';
     tile.dataset.tool = tool;
@@ -1527,6 +1779,7 @@ async function renderChatSheet(view) {
   else if (key === 'mail') await renderMailTool(body);
   else if (key === 'diary') await renderDiaryTool(body);
   else if (key === 'autopush') renderAutopushTool(body);
+  else if (key === 'groupActivity') await renderGroupActivityTool(body);
   else renderChatToolMenu(body);
 }
 

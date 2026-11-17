@@ -12,6 +12,13 @@ let chatSending = false;
 let countdownTick = null;
 let countdownSecRemain = 0;
 let editingMemoryId = null;
+
+// 群聊
+let groupMode = false;        // 当前聊天页是否是群聊
+let activeGroupId = null;
+let editingGroupId = null;
+let groupSending = false;
+let groupActivityBusy = false;
 let wbScope = 'global';
 let editingWorldbookId = null;
 
@@ -188,6 +195,7 @@ function loadSaved() {
   $('input-image-baseurl').value = im.baseUrl;
   $('input-image-apikey').value = im.apiKey;
   $('input-image-model').value = im.model;
+  syncModelSelect('select-image-model', im.model);
   $('input-image-size').value = im.size;
   $('input-image-prompt').value = im.prompt;
   $('input-image-negative').value = im.negativePrompt;
@@ -827,6 +835,36 @@ async function switchActiveCharacter(id) {
 async function renderChatCharMenu() {
   const menu = $('chat-char-menu');
   if (!menu) return;
+  if (groupMode) {
+    const groups = await getGroups();
+    menu.innerHTML = '';
+    if (!groups.length) {
+      menu.appendChild(uiEl('div', 'chat-char-empty', '还没有群聊，去「群聊」新建一个'));
+      return;
+    }
+    groups.forEach((group, i) => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'chat-char-item' + (group.id === activeGroupId ? ' active' : '');
+      item.dataset.groupId = group.id;
+      item.setAttribute('role', 'option');
+      item.setAttribute('aria-selected', group.id === activeGroupId ? 'true' : 'false');
+      item.style.animationDelay = (i * 24) + 'ms';
+      const avatar = document.createElement('span');
+      avatar.className = 'chat-char-avatar';
+      avatar.textContent = (group.name || '群').slice(0, 1);
+      item.appendChild(avatar);
+      item.appendChild(uiEl('span', 'chat-char-name', group.name + ' · ' + group.memberIds.length + ' 人'));
+      if (group.id === activeGroupId) {
+        const check = document.createElement('span');
+        check.className = 'chat-char-check';
+        check.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 13 4 4L19 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        item.appendChild(check);
+      }
+      menu.appendChild(item);
+    });
+    return;
+  }
   const { list, activeId } = await getCharacters();
   menu.innerHTML = '';
   if (!list.length) {
@@ -1064,10 +1102,354 @@ async function openChat() {
   await updateGenerateButton();
   await refreshDirectiveChip();
   setPendingQuote(null);
+  groupMode = false;
+  activeGroupId = null;
+  $('input-chat').placeholder = '输入消息…';
   closeChatCharMenu();
   closeChatMsgMenu();
   exitChatSelectMode();
   showView(viewChat);
+}
+
+// ---- 群聊编排 ----
+async function openGroups() {
+  groupMode = false;
+  activeGroupId = null;
+  editingGroupId = null;
+  hideGroupForm();
+  await renderGroupsPage();
+  showView(viewGroups);
+}
+
+async function openGroupForm(id) {
+  editingGroupId = id || null;
+  const group = id ? await getGroup(id) : null;
+  await renderGroupForm(group);
+}
+
+function closeGroupForm() {
+  editingGroupId = null;
+  hideGroupForm();
+}
+
+async function saveGroupForm() {
+  const name = $('group-name-input').value.trim();
+  const memberIds = Array.from(document.querySelectorAll('[data-group-member]'))
+    .filter((el) => el.checked)
+    .map((el) => el.value);
+  if (!name) { toast('先给群起个名字'); return; }
+  if (!memberIds.length) { toast('至少拉一个角色进群'); return; }
+
+  const minutes = Math.max(1, Math.min(1440, parseInt($('group-activity-minutes').value, 10) || 10));
+  const enabled = $('group-activity-enabled').checked;
+  const activity = { enabled, minutes };
+  const prev = editingGroupId ? await getGroup(editingGroupId) : null;
+  if (enabled && (!prev || !prev.activity.enabled)) activity.lastAt = Date.now();
+
+  try {
+    if (editingGroupId) {
+      await updateGroup(editingGroupId, { name, memberIds, activity });
+      toast('群聊已更新');
+    } else {
+      await addGroup({ name, memberIds, activity });
+      toast('群聊已创建');
+    }
+    closeGroupForm();
+    await renderGroupsPage();
+  } catch (err) {
+    toast('保存失败：' + (err && err.message ? err.message : err));
+  }
+}
+
+async function deleteGroupConfirm(id) {
+  const group = await getGroup(id);
+  if (!group) return;
+  if (!window.confirm('删除「' + group.name + '」？群里的聊天记录也会一起删掉，角色本身不受影响。')) return;
+  try {
+    await deleteGroup(id);
+    if (activeGroupId === id) { groupMode = false; activeGroupId = null; }
+    await renderGroupsPage();
+    toast('群聊已删除');
+  } catch (err) {
+    toast('删除失败：' + (err && err.message ? err.message : err));
+  }
+}
+
+function groupMembersOf(group, characters) {
+  const map = new Map(characters.map((c) => [c.id, c]));
+  return group.memberIds.map((id) => map.get(id)).filter(Boolean);
+}
+
+async function rerenderGroupChat() {
+  if (!groupMode || !activeGroupId) return;
+  const group = await getGroup(activeGroupId);
+  if (!group) return;
+  const { list } = await getCharacters();
+  const members = groupMembersOf(group, list);
+  const history = await getGroupHistory(activeGroupId);
+  $('chat-title').textContent = group.name;
+  await renderGroupChat(group, members, history);
+}
+
+async function openGroupChat(groupId) {
+  const group = await getGroup(groupId);
+  if (!group) { toast('群聊不存在'); await openGroups(); return; }
+  const { list } = await getCharacters();
+  const members = groupMembersOf(group, list);
+  if (!members.length) {
+    toast('这个群还没有成员，先编辑拉人进群');
+    await openGroups();
+    await openGroupForm(groupId);
+    return;
+  }
+  groupMode = true;
+  activeGroupId = groupId;
+  editingGroupId = null;
+  hideGroupForm();
+  closeChatCharMenu();
+  closeChatSheet();
+  closeChatMsgMenu();
+  exitChatSelectMode();
+  clearCountdown();
+  $('chat-title').textContent = group.name;
+  $('input-chat').value = '';
+  $('input-chat').placeholder = '在群里说点什么…';
+  $('btn-batch-send').hidden = true;
+  const history = await getGroupHistory(groupId);
+  await renderGroupChat(group, members, history);
+  showView(viewChat);
+}
+
+function groupPersonaText(group, members) {
+  const lines = members.map((m) => {
+    const persona = String(m.persona || '').trim().slice(0, 600);
+    return '【' + m.name + '】' + (persona || '（没有填写人设）');
+  });
+  return [
+    '你正在一个多人聊天群里，群名：「' + group.name + '」。',
+    '群成员：' + members.map((m) => m.name).join('、') + '。用户「我」也在群里。',
+    '每位成员的人设：',
+    lines.join('\n'),
+    '回复要求：',
+    '1. 只输出群成员说的话，可以一个人接，也可以多人接力；',
+    '2. 每行开头用「角色名：」标明是谁说的；',
+    '3. 不要替用户「我」说话，不要写旁白、动作或解释；',
+    '4. 一次回复 1-3 人即可，别让所有人一起说话；',
+    '5. 像真实群聊，口语化、简短自然。',
+  ].join('\n');
+}
+
+function groupMessageSenderName(message, members) {
+  const member = members.find((m) => m.id === message.senderId);
+  return member && member.name ? member.name : (message.senderName || '群成员');
+}
+
+async function buildGroupPayload(group, members, opts) {
+  const options = opts || {};
+  const settings = {
+    baseUrl: $('input-baseurl').value.trim(),
+    apiKey: $('input-apikey').value.trim(),
+    model: getCurrentModel(),
+  };
+  if (!settings.baseUrl || !settings.apiKey || !settings.model) return null;
+
+  const history = await getGroupHistory(group.id);
+  let prior = history;
+  let message = '';
+  if (options.spontaneous) {
+    message = '群里已经安静了 ' + group.activity.minutes + ' 分钟。请以「' + options.speaker.name +
+      '」的身份主动开口，可以接着上文，也可以完全开一个新话题；只输出这个角色要说的话，不要加名字前缀。';
+  } else {
+    const last = history[history.length - 1];
+    if (last && last.role === 'user') {
+      prior = history.slice(0, -1);
+      message = last.content;
+    } else {
+      message = '请接着群里的对话自然回复。';
+    }
+  }
+
+  const recent = prior.slice(-24).map((m) => {
+    if (m.role === 'user') return { role: 'user', content: m.content };
+    return { role: 'assistant', content: groupMessageSenderName(m, members) + '：' + m.content };
+  });
+
+  return {
+    baseUrl: settings.baseUrl,
+    apiKey: settings.apiKey,
+    model: settings.model,
+    persona: groupPersonaText(group, members),
+    memory: '',
+    history: recent,
+    message,
+  };
+}
+
+function parseGroupReply(text, members, preferred) {
+  const parts = splitReplyIntoBubbles(text).map((p) => String(p || '').trim()).filter(Boolean);
+  if (!parts.length) return [];
+
+  const nameOf = (line) => {
+    const m = line.match(/^[\[【（(]?([^：:\]】）)\n]{1,16})[\]】）)]?\s*[：:]\s*([\s\S]+)$/);
+    if (!m) return null;
+    const raw = m[1].trim();
+    const found = members.find((x) => x.name === raw)
+      || members.find((x) => raw.indexOf(x.name) !== -1 || x.name.indexOf(raw) !== -1);
+    if (!found) return null;
+    return { member: found, content: m[2].trim() };
+  };
+
+  const hasNamePrefix = parts.some((p) => !!nameOf(p));
+  if (!hasNamePrefix) {
+    // 模型没写名字时，整段都算同一个人说的，别把一句话拆给好几个人
+    const speaker = preferred || members[0];
+    return parts.map((content) => ({ speaker, content }));
+  }
+
+  const out = [];
+  parts.forEach((part) => {
+    const hit = nameOf(part);
+    if (hit) {
+      if (hit.content) out.push({ speaker: hit.member, content: hit.content });
+      return;
+    }
+    if (/^(我|用户|你|系统|旁白)\s*[：:]/.test(part)) return; // 不替用户或旁白说话
+    const speaker = preferred || members[out.length % members.length];
+    out.push({ speaker, content: part });
+  });
+  return out.length ? out : [{ speaker: preferred || members[0], content: parts.join('\n') }];
+}
+
+async function touchGroupActivity(groupId) {
+  const group = await getGroup(groupId);
+  if (!group || !group.activity || !group.activity.enabled) return;
+  await updateGroup(groupId, { activity: { lastAt: Date.now() } });
+}
+
+async function flushGroupReply(groupId, opts) {
+  if (groupSending || chatSending) return;
+  const options = opts || {};
+  const group = await getGroup(groupId);
+  if (!group) return;
+  const { list } = await getCharacters();
+  const members = groupMembersOf(group, list);
+  if (!members.length) return;
+
+  const payload = await buildGroupPayload(group, members, options);
+  if (!payload) {
+    if (!options.spontaneous) toast('请先到「设置」填好接口地址、API Key 和模型名');
+    return;
+  }
+
+  const viewing = groupMode && activeGroupId === groupId;
+  const speaker = options.speaker || members[Math.floor(Math.random() * members.length)];
+  const avatar = await getAvatarUrlById(speaker.avatarId);
+
+  groupSending = true;
+  if (viewing) await appendGroupTyping(speaker.name, avatar);
+
+  let result;
+  try {
+    result = await requestReply(payload);
+  } catch (err) {
+    result = { ok: false, reason: '无法连接本地服务：' + (err && err.message ? err.message : err) };
+  }
+
+  removeTyping();
+  groupSending = false;
+
+  if (!result || !result.ok) {
+    if (viewing) toast('群聊回复失败：' + ((result && result.reason) || '未知错误'));
+    if (options.spontaneous) await touchGroupActivity(groupId);
+    return;
+  }
+
+  const messages = parseGroupReply(result.reply, members, speaker);
+  if (!messages.length) {
+    if (options.spontaneous) await touchGroupActivity(groupId);
+    return;
+  }
+
+  const now = Date.now();
+  await mutateGroupHistory(groupId, (arr) => {
+    messages.forEach((m) => {
+      arr.push({
+        role: 'assistant',
+        content: m.content,
+        senderId: m.speaker.id,
+        senderName: m.speaker.name,
+        at: now,
+      });
+    });
+  });
+  await touchGroupActivity(groupId);
+  if (viewing) await rerenderGroupChat();
+}
+
+async function sendGroupMessage() {
+  if (groupSending) { toast('群里正在说话，稍等一下'); return; }
+  const groupId = activeGroupId;
+  if (!groupId) return;
+  const input = $('input-chat');
+  const text = input.value.trim();
+  if (!text) return;
+
+  try {
+    await mutateGroupHistory(groupId, (arr) => arr.push({ role: 'user', content: text, at: Date.now() }));
+  } catch (err) {
+    toast('发送失败：' + (err && err.message ? err.message : err));
+    return;
+  }
+  input.value = '';
+  await touchGroupActivity(groupId);
+  await rerenderGroupChat();
+  await flushGroupReply(groupId);
+}
+
+async function saveGroupActivityFromSheet() {
+  if (!activeGroupId) return;
+  const enabled = $('group-sheet-activity-enabled').checked;
+  const minutes = Math.max(1, Math.min(1440, parseInt($('group-sheet-activity-minutes').value, 10) || 10));
+  await updateGroup(activeGroupId, { activity: { enabled, minutes, lastAt: Date.now() } });
+  toast(enabled ? ('已开启：每 ' + minutes + ' 分钟自主发消息') : '已关闭群聊活跃度');
+  closeChatSheet();
+}
+
+async function checkGroupActivity() {
+  if (groupActivityBusy || groupSending || chatSending) return;
+  const groups = await getGroups();
+  const now = Date.now();
+  const due = groups.find((g) => {
+    if (!g.activity || !g.activity.enabled || !g.memberIds.length) return false;
+    const last = g.activity.lastAt || g.createdAt || 0;
+    return now - last >= g.activity.minutes * 60000;
+  });
+  if (!due) return;
+
+  groupActivityBusy = true;
+  try {
+    const { list } = await getCharacters();
+    const members = groupMembersOf(due, list);
+    if (!members.length) {
+      await updateGroup(due.id, { activity: { lastAt: Date.now() } });
+      return;
+    }
+    const speaker = members[Math.floor(Math.random() * members.length)];
+    await flushGroupReply(due.id, { spontaneous: true, speaker });
+  } catch (_) {
+    // 自动说话失败就等下一轮，不打断用户
+  } finally {
+    groupActivityBusy = false;
+  }
+}
+
+async function clearCurrentGroupChat() {
+  const group = await getGroup(activeGroupId);
+  if (!group) return;
+  if (!window.confirm('清空「' + group.name + '」的全部聊天记录？群和成员会保留。')) return;
+  await clearGroupHistory(activeGroupId);
+  await rerenderGroupChat();
+  toast('群聊记录已清空');
 }
 
 // ---- 电话编排 ----
@@ -1688,6 +2070,11 @@ async function submitMessage(text) {
 
 // 输入框右侧的发送键兼顾三件事：发消息 / 请求回复 / 暂停生成
 async function handleSendTap() {
+  if (groupMode) {
+    if (groupSending) { toast('群里正在说话，稍等一下'); return; }
+    await sendGroupMessage();
+    return;
+  }
   if (chatSending) { stopReplyGeneration(); return; }
   const input = $('input-chat');
   const text = input.value.trim();
@@ -2144,6 +2531,15 @@ async function refreshDirectiveChip() {
 }
 
 async function sendToolUserMessage(message) {
+  if (groupMode && activeGroupId) {
+    await mutateGroupHistory(activeGroupId, (arr) => {
+      arr.push(Object.assign({ role: 'user', senderName: '我', at: Date.now() }, message));
+    });
+    closeChatSheet();
+    await rerenderGroupChat();
+    await flushGroupReply(activeGroupId);
+    return;
+  }
   const characterId = await getActiveCharacterId();
   if (!characterId) { toast('请先创建角色'); return; }
   await mutateHistory((arr) => arr.push(Object.assign({ role: 'user', createdAt: Date.now() }, message)), characterId);
@@ -4698,23 +5094,87 @@ async function openDiaryFromTool() {
 }
 
 // ---------------- 日程 ----------------
+function normalizeScheduleItems(raw) {
+  return (Array.isArray(raw) ? raw : [])
+    .map(normalizeScheduleItem)
+    .filter(Boolean)
+    .sort((a, b) => a.start.localeCompare(b.start))
+    .slice(0, 12);
+}
+
+function extractScheduleItems(data) {
+  if (!data) return null;
+  let raw = [];
+  if (Array.isArray(data)) {
+    raw = data;
+  } else if (typeof data === 'object') {
+    raw = data.items || data.schedule || data.list || data.events || data.tasks || data.plan || data.data || [];
+    if (!Array.isArray(raw)) {
+      // 模型有时会换一层键名，找出第一个数组
+      const found = Object.values(data).find((v) => Array.isArray(v));
+      raw = found || [];
+    }
+  }
+  const items = normalizeScheduleItems(raw);
+  return items.length ? items : null;
+}
+
+function looseJsonText(text) {
+  return String(text || '')
+    .replace(/^\uFEFF/, '')
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/,\s*([}\]])/g, '$1')
+    .trim();
+}
+
+function tryParseScheduleText(text) {
+  const candidates = [];
+  const push = (s) => {
+    const t = String(s || '').trim();
+    if (t && candidates.indexOf(t) === -1) candidates.push(t);
+  };
+  push(text);
+  const braceStart = text.indexOf('{');
+  const braceEnd = text.lastIndexOf('}');
+  if (braceStart >= 0 && braceEnd > braceStart) push(text.slice(braceStart, braceEnd + 1));
+  const bracketStart = text.indexOf('[');
+  const bracketEnd = text.lastIndexOf(']');
+  if (bracketStart >= 0 && bracketEnd > bracketStart) push(text.slice(bracketStart, bracketEnd + 1));
+
+  for (const candidate of candidates) {
+    for (const attempt of [candidate, looseJsonText(candidate)]) {
+      try {
+        const items = extractScheduleItems(JSON.parse(attempt));
+        if (items) return items;
+      } catch (_) {}
+    }
+  }
+  return null;
+}
+
+// 模型完全不按 JSON 来时，从「07:30-08:10 做某事」这类行里兜底解析
+function parseScheduleFromLines(text) {
+  const items = [];
+  String(text || '').split(/\r?\n/).forEach((line) => {
+    const cleaned = line.replace(/^[\s>*#\-•·\d.、]+/, '').trim();
+    const m = cleaned.match(/^(\d{1,2}[:：]\d{2})\s*(?:[-–—~～至到]\s*(\d{1,2}[:：]\d{2}))?\s*[，,、:：]?\s*(.+)$/);
+    if (!m) return;
+    const item = normalizeScheduleItem({
+      start: m[1],
+      end: m[2] || '',
+      title: m[3].replace(/^["「『]|["」』]$/g, '').trim(),
+    });
+    if (item) items.push(item);
+  });
+  return normalizeScheduleItems(items);
+}
+
 function parseScheduleJson(text) {
   let s = String(text || '').trim();
   s = s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-  const start = s.indexOf('{');
-  const end = s.lastIndexOf('}');
-  if (start >= 0 && end > start) s = s.slice(start, end + 1);
-  try {
-    const data = JSON.parse(s);
-    const raw = Array.isArray(data) ? data : (data.items || data.schedule || data.list || []);
-    const items = raw
-      .map(normalizeScheduleItem)
-      .filter(Boolean)
-      .sort((a, b) => a.start.localeCompare(b.start))
-      .slice(0, 12);
-    if (items.length) return items;
-  } catch (_) {}
-  return null;
+  const items = tryParseScheduleText(s) || parseScheduleFromLines(s);
+  return items && items.length ? items : null;
 }
 
 function scheduleWorldbookText(entries, characterId) {
@@ -4749,7 +5209,9 @@ async function buildScheduleSystemPrompt(character, characterId) {
     '3. 时间用 24 小时制 HH:MM，时间段不重叠，按时间升序，跨度不要出现空档太多。',
     '4. 每个条目写清楚在做什么，具体、有生活感，不要空泛；地点和备注可以为空字符串。',
     '5. 不要提到 AI、模型、提示词，也不要解释生成过程。',
-    '6. 只输出 JSON，格式：{"items":[{"start":"07:30","end":"08:10","title":"洗漱吃早饭","place":"家","note":""}]}',
+    '6. 只输出一个 JSON 对象，不要 Markdown 代码块，不要前后解释。',
+    '7. 严格用这个格式：{"items":[{"start":"07:30","end":"08:10","title":"洗漱吃早饭","place":"家","note":""}]}',
+    '8. start 和 end 必须是 24 小时制 HH:MM；title 不能为空。',
   ];
   return parts.join('\n');
 }
@@ -4768,8 +5230,8 @@ async function generateCharacterSchedule(characterId) {
     apiKey: api.apiKey,
     model: api.model,
     system,
-    user: '请生成今天的日程。',
-    maxTokens: 1800,
+    user: '请生成今天的日程，只输出 JSON 对象。',
+    maxTokens: 2400,
   });
   if (!data || !data.ok) throw new Error((data && (data.reason || data.message)) || '日程生成失败');
   const items = parseScheduleJson(data.reply);
@@ -6667,6 +7129,8 @@ document.querySelectorAll('.app-icon, .dock-icon').forEach((btn) => {
       openUncle();
     } else if (app === 'album') {
       openAlbum();
+    } else if (app === 'groupchat') {
+      openGroups();
     } else {
       const nameEl = btn.querySelector('.app-name');
       const name = nameEl ? nameEl.textContent : (btn.getAttribute('aria-label') || '这个应用');
@@ -6986,6 +7450,17 @@ $('btn-fetch-embedding-models').addEventListener('click', () => {
 $('select-embedding-model').addEventListener('change', (e) => {
   if (e.target.value) $('input-embedding-model').value = e.target.value;
 });
+$('btn-fetch-image-models').addEventListener('click', () => {
+  fetchModelsInto({
+    baseUrlId: 'input-image-baseurl', apiKeyId: 'input-image-apikey',
+    inputId: 'input-image-model', selectId: 'select-image-model',
+    btnId: 'btn-fetch-image-models', savedText: '生图模型已保存',
+  });
+});
+$('select-image-model').addEventListener('change', (e) => {
+  if (e.target.value) $('input-image-model').value = e.target.value;
+  save();
+});
 $('btn-embedding-save').addEventListener('click', async () => {
   save();
   await embedMemoryRecords().catch(() => {});
@@ -7260,7 +7735,14 @@ $('btn-weather-fetch').addEventListener('click', async () => {
 });
 
 // 角色聊天导航
-$('btn-chat-back').addEventListener('click', () => { closeChatCharMenu(); closeChatSheet(); closeChatMsgMenu(); exitChatSelectMode(); showView(viewHome); });
+$('btn-chat-back').addEventListener('click', () => {
+  closeChatCharMenu();
+  closeChatSheet();
+  closeChatMsgMenu();
+  exitChatSelectMode();
+  if (groupMode) openGroups();
+  else showView(viewHome);
+});
 $('btn-chat-switch').addEventListener('click', (e) => {
   e.stopPropagation();
   const menu = $('chat-char-menu');
@@ -7269,7 +7751,12 @@ $('btn-chat-switch').addEventListener('click', (e) => {
 });
 $('chat-char-menu').addEventListener('click', (e) => {
   const item = e.target.closest('[data-char-id]');
-  if (item) pickChatCharacter(item.dataset.charId);
+  if (item) { pickChatCharacter(item.dataset.charId); return; }
+  const groupItem = e.target.closest('[data-group-id]');
+  if (groupItem) {
+    closeChatCharMenu();
+    openGroupChat(groupItem.dataset.groupId);
+  }
 });
 document.addEventListener('click', (e) => {
   if (!e.target.closest('.chat-capsule')) closeChatCharMenu();
@@ -8273,7 +8760,11 @@ $('chat-sheet-body').addEventListener('click', async (e) => {
     return;
   }
 
-  if (e.target.closest('#btn-chat-clear-all')) { await clearCurrentChat(); return; }
+  if (e.target.closest('#btn-chat-clear-all')) {
+    if (groupMode) await clearCurrentGroupChat();
+    else await clearCurrentChat();
+    return;
+  }
 
   const tool = e.target.closest('[data-tool]');
   if (tool) {
@@ -9276,6 +9767,18 @@ $('album-grid').addEventListener('click', async (e) => {
 
 $('album-viewer').addEventListener('click', closeAlbumViewer);
 
+// ===== 群聊入口与活跃度定时器 =====
+$('btn-groups-back').addEventListener('click', () => {
+  closeGroupForm();
+  showView(viewHome);
+});
+$('btn-group-new').addEventListener('click', () => { openGroupForm(null); });
+$('btn-group-save').addEventListener('click', () => { saveGroupForm(); });
+$('btn-group-cancel').addEventListener('click', () => { closeGroupForm(); });
+
+setInterval(() => { checkGroupActivity().catch(() => {}); }, 60 * 1000);
+setTimeout(() => { checkGroupActivity().catch(() => {}); }, 15 * 1000);
+
 async function pushUncleMessage(role, content) {
   uncleMessages.push({ role, content, at: Date.now() });
   renderUncleMessages();
@@ -9438,17 +9941,14 @@ async function copyErrorToUncle() {
 }
 
 // ===== 更新公告 =====
-const WHATS_NEW_VERSION = '2026.11.17.3';
+const WHATS_NEW_VERSION = '2026.11.17.4';
 const WHATS_NEW_KEY = 'clearcall_whatsnew_seen';
 const WHATS_NEW_ITEMS = [
-  '重 roll 变干净了：先把角色那条旧回复删掉再重新生成，你发的消息稳稳留着。',
-  '聊天功能键里多了一键清空：当前角色的聊天记录和记忆一起清，角色卡不动。',
-  '语音服务统一改成 Fish Audio，填好 Key 和参考音色 ID，角色就能开口。',
-  '生图设置加了正面/负面提示词，每次画图自动带上，省得一遍遍描述。',
-  '新开「相册」：聊天和动态里出现过的照片自动存一份，原处删了也不会丢。',
-  '余叔叔学会分条说话了，不再把 <split> 这种后台黑话念给你听。',
-  '外语气泡点一下就能看中文，语音条长按可以转文字。',
-  '记忆服务支持拉取模型，并且加了 Embedding 向量记忆，翻旧账更准。',
+  '生图设置也能「拉取模型」了，拉到就选，拉不到还能手填，不耽误画图。',
+  '日程那边我认了错：模型回数组、回纯文本、字段名乱起，现在都能收拾成正经日程。',
+  '新开「群聊」：把几个角色拉进一个群，聊天室那套功能键一个不少，照片、表情、转账照样能用。',
+  '群聊活跃度上线：设定多少分钟后，群里随机一位成员会自己找话说，不一定接上文，可以自己开新话题。',
+  '提醒一句：群聊自主发消息要页面开着才会跑，网页关了它就老实待着。',
 ];
 
 function maybeShowWhatsNew() {

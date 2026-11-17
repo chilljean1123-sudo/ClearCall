@@ -106,6 +106,22 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // 日程生成接口（角色日程，输出 JSON）
+  if (req.method === 'POST' && url.pathname === '/api/schedule') {
+    const payload = await ai.readJsonBody(req, 5e6);
+    const result = await ai.scheduleChat({
+      baseUrl: payload.baseUrl,
+      apiKey: payload.apiKey,
+      model: payload.model,
+      system: payload.system,
+      user: payload.user,
+      maxTokens: payload.maxTokens,
+    });
+    console.log('[api/schedule]', result.ok ? 'success' : 'failed', result.reason || '');
+    ai.sendJson(res, result);
+    return;
+  }
+
   // 动态（朋友圈）内容生成接口
   if (req.method === 'POST' && url.pathname === '/api/moment') {
     const payload = await ai.readJsonBody(req, 5e6);
