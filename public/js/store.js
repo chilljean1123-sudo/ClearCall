@@ -2308,6 +2308,84 @@ function buildChatStylePrompt(style) {
   return '【说话方式（本轮必须遵守）】\n' + picked.map((o) => '- ' + o.prompt).join('\n');
 }
 
+// ---- 角色语言 / 时区 / 距离 ----
+const CHARACTER_LANGUAGE_OPTIONS = [
+  { id: 'zh', label: '中文' },
+  { id: 'ko', label: '韩语' },
+  { id: 'en', label: '英语' },
+  { id: 'ja', label: '日语' },
+];
+
+const CHARACTER_TIMEZONE_OPTIONS = [
+  { id: 'Asia/Shanghai', label: '北京时间（UTC+8）' },
+  { id: 'Asia/Seoul', label: '首尔（UTC+9）' },
+  { id: 'Asia/Tokyo', label: '东京（UTC+9）' },
+  { id: 'Asia/Bangkok', label: '曼谷（UTC+7）' },
+  { id: 'Europe/London', label: '伦敦（UTC+0）' },
+  { id: 'Europe/Paris', label: '巴黎（UTC+1）' },
+  { id: 'America/New_York', label: '纽约（UTC-5）' },
+  { id: 'America/Los_Angeles', label: '洛杉矶（UTC-8）' },
+  { id: 'Australia/Sydney', label: '悉尼（UTC+11）' },
+];
+
+const CHARACTER_DISTANCE_OPTIONS = [
+  {
+    id: 'same-city',
+    label: '同城',
+    prompt: '你和 user 在同一座城市，见面方便。聊天时可以自然提到附近的店、路和天气；user 不提出见面时，不要强行约见面。',
+  },
+  {
+    id: 'long-distance',
+    label: '异地',
+    prompt: '你和 user 不在同一座城市，见面不容易。可以提到距离、车票和想见面，但只有 user 主动提出时才可以讨论或答应见面；user 不提出时，不要强行安排见面，也不要假装已经见过面。见面本身有不确定性，不要承诺具体日期。',
+  },
+  {
+    id: 'parallel',
+    label: '平行世界',
+    prompt: '你和 user 处在平行世界，现实中无法见面。不要提出见面、不要约线下、不要描述已经见面的场景，也不要说「下次去找你」这类话。你们的互动只能发生在聊天和通话里。',
+  },
+];
+
+function normalizeCharacterLanguage(value) {
+  return CHARACTER_LANGUAGE_OPTIONS.some((o) => o.id === value) ? value : 'zh';
+}
+
+function normalizeCharacterTimezone(value) {
+  return CHARACTER_TIMEZONE_OPTIONS.some((o) => o.id === value) ? value : 'Asia/Shanghai';
+}
+
+function normalizeCharacterDistance(value) {
+  return CHARACTER_DISTANCE_OPTIONS.some((o) => o.id === value) ? value : 'same-city';
+}
+
+// 把语言、时区、距离写进 system，约束聊天与通话
+function buildCharacterLocalePrompt(character) {
+  if (!character) return '';
+  const language = CHARACTER_LANGUAGE_OPTIONS.find((o) => o.id === character.language) || CHARACTER_LANGUAGE_OPTIONS[0];
+  const timezone = CHARACTER_TIMEZONE_OPTIONS.find((o) => o.id === character.timezone) || CHARACTER_TIMEZONE_OPTIONS[0];
+  const distance = CHARACTER_DISTANCE_OPTIONS.find((o) => o.id === character.distance) || CHARACTER_DISTANCE_OPTIONS[0];
+
+  let localTime = '';
+  try {
+    const now = new Date();
+    const date = new Intl.DateTimeFormat('zh-CN', {
+      timeZone: timezone.id, month: '2-digit', day: '2-digit',
+    }).format(now);
+    const time = new Intl.DateTimeFormat('zh-CN', {
+      timeZone: timezone.id, hour: '2-digit', minute: '2-digit', hour12: false,
+    }).format(now);
+    localTime = date + ' ' + time;
+  } catch (_) { localTime = ''; }
+
+  return [
+    '【语言与时区（本轮必须遵守）】',
+    '- 你平时说' + language.label + '。回复必须用' + language.label + '，不要因为 user 用什么语言就跟着切换；只有 user 明确要求换语言时才换。',
+    '- 你所在时区：' + timezone.label + (localTime ? '，当地时间 ' + localTime : '') + '。作息、问候和节日都按这个时间走。',
+    '【你和 user 的距离】',
+    '- ' + distance.prompt,
+  ].join('\n');
+}
+
 function normalizeCharacter(raw, fallbackId) {
   if (!raw) return null;
   return {
@@ -2320,6 +2398,9 @@ function normalizeCharacter(raw, fallbackId) {
     voice: normalizeCharacterVoice(raw.voice),
     image: normalizeCharacterImage(raw.image),
     chatStyle: normalizeCharacterChatStyle(raw.chatStyle),
+    language: normalizeCharacterLanguage(raw.language),
+    timezone: normalizeCharacterTimezone(raw.timezone),
+    distance: normalizeCharacterDistance(raw.distance),
     createdAt: raw.createdAt || Date.now(),
     updatedAt: raw.updatedAt || Date.now(),
   };
@@ -2358,8 +2439,8 @@ async function setActiveCharacter(id) {
   });
 }
 
-async function addCharacter({ name, remark, persona, voice, image } = {}) {
-  const record = normalizeCharacter({ name, remark, persona, avatarId: null, voice, image });
+async function addCharacter({ name, remark, persona, voice, image, language, timezone, distance } = {}) {
+  const record = normalizeCharacter({ name, remark, persona, avatarId: null, voice, image, language, timezone, distance });
   await mutateDoc(DOC_CHARACTERS, (doc) => {
     if (!Array.isArray(doc.list)) doc.list = [];
     doc.list.push(record);
@@ -2381,6 +2462,9 @@ async function updateCharacterRecord(id, patch) {
     if (patch.voice !== undefined) c.voice = normalizeCharacterVoice(Object.assign({}, c.voice, patch.voice));
     if (patch.image !== undefined) c.image = normalizeCharacterImage(Object.assign({}, c.image, patch.image));
     if (patch.chatStyle !== undefined) c.chatStyle = normalizeCharacterChatStyle(patch.chatStyle);
+    if (patch.language !== undefined) c.language = normalizeCharacterLanguage(patch.language);
+    if (patch.timezone !== undefined) c.timezone = normalizeCharacterTimezone(patch.timezone);
+    if (patch.distance !== undefined) c.distance = normalizeCharacterDistance(patch.distance);
     c.updatedAt = Date.now();
   });
 }

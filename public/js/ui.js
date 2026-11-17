@@ -21,6 +21,7 @@ const viewSettingsSub = $('view-settings-sub');
 const viewChat = $('view-chat');
 const viewMemory = $('view-memory');
 const viewWorldbook = $('view-worldbook');
+const viewWorldbookEdit = $('view-worldbook-edit');
 const viewPinie = $('view-pinie');
 const viewPinieWb = $('view-pinie-wb');
 const viewCharacters = $('view-characters');
@@ -2094,6 +2095,43 @@ function renderCharacterForm(character, avatarUrl, refImageUrl, personaUrl) {
   wrapField(name, '角色名');
   wrapField(remark, '备注');
   wrapField(persona, '人设');
+
+  const languageSelect = document.createElement('select');
+  languageSelect.id = 'char-language-select';
+  languageSelect.className = 'wb-select';
+  CHARACTER_LANGUAGE_OPTIONS.forEach((option) => {
+    const opt = document.createElement('option');
+    opt.value = option.id;
+    opt.textContent = option.label;
+    languageSelect.appendChild(opt);
+  });
+  languageSelect.value = (character && character.language) || 'zh';
+  wrapField(languageSelect, '使用的语言');
+
+  const timezoneSelect = document.createElement('select');
+  timezoneSelect.id = 'char-timezone-select';
+  timezoneSelect.className = 'wb-select';
+  CHARACTER_TIMEZONE_OPTIONS.forEach((option) => {
+    const opt = document.createElement('option');
+    opt.value = option.id;
+    opt.textContent = option.label;
+    timezoneSelect.appendChild(opt);
+  });
+  timezoneSelect.value = (character && character.timezone) || 'Asia/Shanghai';
+  wrapField(timezoneSelect, '所在时区');
+
+  const distanceSelect = document.createElement('select');
+  distanceSelect.id = 'char-distance-select';
+  distanceSelect.className = 'wb-select';
+  CHARACTER_DISTANCE_OPTIONS.forEach((option) => {
+    const opt = document.createElement('option');
+    opt.value = option.id;
+    opt.textContent = option.label;
+    distanceSelect.appendChild(opt);
+  });
+  distanceSelect.value = (character && character.distance) || 'same-city';
+  wrapField(distanceSelect, '和你的距离');
+
   mainCard.appendChild(fields);
 
   const voiceCard = document.createElement('div');
@@ -3050,6 +3088,19 @@ function worldbookEntryRow(e) {
   text.textContent = e.content;
   row.appendChild(text);
 
+  if (String(e.content || '').length > 80) {
+    text.classList.add('wb-collapsed');
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'wb-expand-btn';
+    toggle.textContent = '展开全文';
+    toggle.addEventListener('click', () => {
+      const collapsed = text.classList.toggle('wb-collapsed');
+      toggle.textContent = collapsed ? '展开全文' : '收起';
+    });
+    row.appendChild(toggle);
+  }
+
   return row;
 }
 
@@ -3068,14 +3119,9 @@ function renderWorldbookList(entries) {
 
 // 渲染「新建 / 编辑」表单；entry 为空表示新增；characters 用于「绑定角色」下拉
 function renderWorldbookForm(entry, characters, defaultBind) {
-  const box = $('wb-form');
+  const box = $('wb-edit-form');
   box.innerHTML = '';
-  box.hidden = false;
-
-  const title = document.createElement('div');
-  title.className = 'memory-form-title';
-  title.textContent = entry ? '编辑条目' : '新建条目';
-  box.appendChild(title);
+  $('wb-edit-title').textContent = entry ? '编辑条目' : '新建条目';
 
   // 绑定角色：选择全局或已创建好的角色
   const bindRow = document.createElement('div');
@@ -3215,7 +3261,7 @@ function renderWorldbookForm(entry, characters, defaultBind) {
   cancelBtn.type = 'button';
   cancelBtn.className = 'fetch-btn';
   cancelBtn.textContent = '取消';
-  cancelBtn.addEventListener('click', cancelWorldbookForm);
+  cancelBtn.addEventListener('click', closeWorldbookEdit);
   btns.appendChild(saveBtn);
   btns.appendChild(cancelBtn);
   box.appendChild(btns);

@@ -1564,8 +1564,20 @@
             <input type="file" id="file-wb-import" accept="application/json,.json" hidden />
           </div>
           <p class="wb-hint">关键词命中才注入；关键词留空表示无条件触发。概率开关打开后，命中还要通过随机判定才注入。添加条目时可在表单里选择绑定「全局」或某个角色；导出 / 导入作用于当前选中的列表。</p>
-          <div class="wb-form" id="wb-form" hidden></div>
           <div class="wb-list" id="wb-list"></div>
+        </div>
+      </div>
+
+      <!-- 世界书编辑 -->
+      <div class="app-view" id="view-worldbook-edit">
+        <header class="app-header">
+          <button class="back-btn" id="btn-wb-edit-back" type="button">返回</button>
+          <span class="app-title" id="wb-edit-title">编辑条目</span>
+          <span class="app-header-spacer"></span>
+        </header>
+
+        <div class="wb-body">
+          <div class="wb-form" id="wb-edit-form"></div>
         </div>
       </div>
     </div>

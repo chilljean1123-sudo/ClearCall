@@ -4283,9 +4283,6 @@ body.statusbar-off .statusbar { visibility: hidden; }
     border-radius: 0;
     overflow: hidden;
   }
-  .dock {
-    padding-bottom: calc(8px + var(--safe-bottom));
-  }
 }
 
 /* ===== 商城 ===== */
@@ -5741,3 +5738,21 @@ body.home-dragging .home-pages { scroll-snap-type: none; }
   background: linear-gradient(to bottom, transparent, var(--color-page-bg) 40%);
 }
 .pinie-save-btn { width: 100%; }
+
+/* 世界书条目默认缩略，点开再看全文 */
+.wb-item-text.wb-collapsed {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.wb-expand-btn {
+  margin-top: var(--space-1);
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-accent);
+  font-size: var(--font-caption);
+  line-height: var(--leading-body);
+  cursor: pointer;
+}

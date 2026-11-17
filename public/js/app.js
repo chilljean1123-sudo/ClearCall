@@ -660,6 +660,9 @@ function readCharacterForm() {
     name: $('char-name-input').value.trim(),
     remark: $('char-remark-input').value.trim(),
     persona: $('char-persona-input').value,
+    language: $('char-language-select').value,
+    timezone: $('char-timezone-select').value,
+    distance: $('char-distance-select').value,
     voice: {
       enabled: $('char-voice-enabled').checked,
       voiceId: $('char-voice-id').value.trim(),
@@ -1403,6 +1406,8 @@ async function currentChatPayload(message, priorHistory, characterId) {
   let persona = (c && c.persona) || '';
   const stylePrompt = buildChatStylePrompt(c && c.chatStyle);
   if (stylePrompt) persona += '\n\n' + stylePrompt;
+  const localePrompt = buildCharacterLocalePrompt(c);
+  if (localePrompt) persona += '\n\n' + localePrompt;
   const userProfile = await getActiveUserProfile();
   const userPrompt = buildUserPersonaPrompt(userProfile);
   if (userPrompt) persona += '\n\n' + userPrompt;
@@ -2616,6 +2621,7 @@ async function openWorldbookAdd() {
   const { list } = await getCharacters();
   const defaultBind = worldbookScopeCharacterId(wbScope) || 'global';
   renderWorldbookForm(null, list, defaultBind);
+  showView(viewWorldbookEdit);
 }
 
 async function openWorldbookEdit(id) {
@@ -2625,13 +2631,18 @@ async function openWorldbookEdit(id) {
   editingWorldbookId = id;
   const { list } = await getCharacters();
   renderWorldbookForm(e, list);
+  showView(viewWorldbookEdit);
 }
 
 function cancelWorldbookForm() {
   editingWorldbookId = null;
-  const box = $('wb-form');
-  box.hidden = true;
+  const box = $('wb-edit-form');
   box.innerHTML = '';
+}
+
+function closeWorldbookEdit() {
+  cancelWorldbookForm();
+  showView(viewWorldbook);
 }
 
 function readWorldbookForm() {
@@ -2669,6 +2680,7 @@ async function saveWorldbookForm() {
     wbScope = data.characterId ? 'char:' + data.characterId : 'global';
     cancelWorldbookForm();
     await renderWorldbookUI();
+    showView(viewWorldbook);
     toast('条目已保存');
   } catch (err) {
     toast('保存失败：' + (err && err.message ? err.message : err));
@@ -7124,6 +7136,7 @@ $('btn-memory-add').addEventListener('click', openMemoryAdd);
 
 // 世界书应用
 $('btn-wb-back').addEventListener('click', () => showView(viewHome));
+$('btn-wb-edit-back').addEventListener('click', closeWorldbookEdit);
 $('btn-wb-add').addEventListener('click', openWorldbookAdd);
 $('btn-wb-export').addEventListener('click', exportWorldbook);
 $('btn-wb-import').addEventListener('click', () => $('file-wb-import').click());
