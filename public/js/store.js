@@ -71,6 +71,36 @@ const CF_KEYS = {
   lastAt: 'clearcall.autopushLastAt',
 };
 
+// 工具 API：翻译 / 论坛 / 购物 / 外卖 / 捏捏可各用一套接口，留空即借用聊天接口
+const TOOL_API_OPTIONS = [
+  { id: 'translate', label: '翻译' },
+  { id: 'forum', label: '论坛' },
+  { id: 'shop', label: '购物' },
+  { id: 'food', label: '外卖' },
+  { id: 'pinie', label: '捏捏' },
+];
+
+function toolApiKeys(tool) {
+  const prefix = 'clearcall.tool.' + tool + '.';
+  return { baseUrl: prefix + 'baseUrl', apiKey: prefix + 'apiKey', model: prefix + 'model' };
+}
+
+function getToolApiSettings(tool) {
+  const keys = toolApiKeys(tool);
+  return {
+    baseUrl: localStorage.getItem(keys.baseUrl) || '',
+    apiKey: localStorage.getItem(keys.apiKey) || '',
+    model: localStorage.getItem(keys.model) || '',
+  };
+}
+
+function setToolApiSettings(tool, s) {
+  const keys = toolApiKeys(tool);
+  localStorage.setItem(keys.baseUrl, String((s && s.baseUrl) || '').trim());
+  localStorage.setItem(keys.apiKey, String((s && s.apiKey) || '').trim());
+  localStorage.setItem(keys.model, String((s && s.model) || '').trim());
+}
+
 const MEMORY_CATEGORY_LABELS = {
   personal: '个人信息',
   agreement: '约定与待办',
@@ -2405,6 +2435,22 @@ function buildCharacterLocalePrompt(character) {
     '- 你所在时区：' + timezone.label + (localTime ? '，当地时间 ' + localTime : '') + '。作息、问候和节日都按这个时间走。',
     '【你和 user 的距离】',
     '- ' + distance.prompt,
+  ].join('\n');
+}
+
+// 双语输出：仅非中文角色启用，原文在前、简体中文译文在后，用单个竖线分隔
+function buildCharacterBilingualPrompt(character) {
+  if (!character) return '';
+  const language = normalizeCharacterLanguage(character.language);
+  if (language === 'zh') return '';
+  return [
+    '【双语输出规则（仅非中文角色使用，中文角色忽略此规则)】',
+    '**双语输出作用范围**：聊天消息正文、[语音条:...]中的语音内容文字、[引用:原文片段]后面的回复内容、[内心]...[/内心]中的内心想法。当本轮回复使用非中文语言时，以上内容必须使用“原文|对应的简体中文译文”的格式输出',
+    '**格式要求**：',
+    '- 原文在前，简体中文译文在后，中间只使用一个竖线 |',
+    '- 如果内容本来就是中文，则不要添加 |译文',
+    '- 不要改动原有富媒体指令格式，只在其中的文本内容内部追加 |中文译文',
+    '- [引用:...] 中引用锚点(引用原文）保持原格式，不需要翻译；只翻译其后的回复内容',
   ].join('\n');
 }
 

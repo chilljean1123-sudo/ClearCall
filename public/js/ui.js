@@ -335,6 +335,69 @@ function fillModelSelect(selectId, models, current) {
   syncModelSelect(selectId, current || '');
 }
 
+// 工具 API：为翻译 / 论坛 / 购物 / 外卖 / 捏捏生成独立接口输入
+function renderToolApiFields() {
+  const box = $('tool-api-list');
+  if (!box) return;
+  box.innerHTML = '';
+  TOOL_API_OPTIONS.forEach((tool) => {
+    const cfg = getToolApiSettings(tool.id);
+    const block = document.createElement('div');
+    block.className = 'tool-api-block';
+
+    const head = uiEl('div', 'tool-api-name', tool.label);
+    block.appendChild(head);
+
+    const addressField = document.createElement('div');
+    addressField.className = 'field';
+    addressField.appendChild(uiEl('span', 'field-label', '接口地址'));
+    const address = document.createElement('input');
+    address.type = 'text';
+    address.id = 'tool-api-' + tool.id + '-baseurl';
+    address.placeholder = '留空则使用聊天接口';
+    address.value = cfg.baseUrl;
+    addressField.appendChild(address);
+    block.appendChild(addressField);
+
+    const keyField = document.createElement('div');
+    keyField.className = 'field';
+    keyField.appendChild(uiEl('span', 'field-label', 'API Key'));
+    const keyWrap = document.createElement('span');
+    keyWrap.className = 'key-wrap';
+    const key = document.createElement('input');
+    key.type = 'password';
+    key.id = 'tool-api-' + tool.id + '-apikey';
+    key.placeholder = '留空则使用聊天接口';
+    key.value = cfg.apiKey;
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'toggle-key';
+    toggle.textContent = '显示';
+    toggle.addEventListener('click', () => {
+      const revealing = key.type === 'password';
+      key.type = revealing ? 'text' : 'password';
+      toggle.textContent = revealing ? '隐藏' : '显示';
+    });
+    keyWrap.appendChild(key);
+    keyWrap.appendChild(toggle);
+    keyField.appendChild(keyWrap);
+    block.appendChild(keyField);
+
+    const modelField = document.createElement('div');
+    modelField.className = 'field';
+    modelField.appendChild(uiEl('span', 'field-label', '模型'));
+    const model = document.createElement('input');
+    model.type = 'text';
+    model.id = 'tool-api-' + tool.id + '-model';
+    model.placeholder = '留空则使用聊天模型';
+    model.value = cfg.model;
+    modelField.appendChild(model);
+    block.appendChild(modelField);
+
+    box.appendChild(block);
+  });
+}
+
 // ===== 结果渲染（连接测试 / 拉取模型） =====
 function renderResult(data) {
   const result = $('result');
@@ -569,13 +632,95 @@ function renderUserAttachment(m, ctx) {
   return row;
 }
 
+// 双语回复：原文|译文 —— 默认只显示原文，点气泡后在下方展开简体中文
+function splitBilingualText(text) {
+  const lines = String(text || '').split('\n');
+  const sources = [];
+  const translations = [];
+  let found = false;
+  lines.forEach((line) => {
+    const m = /^(.*?)\s*\|\s*([^\n]*)$/.exec(line);
+    if (m && /[\u4e00-\u9fff]/.test(m[2])
+      && !/[\u4e00-\u9fff]/.test(m[1])
+      && /[A-Za-z\uac00-\ud7af\u3040-\u30ff]/.test(m[1])) {
+      sources.push(m[1]);
+      translations.push(m[2]);
+      found = true;
+    } else {
+      sources.push(line);
+    }
+  });
+  if (!found) return null;
+  return { source: sources.join('\n'), translation: translations.join('\n') };
+}
+
+// 语音条转文字：取这条消息里真正会朗读的文字，剥掉富媒体标记和双语译文
+function messageSpeechText(text) {
+  return String(text || '')
+    .replace(/\[\[sticker:[^\]]*\]\]/gi, ' ')
+    .replace(/\[转账\][^\n]*/gi, ' ')
+    .replace(/\[\/?语音(?:消息|条)?[^\]]*\]/gi, ' ')
+    .replace(/\[(?:图片消息|发送图片|图片|照片)[^\]]*\]/gi, ' ')
+    .replace(/\[\[(?:image|img)\s*:[^\]]*\]\]/gi, ' ')
+    .replace(/\[\/?内心\]/g, ' ')
+    .replace(/\s*\|\s*[\u4e00-\u9fff][^\n]*/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function looksForeignText(value) {
+  const cjk = (String(value).match(/[\u4e00-\u9fff]/g) || []).length;
+  const letters = (String(value).match(/[A-Za-z\uac00-\ud7af\u3040-\u30ff\u0400-\u04ff]/g) || []).length;
+  return letters > 6 && cjk * 2 < letters;
+}
+
 function appendAssistantBubble(stack, text) {
   const value = String(text || '').trim();
   if (!value) return;
+  const split = splitBilingualText(value);
   const bubble = document.createElement('div');
   bubble.className = 'msg-bubble assistant-bubble';
-  bubble.textContent = value;
+  bubble.textContent = split ? split.source : value;
   stack.appendChild(bubble);
+
+  if (split) {
+    const translation = uiEl('div', 'msg-translation', split.translation);
+    translation.hidden = true;
+    stack.appendChild(translation);
+    bubble.classList.add('has-translation');
+    bubble.addEventListener('click', () => {
+      if (Date.now() - (window.__ccLongPressAt || 0) < 700) return;
+      translation.hidden = !translation.hidden;
+      bubble.classList.toggle('translation-open', !translation.hidden);
+    });
+    return;
+  }
+
+  // 历史消息或模型漏了 |译文 时，点气泡现场翻译（走「工具 API → 翻译」）
+  if (!looksForeignText(value)) return;
+  const note = uiEl('div', 'msg-translation', '');
+  note.hidden = true;
+  stack.appendChild(note);
+  bubble.classList.add('has-translation');
+  bubble.addEventListener('click', async () => {
+    if (Date.now() - (window.__ccLongPressAt || 0) < 700) return;
+    if (!note.hidden) {
+      note.hidden = true;
+      bubble.classList.remove('translation-open');
+      return;
+    }
+    note.hidden = false;
+    bubble.classList.add('translation-open');
+    if (note.dataset.loaded) return;
+    note.textContent = '翻译中…';
+    const result = typeof requestTranslation === 'function' ? await requestTranslation(value) : null;
+    if (result && result.ok && result.text) {
+      note.textContent = result.text;
+      note.dataset.loaded = '1';
+    } else {
+      note.textContent = '翻译失败' + (result && result.reason ? '：' + result.reason : '，请检查翻译接口设置');
+    }
+  });
 }
 
 function appendAssistantSticker(stack, sticker) {
@@ -616,6 +761,7 @@ function appendAssistantVoiceNote(stack, duration, ctx) {
   btn.setAttribute('aria-label', '播放语音 ' + durationText);
   if (ctx && typeof ctx.messageIndex === 'number') btn.dataset.speakIndex = String(ctx.messageIndex);
   btn.addEventListener('click', () => {
+    if (longPressed) { longPressed = false; return; }
     if (ctx && ctx.voiceEnabled && typeof ctx.messageIndex === 'number' && typeof speakChatMessage === 'function') {
       speakChatMessage(ctx.messageIndex);
     } else {
@@ -623,6 +769,33 @@ function appendAssistantVoiceNote(stack, duration, ctx) {
     }
   });
   stack.appendChild(btn);
+
+  // 长按语音条：在下方展开这条语音的文字内容
+  const transcriptText = String((ctx && ctx.voiceTranscript) || '').trim();
+  let longPressed = false;
+  const transcript = transcriptText ? uiEl('div', 'voice-transcript', transcriptText) : null;
+  if (transcript) {
+    transcript.hidden = true;
+    stack.appendChild(transcript);
+  }
+  let timer = null;
+  const cancel = () => {
+    if (timer) { clearTimeout(timer); timer = null; }
+  };
+  btn.addEventListener('pointerdown', () => {
+    cancel();
+    timer = setTimeout(() => {
+      timer = null;
+      longPressed = true;
+      window.__ccLongPressAt = Date.now();
+      if (transcript) transcript.hidden = !transcript.hidden;
+      else toast('这条语音只有声音，没有文字记录');
+    }, 450);
+  });
+  btn.addEventListener('pointerup', cancel);
+  btn.addEventListener('pointercancel', cancel);
+  btn.addEventListener('pointermove', cancel);
+  btn.addEventListener('contextmenu', (e) => e.preventDefault());
 }
 
 // 图片消息：模型写 [图片] / [图片：描述] 时给一张友好的图片占位卡，不显示任何标记
@@ -641,7 +814,24 @@ function appendAssistantImageCard(stack, desc) {
 // 表情包 / 转账 / 语音 / 图片标记可能和正文混在同一回复里，不能按整段文本匹配。
 function renderAssistantPart(stack, part, ctx) {
   const source = String(part || '');
-  const marker = /\[\[sticker:([^\]\r\n]*)\]\]|\[转账\]\s*(?:[¥￥]\s*)?(\d+(?:\.\d{1,2})?)([^\r\n]*)|\[语音(?:消息)?\s*[：:]\s*([0-9]{1,3}(?::[0-9]{1,2})?)\s*(?:秒)?\]|\[(?:图片消息|发送图片|图片|照片)\s*(?:[：:]\s*)?([^\]\r\n]*)\]|\[\[(?:image|img)\s*:\s*([^\]\r\n]*)\]\]/gi;
+  // 优先处理 [语音条:0:05]内容[/语音条]：方括号里的文字就是这条语音的内容
+  const paired = /\[语音(?:消息|条)?\s*[：:]\s*([0-9]{1,3}(?::[0-9]{1,2})?)\s*\]\s*([\s\S]*?)\[\/语音(?:消息|条)?\]/i;
+  let rest = source;
+  let match;
+  while ((match = paired.exec(rest))) {
+    renderAssistantMarkedText(stack, rest.slice(0, match.index), ctx);
+    const said = splitBilingualText(match[2].trim());
+    appendAssistantVoiceNote(stack, match[1], Object.assign({}, ctx || {}, {
+      voiceTranscript: said ? said.source : match[2].trim(),
+    }));
+    rest = rest.slice(match.index + match[0].length);
+  }
+  renderAssistantMarkedText(stack, rest, ctx);
+}
+
+function renderAssistantMarkedText(stack, text, ctx) {
+  const source = String(text || '');
+  const marker = /\[\[sticker:([^\]\r\n]*)\]\]|\[转账\]\s*(?:[¥￥]\s*)?(\d+(?:\.\d{1,2})?)([^\r\n]*)|\[语音(?:消息|条)?\s*[：:]\s*([0-9]{1,3}(?::[0-9]{1,2})?)\s*(?:秒)?\]|\[(?:图片消息|发送图片|图片|照片)\s*(?:[：:]\s*)?([^\]\r\n]*)\]|\[\[(?:image|img)\s*:\s*([^\]\r\n]*)\]\]/gi;
   let cursor = 0;
   let match;
   while ((match = marker.exec(source))) {
@@ -702,7 +892,10 @@ function renderMessage(m, index, avatar, name, ctx) {
   // 兼容旧记录：历史消息里已经存下的无标签思维链，渲染时同样过滤掉
   const parts = rawParts.filter((part) => !(typeof looksLikeMetaReasoning === 'function' && looksLikeMetaReasoning(part)));
   if (!parts.length && rawParts.length) parts.push('……');
-  const partCtx = Object.assign({}, ctx || {}, { messageIndex: index });
+  const partCtx = Object.assign({}, ctx || {}, {
+    messageIndex: index,
+    voiceTranscript: messageSpeechText(m.content),
+  });
   parts.forEach((part) => renderAssistantPart(stack, part, partCtx));
 
   if (ctx && ctx.voiceEnabled && !m.error) {

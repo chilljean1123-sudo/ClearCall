@@ -123,6 +123,44 @@ const MEMORY_CORE_BATCH = 5;
 // 世界书关键词扫描最近多少条对话
 const WORLDBOOK_SCAN_LIMIT = 6;
 
+// ---- 工具 API：翻译 / 论坛 / 购物 / 外卖 / 捏捏各自独立，留空借用聊天接口 ----
+function toolApiConfig(tool) {
+  const t = getToolApiSettings(tool);
+  const main = getSettings();
+  return {
+    baseUrl: t.baseUrl || main.baseUrl || $('input-baseurl').value.trim(),
+    apiKey: t.apiKey || main.apiKey || $('input-apikey').value.trim(),
+    model: t.model || main.model || getCurrentModel(),
+  };
+}
+
+function saveToolApiFields() {
+  TOOL_API_OPTIONS.forEach((tool) => {
+    const read = (suffix) => {
+      const el = $('tool-api-' + tool.id + '-' + suffix);
+      return el ? el.value.trim() : '';
+    };
+    setToolApiSettings(tool.id, {
+      baseUrl: read('baseurl'), apiKey: read('apikey'), model: read('model'),
+    });
+  });
+}
+
+// 翻译走「工具 API → 翻译」这组配置，沿用摘要接口的 system/user 通道
+const TRANSLATE_SYSTEM = '你是翻译助手。把用户给出的内容翻译成简体中文，只输出译文，不要解释、不要加引号、不要输出思考；保留原有换行和语气。';
+async function requestTranslation(text) {
+  const api = toolApiConfig('translate');
+  if (!api.baseUrl || !api.apiKey || !api.model) {
+    return { ok: false, reason: '没有可用的翻译接口' };
+  }
+  return requestMemoryDigest({
+    baseUrl: api.baseUrl, apiKey: api.apiKey, model: api.model,
+    system: TRANSLATE_SYSTEM,
+    user: String(text || '').slice(0, 2000),
+    maxTokens: 900,
+  });
+}
+
 // ---- 设置页：读取 / 保存配置 ----
 function loadSaved() {
   const s = getSettings();
@@ -157,6 +195,7 @@ function loadSaved() {
   $('input-cf-worker-url').value = cf.workerUrl;
   refreshCfStatus();
   renderApiProfileSelect();
+  renderToolApiFields();
 }
 
 function save() {
@@ -1419,6 +1458,9 @@ async function currentChatPayload(message, priorHistory, characterId) {
   if (stylePrompt) persona += '\n\n' + stylePrompt;
   const localePrompt = buildCharacterLocalePrompt(c);
   if (localePrompt) persona += '\n\n' + localePrompt;
+  const bilingualPrompt = buildCharacterBilingualPrompt(c);
+  if (bilingualPrompt) persona += '\n\n' + bilingualPrompt;
+  if (c && c.voice && c.voice.enabled) persona += '\n\n' + buildVoiceNoteInstruction();
   const userProfile = await getActiveUserProfile();
   const userPrompt = buildUserPersonaPrompt(userProfile);
   if (userPrompt) persona += '\n\n' + userPrompt;
@@ -1476,6 +1518,12 @@ function buildStickerPersonaInstruction(stickers) {
   return '【表情包】你可以在回复中发送表情包。需要发送时，单独输出一行 [[sticker:名称]]，' +
     '名称必须是以下之一：' + names + '。这是客户端内部标记，不是给用户看的文字；' +
     '不要输出 id、URL、Markdown、HTML 或其他代码，不要解释标记，也不要编造列表之外的名称。';
+}
+
+// 语音条带内容：长按能转文字，TTS 也有得读
+function buildVoiceNoteInstruction() {
+  return '【语音条】想发语音时用 [语音条:0:05]要朗读的文字[/语音条]，时长写秒或分:秒。' +
+    '方括号里的文字就是这条语音的内容，会被朗读，也会在长按时显示成文字；不要只写一个没有内容的语音标记。';
 }
 
 // ---- 聊天方式：按角色配置口吻并注入提示词 ----
@@ -3212,7 +3260,7 @@ async function generatePiniePersona() {
   if (pinieBusy) return;
   const idea = $('pinie-idea').value.trim();
   if (!idea) { toast('先写一句大概的想法'); $('pinie-idea').focus(); return; }
-  const api = getSettings();
+  const api = toolApiConfig('pinie');
   if (!api.baseUrl || !api.apiKey || !api.model) {
     setPinieBusy(false, '先去「设置」填好接口地址、Key 和模型');
     return;
@@ -3382,7 +3430,7 @@ async function generatePinieWorldbook() {
   if (pinieWbBusy) return;
   collectPinieDraft();
   if (!pinieDraft.name) { toast('先捏出人设'); return; }
-  const api = getSettings();
+  const api = toolApiConfig('pinie');
   if (!api.baseUrl || !api.apiKey || !api.model) {
     $('pinie-wb-status').textContent = '先去「设置」填好接口地址、Key 和模型';
     return;
@@ -3500,10 +3548,11 @@ function pickForumNames(count) {
 
 function forumApiConfig(forum) {
   const main = getSettings();
+  const tool = getToolApiSettings('forum');
   return {
-    baseUrl: forum.settings.baseUrl || main.baseUrl,
-    apiKey: forum.settings.apiKey || main.apiKey,
-    model: forum.settings.model || main.model,
+    baseUrl: forum.settings.baseUrl || tool.baseUrl || main.baseUrl,
+    apiKey: forum.settings.apiKey || tool.apiKey || main.apiKey,
+    model: forum.settings.model || tool.model || main.model,
   };
 }
 
@@ -4953,7 +5002,7 @@ async function searchShopProducts() {
   const keyword = $('input-shop-search').value.trim();
   if (!keyword) { toast('先输入想搜的关键词'); return; }
   if (shopSearching) return;
-  const api = emailApiConfig();
+  const api = toolApiConfig('shop');
   if (!api.baseUrl || !api.apiKey || !api.model) {
     toast('请先到「设置」填好接口地址、API Key 和模型名');
     return;
@@ -5140,7 +5189,7 @@ async function searchFoodProducts() {
   const keyword = $('input-food-search').value.trim();
   if (!keyword) { toast('先输入想吃的关键词'); return; }
   if (foodSearching) return;
-  const api = emailApiConfig();
+  const api = toolApiConfig('food');
   if (!api.baseUrl || !api.apiKey || !api.model) {
     toast('请先到「设置」填好接口地址、API Key 和模型名');
     return;
@@ -6886,6 +6935,10 @@ $('btn-embedding-save').addEventListener('click', async () => {
   await embedMemoryRecords().catch(() => {});
   toast('向量设置已保存');
 });
+$('btn-tool-api-save').addEventListener('click', () => {
+  saveToolApiFields();
+  toast('工具设置已保存');
+});
 
 // 主动消息推送配置：输入即保存 + 一键部署
 ['input-cf-token', 'input-cf-account', 'input-cf-worker-url'].forEach((id) => {
@@ -8065,7 +8118,10 @@ chatMsgBox.addEventListener('pointerdown', (e) => {
     longPressOrigin = null;
     const selection = window.getSelection && window.getSelection();
     if (selection && selection.removeAllRanges) selection.removeAllRanges();
-    if (origin) openChatMsgMenu(idx, origin.x, origin.y, !!row.classList.contains('assistant'));
+    if (origin) {
+      window.__ccLongPressAt = Date.now();
+      openChatMsgMenu(idx, origin.x, origin.y, !!row.classList.contains('assistant'));
+    }
   }, 450);
 });
 chatMsgBox.addEventListener('pointermove', (e) => {
