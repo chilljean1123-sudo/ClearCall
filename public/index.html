@@ -633,8 +633,48 @@
               </div>
               <div class="field">
                 <span class="field-label">记忆服务模型</span>
+                <div class="model-select-wrap">
+                  <select id="select-memory-model">
+                    <option value="">请先点「拉取模型」获取列表</option>
+                  </select>
+                  <button type="button" class="fetch-btn" id="btn-fetch-memory-models">拉取模型</button>
+                </div>
                 <input id="input-memory-model" type="text" placeholder="例如 deepseek-chat" autocomplete="off" />
+                <button class="test-btn" id="btn-memory-save" type="button">保存记忆服务</button>
                 <span class="field-hint">留空，就借用同一束光。</span>
+              </div>
+            </div>
+          </details>
+
+          <details class="drawer">
+            <summary class="drawer-head">
+              <span class="drawer-title">向量记忆</span>
+              <span class="drawer-arrow"></span>
+            </summary>
+            <div class="drawer-body">
+              <div class="field">
+                <span class="field-label">Embedding 接口地址</span>
+                <input id="input-embedding-baseurl" type="text" placeholder="例如 https://api.openai.com/v1" autocomplete="off" />
+                <span class="field-hint">留空就复用记忆服务的地址与 Key。</span>
+              </div>
+              <div class="field">
+                <span class="field-label">Embedding Key</span>
+                <span class="key-wrap">
+                  <input id="input-embedding-apikey" type="password" placeholder="sk-..." autocomplete="off" />
+                  <button type="button" class="toggle-key" id="btn-toggle-embedding-key">显示</button>
+                </span>
+              </div>
+              <div class="field">
+                <span class="field-label">Embedding 模型</span>
+                <div class="model-select-wrap">
+                  <select id="select-embedding-model">
+                    <option value="">请先点「拉取模型」获取列表</option>
+                  </select>
+                  <button type="button" class="fetch-btn" id="btn-fetch-embedding-models">拉取模型</button>
+                </div>
+                <input id="input-embedding-model" type="text" placeholder="例如 text-embedding-3-small" autocomplete="off" />
+                <button class="test-btn" id="btn-embedding-save" type="button">保存向量设置</button>
+                <span class="field-hint">留空就只按时间注入记忆。</span>
               </div>
             </div>
           </details>
@@ -1463,6 +1503,7 @@
         </header>
 
         <div class="memory-body">
+          <div class="memory-vector-hint" id="memory-vector-hint"></div>
           <section class="memory-section">
             <div class="memory-section-head">
               <div>

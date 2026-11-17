@@ -135,6 +135,12 @@ function loadSaved() {
   $('input-memory-baseurl').value = m.baseUrl;
   $('input-memory-apikey').value = m.apiKey;
   $('input-memory-model').value = m.model;
+  syncModelSelect('select-memory-model', m.model);
+  const em = getEmbeddingSettings();
+  $('input-embedding-baseurl').value = em.baseUrl;
+  $('input-embedding-apikey').value = em.apiKey;
+  $('input-embedding-model').value = em.model;
+  syncModelSelect('select-embedding-model', em.model);
   const v = getVoiceSettings();
   $('input-voice-baseurl').value = v.baseUrl;
   $('input-voice-apikey').value = v.apiKey;
@@ -164,6 +170,11 @@ function save() {
     baseUrl: $('input-memory-baseurl').value.trim(),
     apiKey: $('input-memory-apikey').value.trim(),
     model: $('input-memory-model').value.trim(),
+  });
+  setEmbeddingSettings({
+    baseUrl: $('input-embedding-baseurl').value.trim(),
+    apiKey: $('input-embedding-apikey').value.trim(),
+    model: $('input-embedding-model').value.trim(),
   });
   setVoiceSettings({
     baseUrl: $('input-voice-baseurl').value.trim(),
@@ -1419,7 +1430,11 @@ async function currentChatPayload(message, priorHistory, characterId) {
   const perceptionPrompt = await buildPerceptionPrompt(id);
   if (perceptionPrompt) persona += '\n\n' + perceptionPrompt;
 
-  const memory = formatMemoryLayers(memoryDoc);
+  let memory = formatMemoryLayers(memoryDoc);
+  const semanticMemory = id
+    ? await buildSemanticMemoryContext(id, message, memoryDoc).catch(() => '')
+    : '';
+  if (semanticMemory) memory += (memory ? '\n\n' : '') + semanticMemory;
   const directive = id ? await getPendingDirective(id) : '';
   let worldAfter = world.after || '';
   if (directive) {
@@ -2273,6 +2288,7 @@ async function openMemory() {
   showView(viewMemory);
   const characterId = await getActiveCharacterId();
   if (characterId) {
+    scheduleMemoryEmbedding(characterId, 300);
     consolidateMemory(characterId)
       .then((changed) => { if (changed) renderMemory(); })
       .catch(() => {});
@@ -2300,6 +2316,8 @@ async function saveMemoryForm() {
     if (editingMemoryId) await updateMemoryEntry(editingMemoryId, { category, text });
     else await addMemoryEntry({ category, text });
     cancelMemoryForm();
+    const activeId = await getActiveCharacterId();
+    if (activeId) scheduleMemoryEmbedding(activeId, 300);
     await renderMemory();
     toast('记忆已保存');
   } catch (err) {
@@ -2371,6 +2389,7 @@ async function rememberCallToMemory(characterId, startCount) {
   }
 
   await setLastSummarizedCount(history.length, characterId);
+  scheduleMemoryEmbedding(characterId, 800);
   consolidateMemory(characterId).catch(() => {});
   if ((await getActiveCharacterId()) === characterId) toast('通话内容已写入记忆');
 }
@@ -2399,6 +2418,7 @@ async function summarizeChatToMemory() {
     const newEntries = data.entries || [];
     await mergeMemoryEntries(newEntries, characterId);
     await setLastSummarizedCount(history.length, characterId);
+    scheduleMemoryEmbedding(characterId, 600);
     await consolidateMemory(characterId).catch(() => {});
     await renderMemory();
     toast('已整理 ' + newEntries.length + ' 条记忆');
@@ -2428,6 +2448,7 @@ async function autoSummarizeIfNeeded() {
     if (data.ok) {
       await mergeMemoryEntries(data.entries || [], characterId);
       await setLastSummarizedCount(targetEnd, characterId);
+      scheduleMemoryEmbedding(characterId, 600);
       consolidateMemory(characterId).catch(() => {});
     }
   } catch (_) { /* 自动整理失败静默 */ }
@@ -2443,19 +2464,108 @@ function localMemoryDigest(content, max) {
 }
 
 // 优先走记忆摘要服务；未配置或失败时用本地摘要兜底，保证内容不丢
-async function summarizeMemoryBatch(content, kind) {
+const MEMORY_LONG_TERM_SYSTEM = '你是一个记忆整理助手。根据事件记录写一段第三人称的事实性总结，只输出总结正文，不要解释过程，不要输出思考。';
+const MEMORY_CORE_SYSTEM = '你是一个核心记忆整理助手。只输出核心记忆正文，不要解释过程，不要输出思考。';
+
+function formatMemoryDate(ts) {
+  const n = Number(ts);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  const d = new Date(n);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function memoryDateSpan(list) {
+  const times = (Array.isArray(list) ? list : [])
+    .map((x) => Number(x && x.createdAt))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (!times.length) return { earliest: '未知', latest: '未知' };
+  return {
+    earliest: formatMemoryDate(Math.min.apply(null, times)),
+    latest: formatMemoryDate(Math.max.apply(null, times)),
+  };
+}
+
+function buildMemoryDigestPrompt(kind, meta) {
+  const m = meta || {};
+  const char = String(m.char || '角色').trim() || '角色';
+  const earliest = String(m.earliest || '未知');
+  const latest = String(m.latest || '未知');
+  const events = String(m.events || '');
+  if (kind === 'core') {
+    return [
+      '你是一个核心记忆整理助手。请根据以下长期记忆记录，为' + char + '整理一段“核心记忆”总结。',
+      '',
+      '角色：' + char,
+      '时间跨度：' + earliest + ' 至 ' + latest,
+      '',
+      '长期记忆记录：',
+      events,
+      '',
+      '要求：',
+      '- 突出最关键、最稳定、最影响关系判断的事实',
+      '- 重点保留：确认在一起 / 确认分手 / 复合',
+      '- 重点保留：订婚 / 结婚 / 离婚',
+      '- 重点保留：恋爱周年、结婚纪念日、在一起多久',
+      '- 重点保留：明确的长期关系身份（如恋人、前任、配偶）',
+      '- 重点保留：共同生活的重要里程碑（如同居、见家长、共同养宠物）',
+      '- 不要包含：普通日常聊天',
+      '- 不要包含：一般情绪波动',
+      '- 不要包含：暂时性的矛盾或暧昧',
+      '- 不要包含：普通偏好信息',
+      '- 不要包含：任何不确定、推测性的内容',
+      '- 用第三人称，事实性描述',
+      '- 80-180字',
+      '- 不要使用 JSON、列表符号、标题或格式标记',
+      '',
+      '核心记忆总结：',
+    ].join('\n');
+  }
+  return [
+    '你是一个记忆整理助手。根据以下事件记录，创建一段简洁的事实性总结。',
+    '',
+    '角色：' + char,
+    '时间跨度：' + earliest + ' 至 ' + latest,
+    '',
+    '事件记录：',
+    events,
+    '',
+    '要求：',
+    '- 用第三人称描述' + char + '和用户之间的互动',
+    '- 保留关键事实：提到的名字、做出的承诺、情感变化、关系里程碑',
+    '- 保留用户分享的具体信息（生日、偏好、习惯）',
+    '- 保留朋友圈等非聊天事件中的关键信息',
+    '- 100-200字',
+    '- 不要包含格式标记',
+    '',
+    '总结：',
+  ].join('\n');
+}
+
+function cleanMemoryDigest(text) {
+  let t = String(text || '').replace(/```[\s\S]*?```/g, ' ').trim();
+  t = t.replace(/^\s*(核心记忆总结|总结)\s*[:：]\s*/g, '').trim();
+  t = t.split('\n')
+    .map((line) => line.trim().replace(/^([-*•]|\d+[.、)]|#{1,6})\s*/, '').trim())
+    .filter(Boolean)
+    .join('');
+  return t.replace(/^["“']|["”']$/g, '').trim();
+}
+
+async function summarizeMemoryBatch(content, kind, meta) {
   const raw = String(content || '').trim();
   if (!raw) return '';
   const ms = getEffectiveMemorySettings();
   if (ms.baseUrl && ms.apiKey && ms.model) {
     try {
-      const data = await requestMemorySummary({
+      const data = await requestMemoryDigest({
         baseUrl: ms.baseUrl, apiKey: ms.apiKey, model: ms.model,
-        content: raw, existing: '',
+        system: kind === 'core' ? MEMORY_CORE_SYSTEM : MEMORY_LONG_TERM_SYSTEM,
+        user: buildMemoryDigestPrompt(kind, Object.assign({ events: raw }, meta || {})),
+        maxTokens: 600,
       });
-      if (data.ok && Array.isArray(data.entries) && data.entries.length) {
-        const merged = data.entries.map((e) => e.text).filter(Boolean).join('；').trim();
-        if (merged) return merged.slice(0, kind === 'core' ? 600 : 800);
+      if (data && data.ok) {
+        const text = cleanMemoryDigest(data.text);
+        if (text) return text.slice(0, kind === 'core' ? 600 : 800);
       }
     } catch (_) { /* 走本地兜底 */ }
   }
@@ -2475,13 +2585,15 @@ function consolidateMemory(characterId) {
 async function doConsolidateMemory(characterId) {
   let changed = false;
   let mem = await getMemory(characterId);
+  const character = await getCharacter(characterId);
+  const charName = (character && character.name) || '角色';
 
   let guard = 0;
   while (mem.entries.length - mem.longTermSourceCount >= MEMORY_LONG_TERM_BATCH && guard < 5) {
     const start = mem.longTermSourceCount;
     const batch = mem.entries.slice(start, start + MEMORY_LONG_TERM_BATCH);
     const content = batch.map((e) => '[' + (MEMORY_CATEGORY_LABELS[e.category] || e.category) + '] ' + e.text).join('\n');
-    const text = await summarizeMemoryBatch(content, 'longTerm');
+    const text = await summarizeMemoryBatch(content, 'longTerm', Object.assign({ char: charName }, memoryDateSpan(batch)));
     if (!text) break;
     await addLongTermMemory({ text, count: batch.length }, characterId);
     await setMemoryTierCounts({ longTermSourceCount: start + batch.length }, characterId);
@@ -2494,7 +2606,7 @@ async function doConsolidateMemory(characterId) {
   while (mem.longTerm.length - mem.coreSourceCount >= MEMORY_CORE_BATCH && guard < 3) {
     const start = mem.coreSourceCount;
     const batch = mem.longTerm.slice(start, start + MEMORY_CORE_BATCH);
-    const text = await summarizeMemoryBatch(batch.map((x) => x.text).join('\n'), 'core');
+    const text = await summarizeMemoryBatch(batch.map((x) => x.text).join('\n'), 'core', Object.assign({ char: charName }, memoryDateSpan(batch)));
     if (!text) break;
     await addCoreMemory({ text }, characterId);
     await setMemoryTierCounts({ coreSourceCount: start + batch.length }, characterId);
@@ -2503,6 +2615,7 @@ async function doConsolidateMemory(characterId) {
     mem = await getMemory(characterId);
   }
 
+  if (changed) scheduleMemoryEmbedding(characterId, 500);
   return changed;
 }
 
@@ -2529,6 +2642,118 @@ function formatMemoryLayers(mem) {
   if (longTerm.length) parts.push('【长期记忆】\n' + longTerm.join('\n'));
   const short = formatMemory((mem.entries || []).slice(-20));
   if (short) parts.push('【短期记忆】\n' + short);
+  return parts.join('\n\n');
+}
+
+// ---- 向量记忆：语义索引与检索 ----
+// Embedding 地址 / Key 留空时，复用记忆服务，再回退主接口；模型必须单独填。
+function getEffectiveEmbeddingSettings() {
+  const emb = getEmbeddingSettings();
+  const mem = getMemorySettings();
+  const main = getSettings();
+  return {
+    baseUrl: emb.baseUrl || mem.baseUrl || main.baseUrl || '',
+    apiKey: emb.apiKey || mem.apiKey || main.apiKey || '',
+    model: emb.model || '',
+  };
+}
+
+function cosineSimilarity(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || !a.length || a.length !== b.length) return -1;
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    const x = Number(a[i]) || 0;
+    const y = Number(b[i]) || 0;
+    dot += x * y;
+    na += x * x;
+    nb += y * y;
+  }
+  if (!na || !nb) return -1;
+  return dot / Math.sqrt(na * nb);
+}
+
+// 为缺失向量的记忆补建索引；换了 embedding 模型会整仓重建
+const MEMORY_VECTOR_BATCH = 16;
+async function embedMemoryRecords(characterId) {
+  const emb = getEffectiveEmbeddingSettings();
+  if (!emb.baseUrl || !emb.apiKey || !emb.model) return false;
+  const id = characterId || await getActiveCharacterId();
+  if (!id) return false;
+  const mem = await getMemory(id);
+  const rebuild = mem.vecModel !== emb.model;
+  const pending = [];
+  ['entries', 'longTerm', 'core'].forEach((key) => {
+    (mem[key] || []).forEach((record) => {
+      if (!record || !record.id || !String(record.text || '').trim()) return;
+      if (!rebuild && Array.isArray(record.vec) && record.vec.length) return;
+      pending.push({ id: record.id, text: String(record.text) });
+    });
+  });
+  if (!pending.length) return true;
+
+  for (let i = 0; i < pending.length; i += MEMORY_VECTOR_BATCH) {
+    const batch = pending.slice(i, i + MEMORY_VECTOR_BATCH);
+    const data = await requestEmbedding({
+      baseUrl: emb.baseUrl, apiKey: emb.apiKey, model: emb.model,
+      inputs: batch.map((item) => item.text),
+    });
+    if (!data || !data.ok) return false;
+    const vectors = data.vectors || [];
+    const pairs = batch
+      .map((item, idx) => ({ id: item.id, vec: vectors[idx] }))
+      .filter((pair) => Array.isArray(pair.vec) && pair.vec.length);
+    if (pairs.length) await saveMemoryVectors(emb.model, pairs, id);
+  }
+  return true;
+}
+
+const memoryEmbedTimers = new Map();
+function scheduleMemoryEmbedding(characterId, delay) {
+  if (!characterId) return;
+  const old = memoryEmbedTimers.get(characterId);
+  if (old) clearTimeout(old);
+  const timer = setTimeout(() => {
+    memoryEmbedTimers.delete(characterId);
+    embedMemoryRecords(characterId).catch(() => {});
+  }, typeof delay === 'number' ? delay : 1200);
+  memoryEmbedTimers.set(characterId, timer);
+}
+
+// 按语义挑出和本轮消息最相关的旧记忆，避免只按时间截断
+async function buildSemanticMemoryContext(characterId, query, mem) {
+  const emb = getEffectiveEmbeddingSettings();
+  if (!emb.baseUrl || !emb.apiKey || !emb.model) return '';
+  const q = String(query || '').trim();
+  if (!q) return '';
+  const pools = [
+    { key: 'entries', label: '语义相关的短期记忆', limit: 6, min: 0.32 },
+    { key: 'longTerm', label: '语义相关的长期记忆', limit: 3, min: 0.32 },
+  ];
+  // 最近 20 条已经按时间注入，语义检索只补充更早、被时间窗口漏掉的内容
+  const recentIds = new Set((mem.entries || []).slice(-20).map((r) => r && r.id));
+  const hasCandidates = (mem.entries || []).some((r) => r && Array.isArray(r.vec) && r.vec.length && !recentIds.has(r.id))
+    || (mem.longTerm || []).some((r) => r && Array.isArray(r.vec) && r.vec.length);
+  if (!hasCandidates) return '';
+
+  const data = await requestEmbedding({
+    baseUrl: emb.baseUrl, apiKey: emb.apiKey, model: emb.model, inputs: [q.slice(0, 2000)],
+  });
+  if (!data || !data.ok || !Array.isArray(data.vectors) || !data.vectors[0]) return '';
+  const queryVec = data.vectors[0];
+
+  const parts = [];
+  pools.forEach((pool) => {
+    const scored = (mem[pool.key] || [])
+      .filter((r) => r && Array.isArray(r.vec) && r.vec.length && String(r.text || '').trim())
+      .filter((r) => pool.key !== 'entries' || !recentIds.has(r.id))
+      .map((r) => ({ text: String(r.text), score: cosineSimilarity(queryVec, r.vec) }))
+      .filter((item) => item.score >= pool.min)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, pool.limit);
+    if (scored.length) parts.push('【' + pool.label + '】\n' + scored.map((item) => '- ' + item.text).join('\n'));
+  });
   return parts.join('\n\n');
 }
 
@@ -6593,9 +6818,74 @@ function bindKeyToggle(inputId, btnId) {
 }
 bindKeyToggle('input-apikey', 'btn-toggle-key');
 bindKeyToggle('input-memory-apikey', 'btn-toggle-memory-key');
+bindKeyToggle('input-embedding-apikey', 'btn-toggle-embedding-key');
 bindKeyToggle('input-voice-apikey', 'btn-toggle-voice-key');
 bindKeyToggle('input-image-apikey', 'btn-toggle-image-key');
 bindKeyToggle('input-cf-token', 'btn-toggle-cf-token');
+
+// 记忆 / 向量记忆：拉取模型 + 保存
+async function fetchModelsInto({ baseUrlId, apiKeyId, inputId, selectId, btnId, savedText }) {
+  const baseUrl = String($(baseUrlId).value || '').trim();
+  const apiKey = String($(apiKeyId).value || '').trim();
+  if (!baseUrl || !apiKey) { toast('先把接口地址和 Key 填完整'); return; }
+  const btn = $(btnId);
+  const oldText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '拉取中…';
+  try {
+    const data = await fetchModels(baseUrl, apiKey);
+    if (!data || !data.ok) { toast('拉取失败：' + ((data && data.reason) || '未知错误')); return; }
+    const list = data.models || [];
+    const current = String($(inputId).value || '').trim();
+    fillModelSelect(selectId, list, current);
+    if (!current && list.length) $(inputId).value = list[0];
+    toast('已获取 ' + list.length + ' 个模型');
+  } catch (err) {
+    toast('拉取失败：' + (err && err.message ? err.message : err));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = oldText;
+  }
+  if (savedText) save();
+}
+
+$('btn-fetch-memory-models').addEventListener('click', () => {
+  fetchModelsInto({
+    baseUrlId: 'input-memory-baseurl', apiKeyId: 'input-memory-apikey',
+    inputId: 'input-memory-model', selectId: 'select-memory-model',
+    btnId: 'btn-fetch-memory-models',
+  });
+});
+$('select-memory-model').addEventListener('change', (e) => {
+  if (e.target.value) $('input-memory-model').value = e.target.value;
+});
+$('btn-memory-save').addEventListener('click', () => {
+  save();
+  toast('记忆服务已保存');
+});
+
+$('btn-fetch-embedding-models').addEventListener('click', () => {
+  const baseUrl = String($('input-embedding-baseurl').value || '').trim();
+  const apiKey = String($('input-embedding-apikey').value || '').trim();
+  if (!baseUrl || !apiKey) {
+    const m = getMemorySettings();
+    $('input-embedding-baseurl').value = m.baseUrl;
+    $('input-embedding-apikey').value = m.apiKey;
+  }
+  fetchModelsInto({
+    baseUrlId: 'input-embedding-baseurl', apiKeyId: 'input-embedding-apikey',
+    inputId: 'input-embedding-model', selectId: 'select-embedding-model',
+    btnId: 'btn-fetch-embedding-models',
+  });
+});
+$('select-embedding-model').addEventListener('change', (e) => {
+  if (e.target.value) $('input-embedding-model').value = e.target.value;
+});
+$('btn-embedding-save').addEventListener('click', async () => {
+  save();
+  await embedMemoryRecords().catch(() => {});
+  toast('向量设置已保存');
+});
 
 // 主动消息推送配置：输入即保存 + 一键部署
 ['input-cf-token', 'input-cf-account', 'input-cf-worker-url'].forEach((id) => {

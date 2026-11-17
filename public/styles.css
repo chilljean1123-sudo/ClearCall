@@ -5746,6 +5746,17 @@ body.home-dragging .home-pages { scroll-snap-type: none; }
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+.memory-vector-hint {
+  margin: 0 0 var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: var(--font-caption);
+  line-height: var(--leading-body);
+}
+.memory-vector-hint:empty { display: none; }
 .wb-expand-btn {
   margin-top: var(--space-1);
   padding: 0;

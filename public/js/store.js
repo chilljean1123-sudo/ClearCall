@@ -35,6 +35,13 @@ const MEMORY_KEYS = {
   model: 'clearcall.memoryModel',
 };
 
+// 向量记忆（Embedding 接口，用于语义检索）
+const EMBEDDING_KEYS = {
+  baseUrl: 'clearcall.embeddingBaseUrl',
+  apiKey: 'clearcall.embeddingApiKey',
+  model: 'clearcall.embeddingModel',
+};
+
 // 语音服务（TTS 接口，供角色语音绑定使用）
 const VOICE_KEYS = {
   baseUrl: 'clearcall.voiceBaseUrl',
@@ -275,6 +282,21 @@ function setMemorySettings(s) {
   localStorage.setItem(MEMORY_KEYS.baseUrl, (s && s.baseUrl) || '');
   localStorage.setItem(MEMORY_KEYS.apiKey, (s && s.apiKey) || '');
   localStorage.setItem(MEMORY_KEYS.model, (s && s.model) || '');
+}
+
+// ---------- 向量记忆设置（localStorage） ----------
+function getEmbeddingSettings() {
+  return {
+    baseUrl: localStorage.getItem(EMBEDDING_KEYS.baseUrl) || '',
+    apiKey: localStorage.getItem(EMBEDDING_KEYS.apiKey) || '',
+    model: localStorage.getItem(EMBEDDING_KEYS.model) || '',
+  };
+}
+
+function setEmbeddingSettings(s) {
+  localStorage.setItem(EMBEDDING_KEYS.baseUrl, (s && s.baseUrl) || '');
+  localStorage.setItem(EMBEDDING_KEYS.apiKey, (s && s.apiKey) || '');
+  localStorage.setItem(EMBEDDING_KEYS.model, (s && s.model) || '');
 }
 
 // ---------- 语音服务设置（localStorage） ----------
@@ -2891,6 +2913,7 @@ async function getMemory(characterId) {
     lastSummarizedCount: (doc && typeof doc.lastSummarizedCount === 'number') ? doc.lastSummarizedCount : 0,
     longTermSourceCount: Math.min((doc && typeof doc.longTermSourceCount === 'number') ? doc.longTermSourceCount : 0, entries.length),
     coreSourceCount: Math.min((doc && typeof doc.coreSourceCount === 'number') ? doc.coreSourceCount : 0, longTerm.length),
+    vecModel: (doc && typeof doc.vecModel === 'string') ? doc.vecModel : '',
   };
 }
 
@@ -2920,7 +2943,10 @@ async function updateMemoryEntry(id, { category, text }, characterId) {
     const e = doc.entries.find((x) => x.id === id);
     if (!e) return;
     if (category) e.category = category;
-    if (text !== undefined) e.text = (text || '').trim();
+    if (text !== undefined) {
+      e.text = (text || '').trim();
+      delete e.vec; // 内容变了，旧向量作废，等下次补建
+    }
     e.updatedAt = Date.now();
   }, characterId);
 }
@@ -2982,6 +3008,24 @@ async function setMemoryTierCounts(patch, characterId) {
   await mutateMemory((doc) => {
     if (patch.longTermSourceCount !== undefined) doc.longTermSourceCount = Math.max(0, Number(patch.longTermSourceCount) || 0);
     if (patch.coreSourceCount !== undefined) doc.coreSourceCount = Math.max(0, Number(patch.coreSourceCount) || 0);
+  }, characterId);
+}
+
+// ---------- 向量记忆（语义索引） ----------
+// 每条记忆的向量存在记录自身的 vec 字段；vecModel 记录生成向量用的模型，
+// 换了 embedding 模型后旧向量会被整体重建，避免不同模型的空间混用。
+async function saveMemoryVectors(model, pairs, characterId) {
+  const list = (Array.isArray(pairs) ? pairs : []).filter((p) => p && p.id && Array.isArray(p.vec) && p.vec.length);
+  if (!list.length) return;
+  await mutateMemory((doc) => {
+    if (model) doc.vecModel = model;
+    const byId = new Map(list.map((p) => [p.id, p.vec]));
+    ['entries', 'longTerm', 'core'].forEach((key) => {
+      (doc[key] || []).forEach((record) => {
+        const vec = byId.get(record.id);
+        if (vec) record.vec = vec;
+      });
+    });
   }, characterId);
 }
 

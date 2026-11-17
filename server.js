@@ -172,6 +172,19 @@ const server = http.createServer(async (req, res) => {
   // 记忆整理接口
   if (req.method === 'POST' && url.pathname === '/api/memory') {
     const payload = await ai.readJsonBody(req, 5e6);
+    if (payload.task === 'digest') {
+      const digest = await ai.memoryDigest({
+        baseUrl: payload.baseUrl,
+        apiKey: payload.apiKey,
+        model: payload.model,
+        system: payload.system,
+        user: payload.user,
+        maxTokens: payload.maxTokens,
+      });
+      console.log('[api/memory]', 'digest', digest.ok ? 'success' : 'failed', digest.reason || '');
+      ai.sendJson(res, digest);
+      return;
+    }
     const result = await ai.summarizeMemory({
       baseUrl: payload.baseUrl,
       apiKey: payload.apiKey,
@@ -180,6 +193,20 @@ const server = http.createServer(async (req, res) => {
       existing: payload.existing,
     });
     console.log('[api/memory]', result.ok ? 'success (' + (result.entries ? result.entries.length : 0) + ' 条)' : 'failed', result.reason || '');
+    ai.sendJson(res, result);
+    return;
+  }
+
+  // 向量记忆接口（Embedding）
+  if (req.method === 'POST' && url.pathname === '/api/embedding') {
+    const payload = await ai.readJsonBody(req, 5e6);
+    const result = await ai.embedding({
+      baseUrl: payload.baseUrl,
+      apiKey: payload.apiKey,
+      model: payload.model,
+      inputs: payload.inputs,
+    });
+    console.log('[api/embedding]', result.ok ? 'success (' + ((result.vectors || []).length) + ' 条)' : 'failed', result.reason || '');
     ai.sendJson(res, result);
     return;
   }

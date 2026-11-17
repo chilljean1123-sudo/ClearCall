@@ -164,6 +164,10 @@ const SETTINGS_SECTION_META = {
     sub: '让旧话有回声',
     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v18H6.5A2.5 2.5 0 0 1 4 18.5v-13Z"/><path d="M8 7h7M8 11h7"/></svg>',
   },
+  '向量记忆': {
+    sub: '按意思找回旧事',
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="7" r="2.5"/><circle cx="18" cy="7" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M8.2 8.4 10 16M15.8 8.4 14 16M8.5 7h7"/></svg>',
+  },
   '语音服务': {
     sub: '让文字有声音',
     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2.5" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3.5"/></svg>',
@@ -298,6 +302,37 @@ function populateModels(models) {
     sel.appendChild(opt);
   });
   if (prev) ensureSelectOption(prev);
+}
+
+// 记忆 / 向量记忆的模型下拉：选项由「拉取模型」填充，也可手动填写
+function syncModelSelect(selectId, value) {
+  const sel = $(selectId);
+  if (!sel) return;
+  if (value && !Array.from(sel.options).some((o) => o.value === value)) {
+    const opt = document.createElement('option');
+    opt.value = value;
+    opt.textContent = value;
+    sel.appendChild(opt);
+  }
+  sel.value = value || '';
+}
+
+function fillModelSelect(selectId, models, current) {
+  const sel = $(selectId);
+  if (!sel) return;
+  const list = Array.isArray(models) ? models : [];
+  sel.innerHTML = '';
+  const empty = document.createElement('option');
+  empty.value = '';
+  empty.textContent = list.length ? '请选择一个模型' : '未获取到模型，可直接填写';
+  sel.appendChild(empty);
+  list.forEach((m) => {
+    const opt = document.createElement('option');
+    opt.value = m;
+    opt.textContent = m;
+    sel.appendChild(opt);
+  });
+  syncModelSelect(selectId, current || '');
 }
 
 // ===== 结果渲染（连接测试 / 拉取模型） =====
@@ -2897,6 +2932,23 @@ async function renderMemory() {
   }
   renderMemoryTierList('memory-long-list', longTerm, '还没有长期记忆，时间会替你们收好。', 'longTerm');
   renderMemoryTierList('memory-core-list', core, '还没有核心记忆，等故事慢慢沉下来。', 'core');
+  updateMemoryVectorHint(entries, longTerm, core);
+}
+
+// 向量记忆状态：是否配置了 embedding、已索引多少条
+function updateMemoryVectorHint(entries, longTerm, core) {
+  const hint = $('memory-vector-hint');
+  if (!hint) return;
+  const emb = getEffectiveEmbeddingSettings();
+  if (!emb.model) {
+    hint.textContent = '向量记忆未开启，可以在「设置 → 向量记忆」接入语义检索。';
+    return;
+  }
+  const all = [].concat(entries || [], longTerm || [], core || []);
+  const indexed = all.filter((item) => item && Array.isArray(item.vec) && item.vec.length).length;
+  hint.textContent = indexed
+    ? '向量记忆已开启：' + indexed + ' / ' + all.length + ' 条记忆可按语义检索。'
+    : '向量记忆已配置，正在为旧记忆建立索引…';
 }
 
 // 长期 / 核心记忆：系统自动总结，可删除不准确的一条

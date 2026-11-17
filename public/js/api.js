@@ -979,3 +979,116 @@ async function requestMemorySummary(payload) {
   } catch (_) { /* 无后端 */ }
   return directSummarizeMemory(payload.baseUrl, payload.apiKey, payload.model, payload.content, payload.existing);
 }
+
+// 长期 / 核心记忆总结：只要一段纯文本，不走 JSON 分类
+async function directMemoryDigest({ baseUrl, apiKey, model, system, user }) {
+  const url = directChatUrl(baseUrl);
+  if (!url) return { ok: false, reason: '记忆服务地址不能为空', hints: ['在设置里填好记忆服务地址'] };
+  if (!apiKey) return { ok: false, reason: '记忆服务 Key 不能为空', hints: ['在设置里填好记忆服务 Key'] };
+  if (!model) return { ok: false, reason: '记忆服务模型不能为空', hints: ['在设置里填好记忆服务模型'] };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DIRECT_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: String(system || '') },
+          { role: 'user', content: String(user || '') },
+        ],
+        max_tokens: 800,
+        temperature: 0.5,
+        stream: false,
+      }),
+      signal: controller.signal,
+    });
+    const text = await res.text();
+    let data = null; try { data = text ? JSON.parse(text) : null; } catch (_) { data = null; }
+    if (res.ok) {
+      const reply = (data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+      return { ok: true, text: directStripThinkBlocks(reply) };
+    }
+    const errMsg = (data && (data.error && (data.error.message || data.error.code))) || (data && data.message) || text || ('HTTP ' + res.status);
+    return { ok: false, reason: '服务商返回错误（HTTP ' + res.status + '）', message: String(errMsg).slice(0, 500), hints: ['检查记忆服务地址、Key、模型名是否正确'] };
+  } catch (err) {
+    if (err && err.name === 'AbortError') return { ok: false, reason: '请求超时（90 秒未响应）', hints: ['记忆服务可能较慢，稍后重试'] };
+    return { ok: false, reason: '直连失败：' + (err && err.message ? err.message : err), hints: ['建议改用 Vercel 部署（自带代理）'] };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function requestMemoryDigest(payload) {
+  try {
+    const res = await fetch('/api/memory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(Object.assign({ task: 'digest' }, payload)),
+    });
+    const text = await res.text();
+    if (isBackendResponse(res, text)) {
+      try {
+        const data = JSON.parse(text);
+        if (data && data.ok && !data.text && data.reply) data.text = data.reply;
+        return data;
+      } catch (_) {}
+    }
+  } catch (_) { /* 无后端 */ }
+  return directMemoryDigest(payload);
+}
+
+// 向量化（走后端 /api/embedding，无后端则直连；OpenAI 兼容 /embeddings）
+async function directEmbedding({ baseUrl, apiKey, model, inputs }) {
+  const base = directNormalizeBase(baseUrl);
+  const url = base ? base + '/embeddings' : null;
+  if (!url) return { ok: false, reason: 'Embedding 接口地址不能为空', hints: ['到「设置 → 向量记忆」填写接口地址'] };
+  if (!apiKey) return { ok: false, reason: 'Embedding 服务 Key 不能为空', hints: ['到「设置 → 向量记忆」粘贴 Key'] };
+  if (!model) return { ok: false, reason: 'Embedding 模型名不能为空', hints: ['到「设置 → 向量记忆」填写向量模型，例如 text-embedding-3-small'] };
+  const list = (Array.isArray(inputs) ? inputs : []).map((t) => String(t || '').slice(0, 2000));
+  if (!list.length) return { ok: true, vectors: [] };
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DIRECT_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey },
+      body: JSON.stringify({ model, input: list }),
+      signal: controller.signal,
+    });
+    const text = await res.text();
+    let data = null; try { data = text ? JSON.parse(text) : null; } catch (_) { data = null; }
+    if (res.ok) {
+      const arr = (data && Array.isArray(data.data)) ? data.data : [];
+      const vectors = arr
+        .slice()
+        .sort((a, b) => (Number(a && a.index) || 0) - (Number(b && b.index) || 0))
+        .map((it) => (it && Array.isArray(it.embedding)) ? it.embedding.map(Number) : null);
+      return { ok: true, vectors };
+    }
+    const errMsg = (data && (data.error && (data.error.message || data.error.code))) || (data && data.message) || text || ('HTTP ' + res.status);
+    return { ok: false, reason: 'Embedding 服务返回错误（HTTP ' + res.status + '）', message: String(errMsg).slice(0, 500), hints: ['检查接口地址、Key、向量模型名是否正确'] };
+  } catch (err) {
+    if (err && err.name === 'AbortError') return { ok: false, reason: 'Embedding 请求超时（90 秒未响应）', hints: ['稍后重试'] };
+    return { ok: false, reason: '直连 Embedding 失败：' + (err && err.message ? err.message : err), hints: ['建议改用 Vercel 部署（自带代理）'] };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function requestEmbedding(payload) {
+  try {
+    const res = await fetch('/api/embedding', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const text = await res.text();
+    if (isBackendResponse(res, text)) {
+      try { return JSON.parse(text); } catch (_) {}
+    }
+  } catch (_) { /* 无后端 */ }
+  return directEmbedding(payload);
+}
