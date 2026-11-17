@@ -153,6 +153,22 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // 捏捏接口（补全角色人设 / 生成世界书）
+  if (req.method === 'POST' && url.pathname === '/api/pinie') {
+    const payload = await ai.readJsonBody(req, 5e6);
+    const result = await ai.pinieChat({
+      baseUrl: payload.baseUrl,
+      apiKey: payload.apiKey,
+      model: payload.model,
+      system: payload.system,
+      user: payload.user,
+      maxTokens: payload.maxTokens,
+    });
+    console.log('[api/pinie]', result.ok ? 'success' : 'failed', result.reason || '');
+    ai.sendJson(res, result);
+    return;
+  }
+
   // 记忆整理接口
   if (req.method === 'POST' && url.pathname === '/api/memory') {
     const payload = await ai.readJsonBody(req, 5e6);

@@ -397,6 +397,56 @@ async function requestForumChat({ baseUrl, apiKey, model, system, user, maxToken
   return directForumChat(baseUrl, apiKey, model, system, user, maxTokens);
 }
 
+// 捏捏：补全人设 / 生成世界书（走后端 /api/pinie，无后端则直连）
+async function directPinieChat(baseUrl, apiKey, model, system, user, maxTokens) {
+  const url = directChatUrl(baseUrl);
+  if (!url) return { ok: false, reason: 'AI 接口地址不能为空', hints: ['到「设置」填写接口地址'] };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DIRECT_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'system', content: String(system || '') }, { role: 'user', content: String(user || '') }],
+        max_tokens: maxTokens || 1800,
+        temperature: 0.9,
+        stream: false,
+      }),
+      signal: controller.signal,
+    });
+    const text = await res.text();
+    let data = null; try { data = text ? JSON.parse(text) : null; } catch (_) { data = null; }
+    if (res.ok) {
+      const reply = (data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+      return { ok: true, status: res.status, reply };
+    }
+    const errMsg = (data && (data.error && (data.error.message || data.error.code))) || (data && data.message) || text || ('HTTP ' + res.status);
+    return { ok: false, status: res.status, reason: 'AI 接口返回错误（HTTP ' + res.status + '）', message: String(errMsg).slice(0, 500), hints: ['检查设置里的接口地址、Key、模型名'] };
+  } catch (err) {
+    if (err && err.name === 'AbortError') return { ok: false, reason: '请求超时（90 秒未响应）', hints: ['稍后重试或换模型'] };
+    return { ok: false, reason: '直连失败（可能被跨域拦截）：' + (err && err.message ? err.message : err), hints: ['建议使用 Vercel 部署，或允许服务商 CORS'] };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function requestPinieChat({ baseUrl, apiKey, model, system, user, maxTokens }) {
+  try {
+    const res = await fetch('/api/pinie', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ baseUrl, apiKey, model, system, user, maxTokens }),
+    });
+    const text = await res.text();
+    if (isBackendResponse(res, text)) {
+      try { return JSON.parse(text); } catch (_) {}
+    }
+  } catch (_) { /* 无后端 */ }
+  return directPinieChat(baseUrl, apiKey, model, system, user, maxTokens);
+}
+
 // 邮箱内容生成（走后端 /api/email，无后端则直连）
 async function directEmailChat(baseUrl, apiKey, model, system, user, maxTokens) {
   const url = directChatUrl(baseUrl);

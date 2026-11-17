@@ -84,6 +84,10 @@
             <span class="app-glyph glyph-music"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M9 18.2a3.2 3.2 0 1 1-2-3V6.6a1.4 1.4 0 0 1 1.1-1.37l8.2-1.8A1.4 1.4 0 0 1 18 4.8v10.9a3.2 3.2 0 1 1-2-2.97V7.3l-7 1.54Z"/></svg></span>
             <span class="app-name">音乐</span>
           </button>
+          <button class="app-icon" data-app="pinie">
+            <span class="app-glyph glyph-pinie"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9.5" cy="8" r="4" fill="currentColor"/><path fill="currentColor" d="M2.5 21v-1.6C2.5 15.9 5.8 14 9.5 14s7 1.9 7 5.4V21H2.5Z"/><path fill="currentColor" d="m19 2.6 1 2.9 2.9 1-2.9 1-1 2.9-1-2.9-2.9-1 2.9-1z"/></svg></span>
+            <span class="app-name">捏捏</span>
+          </button>
         </div>
           </div>
         </div>
@@ -1490,6 +1494,53 @@
             </div>
             <div class="memory-list" id="memory-core-list"></div>
           </section>
+        </div>
+      </div>
+
+      <!-- 捏捏：AI 补全人设 -->
+      <div class="app-view" id="view-pinie">
+        <header class="app-header">
+          <button class="back-btn" id="btn-pinie-back" type="button">返回</button>
+          <span class="app-title">捏捏</span>
+          <span class="app-header-spacer"></span>
+        </header>
+
+        <div class="pinie-body">
+          <p class="wb-hint">写个大概，剩下的交给它。</p>
+          <textarea class="pinie-idea" id="pinie-idea" rows="4" placeholder="例如：28 岁，做建筑设计，话少，喜欢深夜画图，和我在一次停电的便利店认识"></textarea>
+          <div class="pinie-toolbar">
+            <button class="fetch-btn primary" id="btn-pinie-generate" type="button">开始捏</button>
+            <span class="pinie-status" id="pinie-status"></span>
+          </div>
+
+          <div class="pinie-result" id="pinie-result" hidden>
+            <div class="pinie-table-wrap" id="pinie-table"></div>
+            <div class="pinie-toolbar">
+              <button class="fetch-btn" id="btn-pinie-worldbook" type="button">写世界书</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 捏捏：世界书 -->
+      <div class="app-view" id="view-pinie-wb">
+        <header class="app-header">
+          <button class="back-btn" id="btn-pinie-wb-back" type="button">返回</button>
+          <span class="app-title">世界书</span>
+          <span class="app-header-spacer"></span>
+        </header>
+
+        <div class="pinie-body">
+          <p class="wb-hint">第一条是核心设定，每次都带上；其余靠关键词触发，关键词用逗号分开。</p>
+          <div class="pinie-toolbar">
+            <button class="fetch-btn" id="btn-pinie-wb-generate" type="button">重新生成</button>
+            <button class="fetch-btn" id="btn-pinie-wb-add" type="button">添加条目</button>
+            <span class="pinie-status" id="pinie-wb-status"></span>
+          </div>
+          <div class="pinie-wb-list" id="pinie-wb-list"></div>
+          <div class="pinie-footer">
+            <button class="fetch-btn primary pinie-save-btn" id="btn-pinie-save" type="button">保存并导入</button>
+          </div>
         </div>
       </div>
 

@@ -2743,6 +2743,505 @@ async function importWorldbookFile(e) {
   }
 }
 
+// ===== 捏捏：AI 补全人设 / 生成世界书 =====
+const PINIE_GROUPS = [
+  { title: '基本信息', fields: [
+    { key: 'name', label: '姓名' }, { key: 'gender', label: '性别' },
+    { key: 'age', label: '年龄' }, { key: 'height', label: '身高' },
+    { key: 'nationality', label: '国籍' }, { key: 'birthday', label: '生日' },
+    { key: 'mbti', label: 'MBTI' }, { key: 'orientation', label: '属性' },
+    { key: 'job', label: '职业' },
+  ] },
+  { title: '外貌', fields: [
+    { key: 'face', label: '五官', long: true, rows: 2 },
+    { key: 'hair', label: '头发', long: true, rows: 2 },
+    { key: 'skin', label: '肤色' },
+    { key: 'body', label: '身材', long: true, rows: 2 },
+  ] },
+  { title: '经历', fields: [
+    { key: 'past', label: '曾经', long: true, rows: 3 },
+    { key: 'meet', label: '相遇（和 user）', long: true, rows: 3 },
+    { key: 'sign', label: '标志', long: true, rows: 2 },
+  ] },
+  { title: '语料库', fields: [
+    { key: 'voiceStyle', label: '说话风格', long: true, rows: 3 },
+    { key: 'voiceSamples', label: '说话示例', long: true, rows: 5 },
+  ] },
+  { title: '补充区', fields: [
+    { key: 'extra', label: '补充信息', long: true, rows: 3, placeholder: '你自己补一句，随便写' },
+  ] },
+];
+
+const PINIE_ALL_FIELDS = PINIE_GROUPS.reduce((arr, g) => arr.concat(g.fields.map((f) => f.key)), []);
+
+// 模型偶尔会用中文键名，解析时一并认
+const PINIE_ALIASES = {
+  name: ['姓名'], gender: ['性别'], age: ['年龄'], height: ['身高'], nationality: ['国籍'],
+  birthday: ['生日'], mbti: ['MBTI'], orientation: ['属性', '性向'], job: ['职业'],
+  face: ['五官'], hair: ['头发'], skin: ['肤色'], body: ['身材'],
+  past: ['曾经', '过去'], meet: ['相遇', '认识'], sign: ['标志', '特征'],
+  voiceStyle: ['说话风格', '语言风格'], voiceSamples: ['说话示例', '语料', '示例'],
+  extra: ['补充区', '补充信息', '补充'],
+};
+
+const PINIE_PERSONA_SYSTEM = [
+  '你是角色设定助手。用户会给你一个大概的想法，你要把它补成一个完整、能长期聊天的角色人设。',
+  '要求：',
+  '1. 只输出一个 JSON 对象，不要写解释，不要用 markdown 代码块。',
+  '2. 必须包含这些英文键，值都是字符串：',
+  'name 姓名、gender 性别、age 年龄、height 身高、nationality 国籍、birthday 生日、mbti MBTI、orientation 属性、job 职业、',
+  'face 五官、hair 头发、skin 肤色、body 身材、',
+  'past 曾经、meet 相遇、sign 标志、',
+  'voiceStyle 说话风格、voiceSamples 说话示例、extra 补充信息。',
+  '3. 信息要具体：年龄写数字，身高写厘米，生日写月和日，国籍写国家，职业写具体岗位。',
+  '4. orientation 从「男同 / 女同 / TOP / bottom / 直男 / 直女」里选合适的组合，例如「男同 · TOP」。',
+  '5. 五官、头发、肤色、身材写看得见的样子，不要用比喻。',
+  '6. past 写 2 到 4 件影响这个人的经历；meet 写这个人怎么和 user 认识、现在是什么关系；sign 写一个容易记住的特点或习惯。',
+  '7. voiceStyle 写 3 到 5 句说话习惯，写清楚句子长短、常用词、语气、口头禅。',
+  '8. voiceSamples 写 4 到 6 条聊天示例，每行一条，用「角色：」开头，像真的微信消息。',
+  '9. extra 固定输出空字符串，留给用户自己补充。',
+  '10. 不要写「他是」「她是」，需要指代时直接写名字。不要空话、不要比喻、不要编造 user 的信息。',
+  '11. 示例：{"name":"沈砚","gender":"男","age":"29","height":"183cm","nationality":"中国","birthday":"3月12日","mbti":"INTJ","orientation":"男同 · TOP","job":"建筑设计师","face":"眉骨高，眼窝深，鼻梁直，嘴唇偏薄","hair":"黑色短发，额前有一撮总也压不下去","skin":"偏白，冬天会更淡","body":"清瘦，肩宽，常年穿深色衬衫","past":"大学时家里出过事，休学一年；后来一个人把工作室撑了起来。","meet":"我们在小区停电那晚的便利店排队认识，你借了我一个打火机。","sign":"想事情的时候会用指节敲桌面。","voiceStyle":"句子短，很少用感叹号。被问急了会先停两秒。偶尔冒出很冷的玩笑。","voiceSamples":"角色：嗯，看到了。\\n角色：你先睡，我把这张图改完。","extra":""}',
+].join('\n');
+
+const PINIE_WORLDBOOK_SYSTEM = [
+  '你是角色世界书助手。根据角色人设，写 1 条核心世界书和 2 到 4 条关键词触发的世界书。',
+  '要求：',
+  '1. 只输出一个 JSON 数组，不要写解释，不要用 markdown 代码块。',
+  '2. 每条格式：{"core":true 或 false,"content":"内容","keywords":["关键词1","关键词2"]}',
+  '3. 第一条必须是核心：core 为 true，keywords 为空数组。核心写这个人的身份、现在的生活、和 user 的关系、最重要的事，不要写外貌。',
+  '4. 其余 2 到 4 条 core 为 false，每条只写一个具体设定，比如家庭、工作、爱好、过去的某件事、说话习惯、不能碰的禁区；每条给 3 到 6 个关键词。',
+  '5. 关键词是聊天里可能出现的词，用具体名词，不要写「他」「她」「角色」这类空词。',
+  '6. 内容和关键词都用大白话写，不要比喻，不要空泛形容。',
+  '7. 不要重复人设里的「曾经」「相遇」「标志」，可以补充细节。',
+  '8. 示例：[{"core":true,"content":"沈砚，29 岁，建筑设计师，自己开了一间小工作室。和 user 是邻居，认识三个月，关系停在互相试探。最近在赶一个旧厂房改造的案子。","keywords":[]},{"core":false,"content":"沈砚的父亲在他大学时出了事故，他休学一年照顾家里，这件事很少主动提。","keywords":["父亲","休学","家里","事故"]}]',
+].join('\n');
+
+let pinieDraft = {};
+let pinieWorldbook = [];
+let pinieIdeaText = '';
+let pinieBusy = false;
+let pinieWbBusy = false;
+
+function pinieErrorText(result) {
+  if (!result) return '没有收到回复，检查网络后重试';
+  const reason = result.reason || result.message || '请求失败';
+  const hint = Array.isArray(result.hints) && result.hints.length ? result.hints[0] : '检查接口地址、Key 和模型名';
+  return reason + ' · ' + hint;
+}
+
+function setPinieBusy(busy, text) {
+  pinieBusy = busy;
+  $('btn-pinie-generate').disabled = busy;
+  $('btn-pinie-worldbook').disabled = busy || !pinieDraft.name;
+  if (text !== undefined) $('pinie-status').textContent = text;
+}
+
+function setPinieWbBusy(busy, text) {
+  pinieWbBusy = busy;
+  ['btn-pinie-wb-generate', 'btn-pinie-wb-add', 'btn-pinie-save'].forEach((id) => { $(id).disabled = busy; });
+  if (text !== undefined) $('pinie-wb-status').textContent = text;
+}
+
+function openPinie() {
+  if (pinieIdeaText) $('pinie-idea').value = pinieIdeaText;
+  if (pinieDraft.name) {
+    renderPinieTable();
+    setPinieBusy(false, '捏好了，可以直接改');
+  } else {
+    $('pinie-result').hidden = true;
+    setPinieBusy(false, '');
+  }
+  showView(viewPinie);
+}
+
+function renderPinieTable() {
+  const wrap = $('pinie-table');
+  wrap.innerHTML = '';
+  const table = document.createElement('table');
+  table.className = 'pinie-table';
+
+  PINIE_GROUPS.forEach((group) => {
+    const groupRow = document.createElement('tr');
+    groupRow.className = 'pinie-group-row';
+    const groupCell = document.createElement('th');
+    groupCell.colSpan = 2;
+    groupCell.textContent = group.title;
+    groupRow.appendChild(groupCell);
+    table.appendChild(groupRow);
+
+    group.fields.forEach((field) => {
+      const row = document.createElement('tr');
+      const label = document.createElement('th');
+      label.textContent = field.label;
+      const cell = document.createElement('td');
+      const el = document.createElement(field.long ? 'textarea' : 'input');
+      if (field.long) el.rows = field.rows || 2;
+      else el.type = 'text';
+      el.dataset.pinieField = field.key;
+      el.value = pinieDraft[field.key] || '';
+      if (field.placeholder) el.placeholder = field.placeholder;
+      cell.appendChild(el);
+      row.appendChild(label);
+      row.appendChild(cell);
+      table.appendChild(row);
+    });
+  });
+
+  wrap.appendChild(table);
+  $('pinie-result').hidden = false;
+}
+
+function collectPinieDraft() {
+  document.querySelectorAll('[data-pinie-field]').forEach((el) => {
+    pinieDraft[el.dataset.pinieField] = String(el.value || '').trim();
+  });
+  return pinieDraft;
+}
+
+function pinieFindField(data, key) {
+  if (!data || typeof data !== 'object') return '';
+  if (Object.prototype.hasOwnProperty.call(data, key)) return data[key];
+  const aliases = PINIE_ALIASES[key] || [];
+  for (const alias of aliases) {
+    if (Object.prototype.hasOwnProperty.call(data, alias)) return data[alias];
+  }
+  for (const value of Object.values(data)) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const got = pinieFindField(value, key);
+      if (got !== '' && got !== undefined && got !== null) return got;
+    }
+  }
+  return '';
+}
+
+function parsePiniePersona(text) {
+  let s = String(text || '').trim();
+  s = s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  const start = s.indexOf('{');
+  const end = s.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+  s = s.slice(start, end + 1);
+  let data = null;
+  try { data = JSON.parse(s); } catch (_) { return null; }
+
+  const out = {};
+  PINIE_ALL_FIELDS.forEach((key) => {
+    let value = pinieFindField(data, key);
+    if (Array.isArray(value)) value = value.join('\n');
+    out[key] = String(value == null ? '' : value).trim();
+  });
+  out.extra = '';
+  return out.name ? out : null;
+}
+
+function parsePinieWorldbook(text) {
+  let s = String(text || '').trim();
+  s = s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  let data = null;
+  const arrStart = s.indexOf('[');
+  const arrEnd = s.lastIndexOf(']');
+  if (arrStart >= 0 && arrEnd > arrStart) {
+    try { data = JSON.parse(s.slice(arrStart, arrEnd + 1)); } catch (_) { data = null; }
+  }
+  if (!data) {
+    const objStart = s.indexOf('{');
+    const objEnd = s.lastIndexOf('}');
+    if (objStart >= 0 && objEnd > objStart) {
+      try { data = JSON.parse(s.slice(objStart, objEnd + 1)); } catch (_) { data = null; }
+    }
+  }
+  const raw = Array.isArray(data) ? data : (data && (data.entries || data.items || data.list)) || [];
+  const list = raw.map((item) => {
+    if (!item || typeof item !== 'object') return null;
+    const content = String(item.content || item.text || '').trim();
+    if (!content) return null;
+    let keywords = item.keywords;
+    if (typeof keywords === 'string') keywords = parseWorldbookKeywords(keywords);
+    if (!Array.isArray(keywords)) keywords = [];
+    keywords = keywords.map((k) => String(k).trim()).filter(Boolean);
+    return { content, keywords, core: item.core === true || keywords.length === 0 };
+  }).filter(Boolean).slice(0, 5);
+
+  if (!list.length) return [];
+  list.forEach((item, index) => {
+    item.core = index === 0;
+    if (item.core) item.keywords = [];
+  });
+  return list;
+}
+
+async function generatePiniePersona() {
+  if (pinieBusy) return;
+  const idea = $('pinie-idea').value.trim();
+  if (!idea) { toast('先写一句大概的想法'); $('pinie-idea').focus(); return; }
+  const api = getSettings();
+  if (!api.baseUrl || !api.apiKey || !api.model) {
+    setPinieBusy(false, '先去「设置」填好接口地址、Key 和模型');
+    return;
+  }
+
+  setPinieBusy(true, '正在捏，稍等…');
+  let result = null;
+  try {
+    result = await requestPinieChat({
+      baseUrl: api.baseUrl,
+      apiKey: api.apiKey,
+      model: api.model,
+      system: PINIE_PERSONA_SYSTEM,
+      user: '用户的想法：\n"""\n' + idea + '\n"""\n请补全人设，只输出 JSON。',
+      maxTokens: 2400,
+    });
+  } catch (err) {
+    result = { ok: false, reason: '请求失败：' + (err && err.message ? err.message : err), hints: ['检查网络后重试'] };
+  }
+
+  if (!result || !result.ok) {
+    setPinieBusy(false, pinieErrorText(result));
+    toast('没捏出来，稍后重试');
+    return;
+  }
+  const parsed = parsePiniePersona(result.reply);
+  if (!parsed) {
+    setPinieBusy(false, '模型返回的格式不对，再点一次试试');
+    return;
+  }
+
+  pinieDraft = parsed;
+  pinieIdeaText = idea;
+  pinieWorldbook = [];
+  renderPinieTable();
+  setPinieBusy(false, '捏好了，可以直接改');
+}
+
+function piniePersonaText() {
+  const d = pinieDraft;
+  const blocks = [];
+  const basic = [
+    ['姓名', d.name], ['性别', d.gender], ['年龄', d.age], ['身高', d.height],
+    ['国籍', d.nationality], ['生日', d.birthday], ['MBTI', d.mbti],
+    ['属性', d.orientation], ['职业', d.job],
+  ].filter((row) => row[1]);
+  if (basic.length) blocks.push(basic.map((row) => row[0] + '：' + row[1]).join('\n'));
+
+  const appearance = [
+    ['五官', d.face], ['头发', d.hair], ['肤色', d.skin], ['身材', d.body],
+  ].filter((row) => row[1]);
+  if (appearance.length) blocks.push('【外貌】\n' + appearance.map((row) => row[0] + '：' + row[1]).join('\n'));
+
+  if (d.past) blocks.push('【曾经】\n' + d.past);
+  if (d.meet) blocks.push('【相遇（和 user）】\n' + d.meet);
+  if (d.sign) blocks.push('【标志】\n' + d.sign);
+
+  const voice = [];
+  if (d.voiceStyle) voice.push('说话风格：' + d.voiceStyle);
+  if (d.voiceSamples) voice.push('说话示例：\n' + d.voiceSamples);
+  if (voice.length) blocks.push('【语料库】\n' + voice.join('\n'));
+
+  if (d.extra) blocks.push('【补充】\n' + d.extra);
+  return blocks.join('\n\n').trim();
+}
+
+async function openPinieWorldbook() {
+  collectPinieDraft();
+  if (!pinieDraft.name) { toast('先捏出人设'); return; }
+  showView(viewPinieWb);
+  renderPinieWorldbook();
+  if (!pinieWorldbook.some((item) => String(item.content || '').trim())) {
+    generatePinieWorldbook();
+  }
+}
+
+function renderPinieWorldbook() {
+  const box = $('pinie-wb-list');
+  box.innerHTML = '';
+  if (!pinieWorldbook.length) {
+    const empty = document.createElement('div');
+    empty.className = 'pinie-wb-empty';
+    empty.textContent = '还没有世界书，点「重新生成」。';
+    box.appendChild(empty);
+    return;
+  }
+
+  pinieWorldbook.forEach((item, index) => {
+    const card = document.createElement('div');
+    card.className = 'pinie-wb-item';
+
+    const head = document.createElement('div');
+    head.className = 'pinie-wb-head';
+    const chip = document.createElement('span');
+    chip.className = 'wb-chip';
+    chip.textContent = item.core ? '核心（每次都带上）' : '关键词 ' + (index + 1);
+    head.appendChild(chip);
+
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'memory-link danger';
+    del.textContent = '删除';
+    del.dataset.pinieWbDelete = String(index);
+    head.appendChild(del);
+    card.appendChild(head);
+
+    const content = document.createElement('textarea');
+    content.rows = 4;
+    content.dataset.pinieWbContent = String(index);
+    content.placeholder = '这条世界书的内容';
+    content.value = item.content || '';
+    card.appendChild(content);
+
+    if (!item.core) {
+      const keywords = document.createElement('input');
+      keywords.type = 'text';
+      keywords.dataset.pinieWbKeywords = String(index);
+      keywords.placeholder = '关键词，用逗号分开';
+      keywords.value = (item.keywords || []).join('，');
+      card.appendChild(keywords);
+    }
+
+    box.appendChild(card);
+  });
+}
+
+function syncPinieWorldbookFromDom() {
+  document.querySelectorAll('[data-pinie-wb-content]').forEach((el) => {
+    const index = Number(el.dataset.pinieWbContent);
+    if (pinieWorldbook[index]) pinieWorldbook[index].content = String(el.value || '').trim();
+  });
+  document.querySelectorAll('[data-pinie-wb-keywords]').forEach((el) => {
+    const index = Number(el.dataset.pinieWbKeywords);
+    if (pinieWorldbook[index]) pinieWorldbook[index].keywords = parseWorldbookKeywords(el.value);
+  });
+}
+
+function addPinieWorldbookEntry() {
+  syncPinieWorldbookFromDom();
+  pinieWorldbook.push({ core: pinieWorldbook.length === 0, content: '', keywords: [] });
+  renderPinieWorldbook();
+}
+
+function deletePinieWorldbookEntry(index) {
+  if (!pinieWorldbook[index]) return;
+  syncPinieWorldbookFromDom();
+  pinieWorldbook.splice(index, 1);
+  pinieWorldbook.forEach((item, i) => { item.core = i === 0; });
+  if (pinieWorldbook[0]) pinieWorldbook[0].keywords = [];
+  renderPinieWorldbook();
+}
+
+async function regeneratePinieWorldbook() {
+  if (pinieWbBusy) return;
+  if (pinieWorldbook.some((item) => String(item.content || '').trim())) {
+    const ok = await appConfirm({
+      title: '重新生成世界书？',
+      message: '现在改过的内容会被覆盖。',
+      confirmText: '重新生成',
+    });
+    if (!ok) return;
+  }
+  generatePinieWorldbook();
+}
+
+async function generatePinieWorldbook() {
+  if (pinieWbBusy) return;
+  collectPinieDraft();
+  if (!pinieDraft.name) { toast('先捏出人设'); return; }
+  const api = getSettings();
+  if (!api.baseUrl || !api.apiKey || !api.model) {
+    $('pinie-wb-status').textContent = '先去「设置」填好接口地址、Key 和模型';
+    return;
+  }
+
+  setPinieWbBusy(true, '正在写世界书…');
+  const user = (pinieIdeaText ? '用户的想法：\n' + pinieIdeaText + '\n\n' : '')
+    + '角色人设：\n' + piniePersonaText()
+    + '\n\n请根据人设写世界书，只输出 JSON 数组。';
+
+  let result = null;
+  try {
+    result = await requestPinieChat({
+      baseUrl: api.baseUrl,
+      apiKey: api.apiKey,
+      model: api.model,
+      system: PINIE_WORLDBOOK_SYSTEM,
+      user,
+      maxTokens: 2000,
+    });
+  } catch (err) {
+    result = { ok: false, reason: '请求失败：' + (err && err.message ? err.message : err), hints: ['检查网络后重试'] };
+  }
+
+  if (!result || !result.ok) {
+    setPinieWbBusy(false, pinieErrorText(result));
+    toast('世界书没写出来，稍后重试');
+    return;
+  }
+  const parsed = parsePinieWorldbook(result.reply);
+  if (!parsed.length) {
+    setPinieWbBusy(false, '模型返回的格式不对，再点一次试试');
+    return;
+  }
+
+  pinieWorldbook = parsed;
+  renderPinieWorldbook();
+  setPinieWbBusy(false, '写好了 ' + parsed.length + ' 条，可以改');
+}
+
+async function savePinieAndImport() {
+  collectPinieDraft();
+  const name = String(pinieDraft.name || '').trim();
+  if (!name) { toast('先捏出人设'); return; }
+  if (pinieWbBusy) return;
+
+  syncPinieWorldbookFromDom();
+  const btn = $('btn-pinie-save');
+  if (btn.disabled) return;
+  btn.disabled = true;
+  btn.textContent = '正在保存…';
+
+  try {
+    const persona = piniePersonaText();
+    const record = await addCharacter({
+      name,
+      remark: String(pinieDraft.job || '').trim(),
+      persona,
+    });
+
+    const entries = pinieWorldbook.filter((item) => String(item.content || '').trim());
+    let worldbookFailed = false;
+    if (entries.length) {
+      try {
+        await addWorldbookEntries(entries.map((item) => ({
+          scope: 'character',
+          characterId: record.id,
+          content: String(item.content).trim(),
+          keywords: item.core ? [] : (item.keywords || []),
+          weight: item.core ? 100 : 60,
+          position: 'before',
+        })));
+      } catch (err) {
+        worldbookFailed = true;
+      }
+    }
+    await setActiveCharacter(record.id);
+
+    pinieDraft = {};
+    pinieWorldbook = [];
+    pinieIdeaText = '';
+    $('pinie-idea').value = '';
+    $('pinie-result').hidden = true;
+    $('pinie-status').textContent = '';
+    $('pinie-wb-status').textContent = '';
+    if (worldbookFailed) toast('角色已加入通讯录，世界书没存上，可到世界书里补');
+    else toast(entries.length ? '已加入通讯录，世界书也绑好了' : '已加入通讯录');
+    await openCharacters('home');
+  } catch (err) {
+    toast('保存失败：' + (err && err.message ? err.message : err));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '保存并导入';
+  }
+}
+
 // ===== 论坛 =====
 const FORUM_NPC_NAMES = [
   'momo', '一只小咸鱼', '晚风不渡', '打工人小张', '不吃香菜', '橘子汽水',
@@ -5824,6 +6323,8 @@ document.querySelectorAll('.app-icon, .dock-icon').forEach((btn) => {
       openMemory();
     } else if (app === 'worldbook') {
       openWorldbook();
+    } else if (app === 'pinie') {
+      openPinie();
     } else {
       const nameEl = btn.querySelector('.app-name');
       const name = nameEl ? nameEl.textContent : (btn.getAttribute('aria-label') || '这个应用');
@@ -6628,6 +7129,19 @@ $('btn-wb-export').addEventListener('click', exportWorldbook);
 $('btn-wb-import').addEventListener('click', () => $('file-wb-import').click());
 $('file-wb-import').addEventListener('change', importWorldbookFile);
 $('wb-scope-select').addEventListener('change', (e) => switchWorldbookScope(e.target.value));
+
+// 捏捏应用
+$('btn-pinie-back').addEventListener('click', () => { collectPinieDraft(); showView(viewHome); });
+$('btn-pinie-generate').addEventListener('click', generatePiniePersona);
+$('btn-pinie-worldbook').addEventListener('click', openPinieWorldbook);
+$('btn-pinie-wb-back').addEventListener('click', () => { syncPinieWorldbookFromDom(); showView(viewPinie); });
+$('btn-pinie-wb-generate').addEventListener('click', regeneratePinieWorldbook);
+$('btn-pinie-wb-add').addEventListener('click', addPinieWorldbookEntry);
+$('btn-pinie-save').addEventListener('click', savePinieAndImport);
+$('pinie-wb-list').addEventListener('click', (e) => {
+  const del = e.target.closest('[data-pinie-wb-delete]');
+  if (del) deletePinieWorldbookEntry(Number(del.dataset.pinieWbDelete));
+});
 
 // 美化：壁纸 / 图标壁纸 / 状态栏
 $('select-wallpaper-fit').addEventListener('change', async (e) => {
