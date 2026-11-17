@@ -189,6 +189,8 @@ function loadSaved() {
   $('input-image-apikey').value = im.apiKey;
   $('input-image-model').value = im.model;
   $('input-image-size').value = im.size;
+  $('input-image-prompt').value = im.prompt;
+  $('input-image-negative').value = im.negativePrompt;
   const cf = getCfSettings();
   $('input-cf-token').value = cf.token;
   $('input-cf-account').value = cf.accountId;
@@ -226,6 +228,8 @@ function save() {
     apiKey: $('input-image-apikey').value.trim(),
     model: $('input-image-model').value.trim(),
     size: $('input-image-size').value.trim(),
+    prompt: $('input-image-prompt').value.trim(),
+    negativePrompt: $('input-image-negative').value.trim(),
   });
   setCfSettings({
     token: $('input-cf-token').value.trim(),
@@ -1215,8 +1219,8 @@ async function playCallSpeech(character, text, index, manual) {
   const v = getVoiceSettings();
   const baseUrl = v.baseUrl || getSettings().baseUrl;
   const apiKey = v.apiKey || getSettings().apiKey;
-  const model = (character.voice && character.voice.model) || v.model || 'tts-1';
-  const voice = (character.voice && character.voice.voiceId) || v.voice || 'alloy';
+  const model = (character.voice && character.voice.model) || v.model || 's1';
+  const voice = (character.voice && character.voice.voiceId) || v.voice || '';
 
   if (!baseUrl || !apiKey) {
     setCallVoiceButtonState(index, 'failed');
@@ -1376,8 +1380,8 @@ async function playChatSpeech(character, text, index, manual) {
   const v = getVoiceSettings();
   const baseUrl = v.baseUrl || getSettings().baseUrl;
   const apiKey = v.apiKey || getSettings().apiKey;
-  const model = (character.voice && character.voice.model) || v.model || 'tts-1';
-  const voice = (character.voice && character.voice.voiceId) || v.voice || 'alloy';
+  const model = (character.voice && character.voice.model) || v.model || 's1';
+  const voice = (character.voice && character.voice.voiceId) || v.voice || '';
 
   if (!baseUrl || !apiKey) {
     if (typeof setChatVoiceButtonState === 'function') setChatVoiceButtonState(index, 'idle');
@@ -2036,43 +2040,71 @@ async function rerollAssistantMessage(index) {
   const combined = history.slice(start, index).map((m) => m.content).join('\n');
   const payload = await currentChatPayload(combined, history.slice(0, start), characterId);
 
-  setChatSending(true);
-  await appendTyping();
-  let result;
-  try {
-    result = await requestReply(payload);
-  } catch (err) {
-    result = { ok: false, reason: '无法连接本地服务：' + (err && err.message ? err.message : err), hints: ['确认本地服务已启动'] };
-  }
-  removeTyping();
-
-  const replyMsg = (result && result.ok)
-    ? { role: 'assistant', content: result.reply }
-    : {
-      role: 'assistant',
-      content: '',
-      error: true,
-      errorReason: (result && result.reason) || '请求没有成功，请稍后重试。',
-      errorHints: (result && result.hints) || [],
-    };
-  if (await getCharacter(characterId)) {
-    await mutateHistory((arr) => {
-      if (arr[index] && arr[index].role === 'assistant') arr[index] = replyMsg;
-    }, characterId);
-    if (result && result.ok) {
-      try {
-        const pending = await getPendingDirective(characterId);
-        if (pending && pending === payload.directiveUsed) await clearPendingDirective(characterId);
-      } catch (_) {}
+  const runReroll = async () => {
+    setChatSending(true);
+    await appendTyping();
+    let result;
+    try {
+      result = await requestReply(payload);
+    } catch (err) {
+      result = { ok: false, reason: '无法连接本地服务：' + (err && err.message ? err.message : err), hints: ['确认本地服务已启动'] };
     }
+    removeTyping();
+    setChatSending(false);
+
+    if (!(result && result.ok)) {
+      if (result && result.aborted) return;
+      showErrorDialog({
+        title: '重 roll 没成功',
+        text: '角色那条旧回复已经清掉，你发的消息还在，点重试再来一次。',
+        context: '聊天',
+        result,
+        retry: runReroll,
+      });
+      if ((await getActiveCharacterId()) === characterId) await renderChat();
+      return;
+    }
+
+    if (!(await getCharacter(characterId))) return;
+    await mutateHistory((arr) => {
+      // 先删掉角色这条旧回复，再把新回复放回同一位置；用户消息不受影响
+      if (arr[index] && arr[index].role === 'assistant') arr.splice(index, 1);
+      arr.splice(Math.min(index, arr.length), 0, { role: 'assistant', content: result.reply });
+    }, characterId);
+    try {
+      const pending = await getPendingDirective(characterId);
+      if (pending && pending === payload.directiveUsed) await clearPendingDirective(characterId);
+    } catch (_) {}
     if ((await getActiveCharacterId()) === characterId) {
       await refreshDirectiveChip();
       await renderChat();
-      if (result && result.ok) autoPlayChatReply(result.reply, index).catch(() => {});
+      autoPlayChatReply(result.reply, index).catch(() => {});
     }
-    if (result && result.ok) notifyCharacterReply(characterId, result.reply).catch(() => {});
-  }
-  setChatSending(false);
+    notifyCharacterReply(characterId, result.reply).catch(() => {});
+  };
+
+  await runReroll();
+}
+
+// 一键清空当前角色的聊天与记忆，角色卡与世界书保留
+async function clearCurrentChat() {
+  const characterId = await getActiveCharacterId();
+  if (!characterId) return;
+  if (!window.confirm('清空当前角色的全部聊天记录和记忆？角色卡不会删除，清空后无法恢复。')) return;
+  await mutateHistory((arr) => { arr.length = 0; }, characterId);
+  await mutateMemory((doc) => {
+    doc.entries = [];
+    doc.longTerm = [];
+    doc.core = [];
+    doc.lastSummarizedCount = 0;
+    doc.longTermSourceCount = 0;
+    doc.coreSourceCount = 0;
+    doc.vecModel = '';
+  }, characterId);
+  closeChatSheet();
+  await renderChat();
+  await refreshDirectiveChip();
+  toast('聊天记录和记忆都清空了，角色还留着');
 }
 
 // ---- 聊天功能抽屉：位置 / 图片 / 表情包 / 转账 / 系统指令 ----
@@ -2166,6 +2198,11 @@ async function sendToolImage() {
         name: pendingChatImage.name || 'chat-image',
         type: pendingChatImage.type || 'image/jpeg',
         blob: pendingChatImage.blob,
+      });
+      await archivePhoto(imageId, {
+        source: 'chat',
+        characterId: await getActiveCharacterId(),
+        caption: desc,
       });
     }
   } catch (err) {
@@ -6628,6 +6665,8 @@ document.querySelectorAll('.app-icon, .dock-icon').forEach((btn) => {
       openPinie();
     } else if (app === 'uncle') {
       openUncle();
+    } else if (app === 'album') {
+      openAlbum();
     } else {
       const nameEl = btn.querySelector('.app-name');
       const name = nameEl ? nameEl.textContent : (btn.getAttribute('aria-label') || '这个应用');
@@ -8234,6 +8273,8 @@ $('chat-sheet-body').addEventListener('click', async (e) => {
     return;
   }
 
+  if (e.target.closest('#btn-chat-clear-all')) { await clearCurrentChat(); return; }
+
   const tool = e.target.closest('[data-tool]');
   if (tool) {
     if (tool.dataset.tool === 'style') {
@@ -8515,12 +8556,13 @@ async function generateCharacterMoment(characterId) {
     && imageSettings.baseUrl && imageSettings.apiKey && imageSettings.model;
   if (imageBound) {
     try {
-      const prompt = [character.image.prompt, imagePrompt].filter(Boolean).join('，');
+      const prompt = [imageSettings.prompt, character.image.prompt, imagePrompt].filter(Boolean).join('，');
       const result = await requestImageGenerate({
         baseUrl: imageSettings.baseUrl,
         apiKey: imageSettings.apiKey,
         model: imageSettings.model,
         prompt: prompt || text,
+        negativePrompt: imageSettings.negativePrompt,
         size: imageSettings.size,
       });
       if (result && result.ok) {
@@ -8533,6 +8575,7 @@ async function generateCharacterMoment(characterId) {
         if (blob) {
           imageId = genId();
           await putFile({ id: imageId, name: 'moment-' + imageId, type: blob.type || 'image/png', blob });
+          await archivePhoto(imageId, { source: 'moments', characterId: character.id, caption: text.slice(0, 80) });
         }
       }
     } catch (_) { /* 生图失败时退回文字描述图 */ }
@@ -8707,6 +8750,7 @@ async function submitMomentPost() {
       const blob = await fileToImage(pendingMomentImage, 1280);
       imageId = genId();
       await putFile({ id: imageId, name: 'moment-user-' + imageId, type: blob.type || 'image/jpeg', blob });
+      await archivePhoto(imageId, { source: 'moments', characterId: identity.id || '', caption: text.slice(0, 80) });
     }
   } catch (err) {
     toast('配图保存失败：' + (err && err.message ? err.message : err));
@@ -9158,6 +9202,80 @@ function renderUncleMessages() {
   box.scrollTop = box.scrollHeight;
 }
 
+// ---- 相册：聊天与动态照片归档 ----
+let albumBackfilled = false;
+
+async function backfillAlbum() {
+  if (albumBackfilled) return;
+  albumBackfilled = true;
+  const archived = new Set((await getAlbumPhotos()).map((p) => p.sourceFileId).filter(Boolean));
+  try {
+    const { list } = await getCharacters();
+    for (const c of list) {
+      const history = await getHistory(c.id);
+      for (const m of history) {
+        if (m && m.imageId && !archived.has(m.imageId)) {
+          const item = await archivePhoto(m.imageId, { source: 'chat', characterId: c.id });
+          if (item) archived.add(m.imageId);
+        }
+      }
+    }
+    const moments = await getMoments();
+    for (const p of (moments.posts || [])) {
+      if (p && p.imageId && !archived.has(p.imageId)) {
+        const item = await archivePhoto(p.imageId, {
+          source: 'moments',
+          characterId: p.authorId || '',
+          caption: p.text || '',
+        });
+        if (item) archived.add(p.imageId);
+      }
+    }
+  } catch (_) {}
+}
+
+async function openAlbum() {
+  closeAlbumViewer();
+  await backfillAlbum();
+  await refreshAlbum();
+  showView(viewAlbum);
+}
+
+async function refreshAlbum() {
+  const photos = await getAlbumPhotos();
+  const urlMap = {};
+  await Promise.all(photos.map(async (p) => {
+    try {
+      urlMap[p.id] = await getFileUrl(p.fileId);
+    } catch (_) {
+      urlMap[p.id] = '';
+    }
+  }));
+  renderAlbumPage(photos, urlMap);
+}
+
+$('btn-album-back').addEventListener('click', () => {
+  closeAlbumViewer();
+  showView(viewHome);
+});
+
+$('album-grid').addEventListener('click', async (e) => {
+  const del = e.target.closest('[data-album-del]');
+  if (del) {
+    if (!window.confirm('从相册删除这张照片？聊天或动态里的原图不受影响。')) return;
+    await deleteAlbumPhoto(del.dataset.albumDel);
+    await refreshAlbum();
+    toast('已从相册删除');
+    return;
+  }
+  const card = e.target.closest('[data-album-id]');
+  if (!card) return;
+  const img = card.querySelector('img');
+  if (img && img.src) openAlbumViewer(img.src);
+});
+
+$('album-viewer').addEventListener('click', closeAlbumViewer);
+
 async function pushUncleMessage(role, content) {
   uncleMessages.push({ role, content, at: Date.now() });
   renderUncleMessages();
@@ -9320,16 +9438,16 @@ async function copyErrorToUncle() {
 }
 
 // ===== 更新公告 =====
-const WHATS_NEW_VERSION = '2026.11.17.2';
+const WHATS_NEW_VERSION = '2026.11.17.3';
 const WHATS_NEW_KEY = 'clearcall_whatsnew_seen';
 const WHATS_NEW_ITEMS = [
-  '余叔叔学会分条说话了：该断的地方就断，不再把 <split> 这种后台黑话念给你听。',
-  '右上角「清空」终于不是第二支返回箭头了，点它才能真清空，别点错。',
-  '余叔叔换头像了，定妆照钉死在聊天室，顺便把气泡也摆正了——终于像个正经客服。',
-  '常驻助手「余叔叔」上岗：手机哪里不对劲，直接找我，我沿用你填的主接口。',
-  '报错不再占聊天框，改成弹窗；一键复制报错，自动打开我并填好内容。',
-  '外语气泡点一下就能在下面看中文，语音条长按可以转文字。',
-  '工具 API 独立设置：翻译、论坛、购物、外卖、捏捏各用各的模型。',
+  '重 roll 变干净了：先把角色那条旧回复删掉再重新生成，你发的消息稳稳留着。',
+  '聊天功能键里多了一键清空：当前角色的聊天记录和记忆一起清，角色卡不动。',
+  '语音服务统一改成 Fish Audio，填好 Key 和参考音色 ID，角色就能开口。',
+  '生图设置加了正面/负面提示词，每次画图自动带上，省得一遍遍描述。',
+  '新开「相册」：聊天和动态里出现过的照片自动存一份，原处删了也不会丢。',
+  '余叔叔学会分条说话了，不再把 <split> 这种后台黑话念给你听。',
+  '外语气泡点一下就能看中文，语音条长按可以转文字。',
   '记忆服务支持拉取模型，并且加了 Embedding 向量记忆，翻旧账更准。',
 ];
 

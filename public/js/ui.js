@@ -24,6 +24,7 @@ const viewWorldbook = $('view-worldbook');
 const viewWorldbookEdit = $('view-worldbook-edit');
 const viewPinie = $('view-pinie');
 const viewPinieWb = $('view-pinie-wb');
+const viewAlbum = $('view-album');
 const viewCharacters = $('view-characters');
 const viewCallPicker = $('view-call-picker');
 const viewCall = $('view-call');
@@ -1275,6 +1276,12 @@ function renderChatToolMenu(body) {
     : '一键开启后，角色会按设定间隔主动发消息；具体间隔点「主动消息」调整。'));
   body.appendChild(quick);
 
+  const clearBtn = uiEl('button', 'tool-danger-btn', '清空当前对话与记忆');
+  clearBtn.type = 'button';
+  clearBtn.id = 'btn-chat-clear-all';
+  body.appendChild(clearBtn);
+  body.appendChild(uiEl('div', 'field-hint', '只清空当前角色的聊天记录和记忆，角色卡和世界书都保留。'));
+
   body.appendChild(uiEl('div', 'tool-hint', '位置、图片、表情包、转账、邮件和日记会进入对应页面；聊天方式按当前角色设置口吻；系统指令不会显示，只影响下一轮回复。'));
 }
 
@@ -2169,7 +2176,7 @@ function renderCharacterForm(character, avatarUrl, refImageUrl, personaUrl) {
   voiceId.id = 'char-voice-id';
   voiceId.className = 'wb-input';
   voiceId.type = 'text';
-  voiceId.placeholder = '音色 / Voice ID，留空用设置里的默认音色';
+  voiceId.placeholder = 'Fish Audio 参考音色 ID，留空用设置里的默认音色';
   voiceId.value = voice.voiceId || '';
   voiceDrawer.body.appendChild(voiceId);
 
@@ -2177,7 +2184,7 @@ function renderCharacterForm(character, avatarUrl, refImageUrl, personaUrl) {
   voiceModel.id = 'char-voice-model';
   voiceModel.className = 'wb-input';
   voiceModel.type = 'text';
-  voiceModel.placeholder = '语音模型，留空用设置里的默认模型';
+  voiceModel.placeholder = '语音模型，留空默认 s1';
   voiceModel.value = voice.model || '';
   voiceDrawer.body.appendChild(voiceModel);
 
@@ -4707,4 +4714,46 @@ function fillShopCartCharacters(characters, selectedId, selectId) {
   });
   if (selectedId && list.some((c) => c.id === selectedId)) select.value = selectedId;
   select.disabled = list.length <= 1;
+}
+
+// ---------- 相册：聊天与动态照片的归档 ----------
+function renderAlbumPage(photos, urlMap) {
+  const grid = $('album-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  const list = Array.isArray(photos) ? photos : [];
+  if (!list.length) {
+    grid.appendChild(uiEl('div', 'album-empty', '相册还是空的。聊天和动态里出现过的照片，会自动在这里存一份。'));
+    return;
+  }
+  list.forEach((p) => {
+    const card = uiEl('div', 'album-item');
+    card.dataset.albumId = p.id;
+    const img = document.createElement('img');
+    img.src = (urlMap && urlMap[p.id]) || '';
+    img.alt = p.caption || '相册照片';
+    img.loading = 'lazy';
+    card.appendChild(img);
+    if (p.source === 'moments') card.appendChild(uiEl('span', 'album-tag', '动态'));
+    const del = uiEl('button', 'album-del', '删除');
+    del.type = 'button';
+    del.dataset.albumDel = p.id;
+    card.appendChild(del);
+    grid.appendChild(card);
+  });
+}
+
+function openAlbumViewer(url) {
+  const box = $('album-viewer');
+  const img = $('album-viewer-img');
+  if (!box || !img || !url) return;
+  img.src = url;
+  box.hidden = false;
+}
+
+function closeAlbumViewer() {
+  const box = $('album-viewer');
+  const img = $('album-viewer-img');
+  if (box) box.hidden = true;
+  if (img) img.removeAttribute('src');
 }

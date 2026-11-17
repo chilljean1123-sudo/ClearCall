@@ -56,6 +56,8 @@ const IMAGE_KEYS = {
   apiKey: 'clearcall.imageApiKey',
   model: 'clearcall.imageModel',
   size: 'clearcall.imageSize',
+  prompt: 'clearcall.imagePrompt',
+  negativePrompt: 'clearcall.imageNegativePrompt',
 };
 
 // 主动消息推送（云推送 Worker）配置
@@ -353,6 +355,8 @@ function getImageSettings() {
     apiKey: localStorage.getItem(IMAGE_KEYS.apiKey) || '',
     model: localStorage.getItem(IMAGE_KEYS.model) || '',
     size: localStorage.getItem(IMAGE_KEYS.size) || '',
+    prompt: localStorage.getItem(IMAGE_KEYS.prompt) || '',
+    negativePrompt: localStorage.getItem(IMAGE_KEYS.negativePrompt) || '',
   };
 }
 
@@ -361,6 +365,8 @@ function setImageSettings(s) {
   localStorage.setItem(IMAGE_KEYS.apiKey, (s && s.apiKey) || '');
   localStorage.setItem(IMAGE_KEYS.model, (s && s.model) || '');
   localStorage.setItem(IMAGE_KEYS.size, (s && s.size) || '');
+  localStorage.setItem(IMAGE_KEYS.prompt, (s && s.prompt) || '');
+  localStorage.setItem(IMAGE_KEYS.negativePrompt, (s && s.negativePrompt) || '');
 }
 
 // ---------- IndexedDB 基础 ----------
@@ -378,6 +384,7 @@ const DOC_STICKERS = 'stickers';       // 表情包按角色分仓：stickers:<�
 const DOC_APPEARANCE = 'appearance';   // 美化：主屏壁纸 / 各应用图标 / 状态栏开关
 const DOC_NOTIFICATION = 'notification'; // 通知：开关 / 自定义提示音 / 后台保活
 const DOC_FORUM = 'forum';             // 论坛：绑定设置 / 主题 / 帖子 / 用户主页
+const DOC_ALBUM = 'album';             // 相册：聊天与动态里的照片副本
 const DOC_MOMENTS = 'moments';         // 动态（朋友圈）：绑定角色 / 动态 / 点赞 / 评论
 const DOC_EMAIL = 'email';             // 邮箱：角色来信 / 已发送 / 定时任务
 const DOC_BOOKS = 'books';             // 小说书架：书目列表 / 当前书 / 阅读进度
@@ -526,6 +533,60 @@ async function deleteFile(id) {
   const tx = db.transaction(STORE_FILES, 'readwrite');
   tx.objectStore(STORE_FILES).delete(id);
   await txComplete(tx);
+}
+
+// ---------- 相册：把聊天/动态里的照片另存一份，原处删了也不丢 ----------
+async function getAlbumPhotos() {
+  const doc = await getDoc(DOC_ALBUM);
+  const items = doc && Array.isArray(doc.items) ? doc.items : [];
+  return items.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+}
+
+// 复制一份 Blob 进相册，源文件被删也不影响；同一张原图只归档一次
+async function archivePhoto(fileId, meta) {
+  if (!fileId) return null;
+  const sourceFileId = (meta && meta.sourceFileId) || fileId;
+  const doc = await getDoc(DOC_ALBUM);
+  const existing = doc && Array.isArray(doc.items) ? doc.items : [];
+  if (existing.some((x) => x && x.sourceFileId === sourceFileId)) return null;
+  const file = await getFile(fileId);
+  if (!file || !file.blob) return null;
+  const copyId = genId();
+  await putFile({
+    id: copyId,
+    name: 'album-' + copyId,
+    type: file.type || file.blob.type || 'image/jpeg',
+    blob: file.blob,
+  });
+  const item = {
+    id: genId(),
+    fileId: copyId,
+    sourceFileId,
+    source: (meta && meta.source) || 'chat',
+    characterId: (meta && meta.characterId) || '',
+    caption: String((meta && meta.caption) || '').slice(0, 200),
+    createdAt: Date.now(),
+  };
+  await mutateDoc(DOC_ALBUM, (doc) => {
+    if (!Array.isArray(doc.items)) doc.items = [];
+    if (doc.items.some((x) => x && x.sourceFileId === sourceFileId)) return;
+    doc.items.unshift(item);
+  });
+  return item;
+}
+
+async function deleteAlbumPhoto(id) {
+  let removed = null;
+  await mutateDoc(DOC_ALBUM, (doc) => {
+    if (!Array.isArray(doc.items)) doc.items = [];
+    const i = doc.items.findIndex((x) => x.id === id);
+    if (i >= 0) removed = doc.items.splice(i, 1)[0];
+  });
+  if (removed && removed.fileId) {
+    revokeFileUrl(removed.fileId);
+    try { await deleteFile(removed.fileId); } catch (_) {}
+  }
+  return removed;
 }
 
 async function clearFiles() {

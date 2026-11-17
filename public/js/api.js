@@ -698,17 +698,19 @@ async function requestMomentChat({ baseUrl, apiKey, model, system, user, maxToke
 }
 
 // 生图（走后端 /api/image，无后端则直连 /images/generations）
-async function directImageGenerate(baseUrl, apiKey, model, prompt, size) {
+async function directImageGenerate(baseUrl, apiKey, model, prompt, size, negativePrompt) {
   const base = directNormalizeBase(baseUrl);
   const url = base ? base + '/images/generations' : null;
   if (!url) return { ok: false, reason: '生图接口地址不能为空', hints: ['到「设置 → 生图服务」填写接口地址'] };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 60000);
   try {
+    const body = { model, prompt: String(prompt || ''), n: 1, size: size || '1024x1024', response_format: 'b64_json' };
+    if (negativePrompt) body.negative_prompt = String(negativePrompt);
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey },
-      body: JSON.stringify({ model, prompt: String(prompt || ''), n: 1, size: size || '1024x1024', response_format: 'b64_json' }),
+      body: JSON.stringify(body),
       signal: controller.signal,
     });
     const text = await res.text();
@@ -729,19 +731,19 @@ async function directImageGenerate(baseUrl, apiKey, model, prompt, size) {
   }
 }
 
-async function requestImageGenerate({ baseUrl, apiKey, model, prompt, size }) {
+async function requestImageGenerate({ baseUrl, apiKey, model, prompt, size, negativePrompt }) {
   try {
     const res = await fetch('/api/image', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ baseUrl, apiKey, model, prompt, size }),
+      body: JSON.stringify({ baseUrl, apiKey, model, prompt, size, negativePrompt }),
     });
     const text = await res.text();
     if (isBackendResponse(res, text)) {
       try { return JSON.parse(text); } catch (_) {}
     }
   } catch (_) { /* 无后端 */ }
-  return directImageGenerate(baseUrl, apiKey, model, prompt, size);
+  return directImageGenerate(baseUrl, apiKey, model, prompt, size, negativePrompt);
 }
 
 async function directReadingChat(baseUrl, apiKey, model, system, user, maxTokens) {
@@ -892,28 +894,36 @@ async function directSummarizeMemory(baseUrl, apiKey, model, content, existing) 
 }
 
 // 语音合成（走后端 /api/tts，无后端则直连；返回音频 Blob）
+// 语音合成统一走 Fish Audio
+function fishSpeechUrl(baseUrl) {
+  const raw = String(baseUrl || '').trim().replace(/\/+$/, '');
+  const base = raw || 'https://api.fish.audio/v1';
+  if (/\/tts$/i.test(base)) return base;
+  if (/\/v1$/i.test(base)) return base + '/tts';
+  return base + '/v1/tts';
+}
+
 function directSpeechUrl(baseUrl) {
-  const b = directNormalizeBase(baseUrl);
-  return b ? b + '/audio/speech' : null;
+  return fishSpeechUrl(baseUrl);
 }
 
 async function directSpeech(payload) {
   const url = directSpeechUrl(payload.baseUrl);
-  if (!url) return { ok: false, reason: '语音接口地址不能为空', hints: ['到「设置 → 语音服务」填写接口地址'] };
-  if (!payload.apiKey) return { ok: false, reason: '语音服务 API Key 不能为空', hints: ['到「设置 → 语音服务」粘贴 Key'] };
+  if (!payload.apiKey) return { ok: false, reason: '语音服务 API Key 不能为空', hints: ['到「设置 → 语音服务」粘贴 Fish Audio 的 API Key'] };
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), DIRECT_TIMEOUT_MS);
   try {
+    const body = { text: String(payload.input || '').slice(0, 4000), format: 'mp3', mp3_bitrate: 128 };
+    if (payload.voice) body.reference_id = payload.voice;
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + payload.apiKey },
-      body: JSON.stringify({
-        model: payload.model || 'tts-1',
-        voice: payload.voice || 'alloy',
-        input: String(payload.input || '').slice(0, 4000),
-        response_format: 'mp3',
-      }),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + payload.apiKey,
+        'model': payload.model || 's1',
+      },
+      body: JSON.stringify(body),
       signal: controller.signal,
     });
     const contentType = res.headers.get('content-type') || '';

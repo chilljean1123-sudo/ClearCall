@@ -8,6 +8,7 @@ module.exports = async (req, res) => {
     model: payload.model,
     prompt: payload.prompt,
     size: payload.size,
+    negativePrompt: payload.negativePrompt,
   });
   sendJson(res, result);
 };

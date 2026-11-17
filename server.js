@@ -131,6 +131,7 @@ const server = http.createServer(async (req, res) => {
       model: payload.model,
       prompt: payload.prompt,
       size: payload.size,
+      negativePrompt: payload.negativePrompt,
     });
     console.log('[api/image]', result.ok ? 'success' : 'failed', result.reason || '');
     ai.sendJson(res, result);
