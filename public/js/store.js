@@ -464,6 +464,26 @@ async function deleteDoc(id) {
   await txComplete(tx);
 }
 
+// ---------- 余叔叔：常驻手机助手 ----------
+const UNCLE_DOC_ID = 'uncle';
+
+async function getUncleMessages() {
+  const doc = await getDoc(UNCLE_DOC_ID);
+  return doc && Array.isArray(doc.messages) ? doc.messages : [];
+}
+
+async function saveUncleMessages(messages) {
+  await putDoc({
+    id: UNCLE_DOC_ID,
+    messages: (Array.isArray(messages) ? messages : []).slice(-200),
+    updatedAt: Date.now(),
+  });
+}
+
+async function clearUncleMessages() {
+  await deleteDoc(UNCLE_DOC_ID);
+}
+
 async function getFile(id) {
   const db = await openDB();
   const tx = db.transaction(STORE_FILES, 'readonly');

@@ -5811,3 +5811,172 @@ body.home-dragging .home-pages { scroll-snap-type: none; }
   font-weight: 600;
   color: var(--color-text-primary);
 }
+
+/* ===== 余叔叔助手 ===== */
+.app-glyph.glyph-uncle:not(.custom-icon),
+.icon-manager-glyph.glyph-uncle:not(.custom-icon) {
+  --glyph-cutout: var(--color-accent-light);
+  background: var(--color-accent-light);
+}
+
+.uncle-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.uncle-row { display: flex; }
+.uncle-row.user { justify-content: flex-end; }
+
+.uncle-bubble {
+  max-width: 82%;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-body-sm);
+  line-height: var(--leading-body);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.uncle-row.assistant .uncle-bubble {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-top-left-radius: 6px;
+}
+.uncle-row.user .uncle-bubble {
+  background: var(--color-accent-light);
+  border-top-right-radius: 6px;
+}
+
+.uncle-intro {
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+.uncle-intro-name {
+  font-size: var(--font-body);
+  font-weight: 600;
+  margin-bottom: var(--space-1);
+}
+.uncle-intro-text {
+  font-size: var(--font-body-sm);
+  color: var(--color-text-secondary);
+  line-height: var(--leading-body);
+}
+
+.uncle-input {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2) calc(var(--space-2) + var(--safe-bottom));
+  border-top: 1px solid var(--color-divider-soft);
+  background: var(--color-surface);
+}
+.uncle-input textarea {
+  flex: 1;
+  min-height: 40px;
+  max-height: 120px;
+  padding: 10px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-page-bg);
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: var(--font-body-sm);
+  line-height: var(--leading-body);
+  resize: none;
+  outline: none;
+}
+
+/* ===== 报错弹窗 / 更新公告 ===== */
+.cc-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-3);
+  background: rgba(58, 58, 64, 0.32);
+}
+.cc-modal[hidden] { display: none; }
+
+.cc-modal-card {
+  width: 100%;
+  max-width: 420px;
+  max-height: 78vh;
+  overflow: auto;
+  padding: var(--space-3) var(--space-2);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-float);
+}
+
+.cc-modal-badge {
+  display: inline-block;
+  margin-bottom: var(--space-1);
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--color-accent-light);
+  color: var(--color-text-secondary);
+  font-size: var(--font-caption);
+}
+
+.cc-modal-title {
+  margin-bottom: var(--space-1);
+  font-size: var(--font-h3);
+  font-weight: 600;
+}
+
+.cc-modal-text {
+  font-size: var(--font-body-sm);
+  color: var(--color-text-secondary);
+  line-height: var(--leading-body);
+  white-space: pre-wrap;
+}
+
+.cc-modal-detail {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2);
+  max-height: 34vh;
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  background: var(--color-page-bg);
+  color: var(--color-text-secondary);
+  font-size: var(--font-caption);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.cc-modal-list {
+  margin: var(--space-2) 0 0;
+  padding-left: 20px;
+  font-size: var(--font-body-sm);
+  color: var(--color-text-secondary);
+  line-height: var(--leading-body);
+}
+.cc-modal-list li { margin-bottom: 6px; }
+
+.cc-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+}
+
+.cc-modal-btn {
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: var(--font-body-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+.cc-modal-btn.primary { background: var(--color-accent); color: var(--color-text-primary); }
+.cc-modal-btn.ghost { background: transparent; border-color: var(--color-border); color: var(--color-text-secondary); }
+.cc-modal-btn[hidden] { display: none; }
