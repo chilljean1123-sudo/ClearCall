@@ -567,6 +567,15 @@ function renderAssistantPart(stack, part, ctx) {
   appendAssistantBubble(stack, source.slice(cursor));
 }
 
+// 引用块：气泡上方的一小段被引用的原话
+function buildQuoteEl(quote) {
+  const el = document.createElement('div');
+  el.className = 'msg-quote';
+  el.appendChild(uiEl('span', 'msg-quote-name', (quote && quote.name) || '引用'));
+  el.appendChild(uiEl('span', 'msg-quote-text', (quote && quote.content) || ''));
+  return el;
+}
+
 function renderMessage(m, index, avatar, name, ctx) {
   if (m.role === 'user') {
     if (m.kind && m.kind !== 'text') return renderUserAttachment(m, ctx || {});
@@ -574,7 +583,8 @@ function renderMessage(m, index, avatar, name, ctx) {
     row.className = 'msg-row user';
     const bubble = document.createElement('div');
     bubble.className = 'msg-bubble user-bubble';
-    bubble.textContent = m.content;
+    if (m.quote) bubble.appendChild(buildQuoteEl(m.quote));
+    bubble.appendChild(uiEl('div', 'msg-bubble-text', m.content));
     row.appendChild(bubble);
     return row;
   }
@@ -590,6 +600,8 @@ function renderMessage(m, index, avatar, name, ctx) {
   stack.className = 'msg-stack';
 
   if (m.error) return null;
+
+  if (m.quote) stack.appendChild(buildQuoteEl(m.quote));
 
   const rawParts = splitReplyIntoBubbles(m.content);
   // 兼容旧记录：历史消息里已经存下的无标签思维链，渲染时同样过滤掉
@@ -1801,7 +1813,7 @@ function renderCharacterForm(character, avatarUrl, refImageUrl, personaUrl) {
   const uploadBtn = document.createElement('button');
   uploadBtn.type = 'button';
   uploadBtn.className = 'fetch-btn';
-  uploadBtn.textContent = '上传头像';
+  uploadBtn.textContent = '上传';
   uploadBtn.addEventListener('click', () => $('file-char-avatar').click());
   avatarRow.appendChild(uploadBtn);
 
@@ -1827,7 +1839,7 @@ function renderCharacterForm(character, avatarUrl, refImageUrl, personaUrl) {
   const personaUpload = document.createElement('button');
   personaUpload.type = 'button';
   personaUpload.className = 'fetch-btn';
-  personaUpload.textContent = '上传人设大图';
+  personaUpload.textContent = '上传';
   personaUpload.addEventListener('click', () => $('file-char-persona').click());
   personaRow.appendChild(personaUpload);
 
@@ -2596,6 +2608,17 @@ function renderWidgetManager(cfg) {
   });
 }
 
+// 字体名可能带空格或以数字开头，未加引号时 CSS 会整条失效
+function normalizeFontFamily(name) {
+  const v = String(name || '').trim();
+  if (!v) return '';
+  if (v.includes(',')) return v; // 用户自己写了字体栈，原样使用
+  if (/^["'].*["']$/.test(v)) return v;
+  return /[\s]/.test(v) || !/^[a-zA-Z\u4e00-\u9fa5]/.test(v)
+    ? '"' + v.replace(/"/g, '') + '"'
+    : v;
+}
+
 // 气泡颜色 / 聊天字体 / 字体颜色：只写到聊天与通话窗口，不影响其它页面
 function applyChatAppearance(cfg) {
   const targets = [$('view-chat'), $('view-call')].filter(Boolean);
@@ -2606,7 +2629,7 @@ function applyChatAppearance(cfg) {
   targets.forEach((el) => {
     setOrRemove(el, '--user-bubble-bg', cfg && cfg.bubbleColor);
     setOrRemove(el, '--chat-font-color', cfg && cfg.fontColor);
-    setOrRemove(el, '--chat-font-family', cfg && cfg.fontFamily);
+    setOrRemove(el, '--chat-font-family', normalizeFontFamily(cfg && cfg.fontFamily));
   });
 
   applyLocalFontFile(cfg, targets);
@@ -2651,7 +2674,7 @@ async function applyLocalFontFile(cfg, targets) {
     document.head.appendChild(face);
   }
   face.textContent = '@font-face{font-family:"' + LOCAL_FONT_FAMILY + '";src:url("' + url + '");font-display:swap;}';
-  const stack = '"' + LOCAL_FONT_FAMILY + '", ' + ((cfg && cfg.fontFamily) || 'inherit');
+  const stack = '"' + LOCAL_FONT_FAMILY + '"' + ((cfg && cfg.fontFamily) ? ', ' + normalizeFontFamily(cfg.fontFamily) : '');
   targets.forEach((el) => el.style.setProperty('--chat-font-family', stack));
 }
 

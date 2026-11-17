@@ -1006,6 +1006,7 @@ async function openChat() {
   await renderChat();
   await updateGenerateButton();
   await refreshDirectiveChip();
+  setPendingQuote(null);
   closeChatCharMenu();
   closeChatMsgMenu();
   exitChatSelectMode();
@@ -1492,12 +1493,25 @@ function setChatSending(sending) {
 }
 
 async function updateGenerateButton() {
-  const btn = $('btn-batch-send');
+  const btn = $('btn-chat-send');
+  if (!btn) return;
   const m = getTriggerModes();
   const pending = await getPending();
-  const show = m.batch && !isInstantMode() && pending.length > 0 && !chatSending;
-  btn.hidden = !show;
-  btn.disabled = chatSending;
+  const canGenerate = m.batch && !isInstantMode() && pending.length > 0
+    && $('input-chat').value.trim() === '';
+  btn.classList.toggle('is-stop', chatSending);
+  btn.classList.toggle('is-generate', !chatSending && canGenerate);
+  btn.disabled = false;
+  if (chatSending) {
+    btn.textContent = '';
+    btn.setAttribute('aria-label', '暂停回复');
+  } else if (canGenerate) {
+    btn.textContent = '回复';
+    btn.setAttribute('aria-label', '生成回复');
+  } else {
+    btn.textContent = '发送';
+    btn.setAttribute('aria-label', '发送');
+  }
 }
 
 function clearCountdown() {
@@ -1541,15 +1555,78 @@ async function afterFlush() {
   else await updateGenerateButton();
 }
 
+// 右滑引用：一次只引用一条，发送后自动清除
+let pendingQuote = null;
+
+function setPendingQuote(quote) {
+  pendingQuote = quote || null;
+  const chip = $('chat-quote-chip');
+  const text = $('chat-quote-text');
+  if (!chip) return;
+  if (!pendingQuote) {
+    chip.hidden = true;
+    if (text) text.textContent = '';
+    return;
+  }
+  if (text) text.textContent = pendingQuote.content;
+  chip.hidden = false;
+}
+
+function quoteTextOfMessage(m) {
+  if (!m) return '';
+  const limit = (s) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+  if (!m.kind || m.kind === 'text') return limit(m.content);
+  if (m.kind === 'image') return limit('[图片] ' + (m.description || ''));
+  if (m.kind === 'sticker') return '[表情]';
+  if (m.kind === 'location') return limit('[位置] ' + ((m.location && m.location.name) || ''));
+  if (m.kind === 'transfer') return '[转账] ¥' + Number((m.transfer && m.transfer.amount) || 0).toFixed(2);
+  if (m.kind === 'music') return limit('[歌曲] ' + ((m.music && m.music.name) || ''));
+  if (m.kind === 'forum') return limit('[帖子] ' + ((m.forum && m.forum.title) || ''));
+  if (m.kind === 'shop') return '[订单]';
+  return '';
+}
+
+async function quoteMessageAt(index) {
+  const history = await getHistory();
+  const m = history[index];
+  const text = quoteTextOfMessage(m);
+  if (!text) { toast('这条没有可引用的内容'); return; }
+  const c = await getChar();
+  setPendingQuote({
+    role: m.role,
+    name: m.role === 'user' ? '我' : (c.name || '对方'),
+    content: text,
+  });
+  toast('已引用');
+}
+
 // 提交：消息立刻上屏，并按模式决定何时请求 AI
 async function submitMessage(text) {
   const msg = (text || '').trim();
   if (!msg) return;
 
-  await mutateHistory((arr) => arr.push({ role: 'user', content: msg }));
+  const entry = { role: 'user', content: msg };
+  if (pendingQuote) entry.quote = pendingQuote;
+  await mutateHistory((arr) => arr.push(entry));
+  setPendingQuote(null);
   await renderChat();
   $('input-chat').value = '';
   await triggerAfterUserSend();
+}
+
+// 输入框右侧的发送键兼顾三件事：发消息 / 请求回复 / 暂停生成
+async function handleSendTap() {
+  if (chatSending) { stopReplyGeneration(); return; }
+  const input = $('input-chat');
+  const text = input.value.trim();
+  if (text) { await submitMessage(input.value); return; }
+  await flushQueue();
+}
+
+function stopReplyGeneration() {
+  if (!chatSending) return;
+  abortReplyRequest();
+  toast('已暂停，消息还在');
 }
 
 // 消息上屏后按触发模式决定何时请求 AI
@@ -1578,7 +1655,10 @@ async function flushQueue() {
 
   clearCountdown();
 
-  const combined = pending.map((m) => m.content).join('\n');
+  const combined = pending.map((m) => {
+    const quote = (m.quote && m.quote.content) ? '（引用「' + m.quote.name + '」：' + m.quote.content + '）\n' : '';
+    return quote + m.content;
+  }).join('\n');
   const priorHistory = history.slice(0, history.length - pending.length);
   const baseIndex = history.length; // 回复要插在 pending 之后
   const payload = await currentChatPayload(combined, priorHistory, characterId);
@@ -1596,6 +1676,12 @@ async function flushQueue() {
   }
 
   removeTyping();
+  // 用户点了正方形暂停键：保留这批消息，不写失败气泡，之后再点「回复」可重新生成
+  if (result && result.aborted) {
+    setChatSending(false);
+    await updateGenerateButton();
+    return;
+  }
   const replyMsg = (result && result.ok)
     ? { role: 'assistant', content: result.reply }
     : {
@@ -1666,6 +1752,7 @@ async function retryReply(index) {
   }
 
   removeTyping();
+  if (result && result.aborted) { setChatSending(false); return; }
   const replyMsg = (result && result.ok)
     ? { role: 'assistant', content: result.reply }
     : {
@@ -1730,7 +1817,19 @@ async function copyChatMessageText(index) {
   }
 }
 
-function openChatMsgMenu(index, x, y) {
+async function deleteChatMessageAt(index) {
+  const history = await getHistory();
+  if (!history[index]) return;
+  if (!window.confirm('删除这条消息？')) return;
+  await mutateHistory((arr) => {
+    if (index >= 0 && index < arr.length) arr.splice(index, 1);
+  });
+  await renderChat();
+  await updateGenerateButton();
+  toast('已删除');
+}
+
+function openChatMsgMenu(index, x, y, isAssistant) {
   const idx = Number(index);
   if (!Number.isInteger(idx) || idx < 0) return;
   const menu = $('chat-msg-menu');
@@ -1739,9 +1838,9 @@ function openChatMsgMenu(index, x, y) {
   const actions = [
     { action: 'copy', label: '复制' },
     { action: 'delete', label: '删除', danger: true },
-    { action: 'retry', label: '重试' },
-    { action: 'multi', label: '多选' },
   ];
+  if (isAssistant) actions.push({ action: 'retry', label: '重试' });
+  actions.push({ action: 'multi', label: '多选' });
   actions.forEach((item) => {
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -4846,6 +4945,10 @@ async function generateReplyForCharacter(characterId) {
     result = { ok: false, reason: '无法连接本地服务：' + (err && err.message ? err.message : err), hints: ['确认本地服务已启动'] };
   }
   if (inChat) removeTyping();
+  if (result && result.aborted) {
+    setChatSending(false);
+    return;
+  }
   const replyMsg = (result && result.ok)
     ? { role: 'assistant', content: result.reply }
     : { role: 'assistant', content: '', error: true, errorReason: (result && result.reason) || '请求没有成功', errorHints: (result && result.hints) || [] };
@@ -6834,14 +6937,15 @@ $('file-import').addEventListener('change', async (e) => {
 });
 
 // 聊天输入
-$('btn-chat-send').addEventListener('click', () => submitMessage($('input-chat').value));
+$('btn-chat-send').addEventListener('click', () => { handleSendTap(); });
 $('input-chat').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
-    submitMessage($('input-chat').value);
+    handleSendTap();
   }
 });
-$('btn-batch-send').addEventListener('click', () => flushQueue());
+$('input-chat').addEventListener('input', () => { updateGenerateButton(); });
+$('btn-chat-quote-clear').addEventListener('click', () => setPendingQuote(null));
 
 // ---- 消息长按菜单 / 多选删除 ----
 $('chat-msg-menu').addEventListener('click', async (e) => {
@@ -6852,7 +6956,7 @@ $('chat-msg-menu').addEventListener('click', async (e) => {
   closeChatMsgMenu();
   if (action === 'copy') await copyChatMessageText(index);
   else if (action === 'retry') await rerollAssistantMessage(index);
-  else if (action === 'delete') enterChatSelectMode(index);
+  else if (action === 'delete') await deleteChatMessageAt(index);
   else if (action === 'multi') enterChatSelectMode();
 });
 
@@ -6876,7 +6980,7 @@ $('chat-messages').addEventListener('click', (e) => {
   updateChatSelectBar();
 });
 
-// 长按角色气泡：复制 / 删除 / 重试 / 多选
+// 长按气泡：复制 / 删除 /（角色消息）重试 / 多选；左右滑动引用
 const chatMsgBox = $('chat-messages');
 function cancelChatLongPress() {
   if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
@@ -6885,7 +6989,7 @@ function cancelChatLongPress() {
 chatMsgBox.addEventListener('pointerdown', (e) => {
   if (chatSelectMode) return;
   if (e.pointerType === 'mouse' && e.button !== 0) return;
-  const target = e.target.closest('.msg-row.assistant .msg-bubble, .msg-row.assistant .sticker-img');
+  const target = e.target.closest('.msg-row .msg-bubble, .msg-row .sticker-img');
   if (!target) return;
   const row = target.closest('.msg-row');
   const idx = Number(row && row.dataset.msgIndex);
@@ -6898,7 +7002,7 @@ chatMsgBox.addEventListener('pointerdown', (e) => {
     longPressOrigin = null;
     const selection = window.getSelection && window.getSelection();
     if (selection && selection.removeAllRanges) selection.removeAllRanges();
-    if (origin) openChatMsgMenu(idx, origin.x, origin.y);
+    if (origin) openChatMsgMenu(idx, origin.x, origin.y, !!row.classList.contains('assistant'));
   }, 450);
 });
 chatMsgBox.addEventListener('pointermove', (e) => {
@@ -6907,12 +7011,53 @@ chatMsgBox.addEventListener('pointermove', (e) => {
 });
 chatMsgBox.addEventListener('pointerup', cancelChatLongPress);
 chatMsgBox.addEventListener('pointercancel', cancelChatLongPress);
+
+// 右滑引用：横向拖动超过 56px 松手，把这条消息挂到输入框上方
+let quoteSwipe = null;
+chatMsgBox.addEventListener('pointerdown', (e) => {
+  if (chatSelectMode) return;
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  const bubble = e.target.closest('.msg-row .msg-bubble, .msg-row .sticker-img');
+  if (!bubble) return;
+  const row = bubble.closest('.msg-row');
+  const idx = Number(row && row.dataset.msgIndex);
+  if (!Number.isInteger(idx)) return;
+  quoteSwipe = { x: e.clientX, y: e.clientY, bubble, idx, moved: false };
+});
+chatMsgBox.addEventListener('pointermove', (e) => {
+  if (!quoteSwipe) return;
+  const dx = e.clientX - quoteSwipe.x;
+  const dy = e.clientY - quoteSwipe.y;
+  if (!quoteSwipe.moved) {
+    if (Math.abs(dx) < 14) return;
+    if (Math.abs(dx) < Math.abs(dy) * 1.4) { quoteSwipe = null; return; }
+    quoteSwipe.moved = true;
+    cancelChatLongPress();
+  }
+  quoteSwipe.bubble.style.transform = 'translateX(' + Math.max(0, Math.min(dx, 72)) + 'px)';
+});
+function finishQuoteSwipe(e) {
+  if (!quoteSwipe) return;
+  const swipe = quoteSwipe;
+  quoteSwipe = null;
+  swipe.bubble.style.transform = '';
+  if (!swipe.moved) return;
+  const dx = (e && typeof e.clientX === 'number') ? e.clientX - swipe.x : 0;
+  if (dx < 56) return;
+  quoteMessageAt(swipe.idx);
+}
+chatMsgBox.addEventListener('pointerup', finishQuoteSwipe);
+chatMsgBox.addEventListener('pointercancel', () => {
+  if (!quoteSwipe) return;
+  quoteSwipe.bubble.style.transform = '';
+  quoteSwipe = null;
+});
 chatMsgBox.addEventListener('scroll', () => {
   cancelChatLongPress();
   closeChatMsgMenu();
 }, true);
 chatMsgBox.addEventListener('contextmenu', (e) => {
-  if (e.target.closest('.msg-row.assistant')) e.preventDefault();
+  if (e.target.closest('.msg-row')) e.preventDefault();
 });
 document.addEventListener('pointerdown', (e) => {
   const menu = $('chat-msg-menu');

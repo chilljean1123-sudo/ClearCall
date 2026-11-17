@@ -524,7 +524,6 @@ body.statusbar-off .statusbar { visibility: hidden; }
 /* ===== 按钮 ===== */
 .fetch-btn,
 .test-btn,
-.generate-btn,
 .chat-send-btn,
 .books-import-btn,
 .reader-annotate-btn,
@@ -917,6 +916,36 @@ body.statusbar-off .statusbar { visibility: hidden; }
 }
 .typing-bubble { color: var(--color-text-secondary); }
 
+/* 引用块：气泡上方的一小段原话 */
+.msg-quote {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 4px;
+  padding: 4px var(--space-1);
+  border-left: 3px solid var(--color-accent);
+  border-radius: 4px;
+  background: rgba(120, 120, 130, 0.08);
+  font-size: var(--font-caption);
+  line-height: 1.4;
+  white-space: normal;
+}
+.msg-quote-name { font-weight: 600; color: var(--color-text-secondary); }
+.msg-quote-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+}
+/* 气泡整体随手指横移，松手回弹 */
+.msg-row .msg-bubble,
+.msg-row .sticker-img {
+  touch-action: pan-y;
+  transition: transform 0.18s ease;
+  will-change: transform;
+}
+
 .msg-bubble.location-bubble,
 .msg-bubble.image-bubble,
 .msg-bubble.transfer-bubble,
@@ -1045,18 +1074,40 @@ body.statusbar-off .statusbar { visibility: hidden; }
 }
 .directive-chip-clear svg { width: 100%; height: 100%; display: block; }
 
-/* 生成回复 */
-.generate-btn {
+/* 引用条：右滑气泡后出现在输入框上方 */
+.chat-quote-chip {
   flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
   margin: 0 var(--space-2) var(--space-1);
   padding: var(--space-1) var(--space-2);
-  border: 1px solid var(--color-accent);
+  border-left: 3px solid var(--color-accent);
   border-radius: var(--radius-sm);
-  background: var(--color-accent-light);
-  color: var(--color-text-primary);
-  font-size: var(--font-body-sm);
-  font-weight: 600;
+  background: var(--color-divider-soft);
+  font-size: var(--font-caption);
 }
+.chat-quote-label { flex: 0 0 auto; font-weight: 600; color: var(--color-text-secondary); }
+.chat-quote-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-secondary);
+}
+.chat-quote-clear {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 4px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+.chat-quote-clear svg { width: 100%; height: 100%; display: block; }
 
 /* 输入栏 */
 .chat-inputbar {
@@ -1133,8 +1184,33 @@ body.statusbar-off .statusbar { visibility: hidden; }
   color: var(--color-text-primary);
   font-size: var(--font-body-sm);
   font-weight: 600;
+  transition: width 0.16s ease, border-radius 0.16s ease, background 0.16s ease;
 }
 .chat-send-btn:disabled { opacity: 0.45; }
+/* 有待回复消息时：发送键变成「回复」 */
+.chat-send-btn.is-generate {
+  border: 1px solid var(--color-accent);
+  background: var(--color-accent-light);
+}
+/* 正在请求回复：变成正方形停止键，随时可暂停 */
+.chat-send-btn.is-stop {
+  position: relative;
+  width: 40px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  background: var(--color-text-primary);
+}
+.chat-send-btn.is-stop::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border-radius: 2px;
+  background: var(--color-surface);
+}
 
 /* 聊天功能抽屉 */
 .chat-sheet { position: absolute; inset: 0; z-index: 30; }
@@ -1898,7 +1974,12 @@ body.statusbar-off .statusbar { visibility: hidden; }
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: var(--space-1);
-  margin: auto var(--space-2) calc(var(--space-2) + var(--safe-bottom));
+  /* 和应用网格同一中线，宽屏也不拉散 */
+  width: calc(100% - var(--space-2) * 2);
+  max-width: 664px;
+  justify-items: center;
+  align-items: center;
+  margin: auto auto calc(var(--space-2) + var(--safe-bottom));
   padding: var(--space-1);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
@@ -3064,7 +3145,6 @@ body.statusbar-off .statusbar { visibility: hidden; }
 
 .chat-plus-btn:active { transform: scale(0.94); }
 .chat-plus-btn[aria-expanded="true"]:active { transform: rotate(45deg) scale(0.94); }
-.generate-btn:disabled { opacity: 0.45; cursor: default; }
 .forum-refresh-go:not(:disabled):active { background: var(--accent-strong); }
 .forum-refresh-go:disabled .forum-refresh-icon { opacity: 0.45; }
 .forum-fab-btn.compose:active { background: var(--accent-strong); }
@@ -4615,8 +4695,8 @@ body.statusbar-off .statusbar { visibility: hidden; }
 .chat-select-delete:disabled { opacity: 0.45; cursor: default; }
 
 /* 长按消息时不弹出系统选择菜单 */
-.msg-row.assistant .msg-bubble,
-.msg-row.assistant .sticker-img {
+.msg-row .msg-bubble,
+.msg-row .sticker-img {
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;

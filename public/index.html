@@ -373,7 +373,6 @@
           </div>
           <div class="moments-toolbar">
             <span class="moments-status" id="moments-status">绑定角色后，他们会按间隔发布动态。</span>
-            <button class="moments-publish-btn" id="btn-moments-publish-now" type="button">立即发布</button>
           </div>
           <div class="moments-feed" id="moments-feed"></div>
         </div>
@@ -431,6 +430,11 @@
               <input id="moments-interval-hours" type="number" min="1" max="720" step="1" value="24" />
               <span class="field-hint">二十四小时一条，刚刚好。</span>
             </label>
+            <div class="field">
+              <span class="field-label">手动发布</span>
+              <button class="moments-publish-btn" id="btn-moments-publish-now" type="button">立即发布</button>
+              <span class="field-hint">现在就叫那个人写一条。</span>
+            </div>
             <button class="test-btn" id="btn-moments-settings-save" type="button">保存动态设置</button>
             <div class="field-hint" id="moments-settings-hint"></div>
           </div>
@@ -796,7 +800,7 @@
               </label>
               <label class="check-row">
                 <input type="checkbox" id="chk-batch" />
-                <span>攒消息手动触发（消息上屏缓存，点「生成回复」一起发）</span>
+                <span>攒消息手动触发（消息先上屏，点右侧「回复」一起发）</span>
               </label>
               <label class="check-row">
                 <input type="checkbox" id="chk-countdown" />
@@ -1005,12 +1009,16 @@
 
         <div class="chat-messages" id="chat-messages"></div>
 
-        <button type="button" class="generate-btn" id="btn-batch-send" hidden>生成回复</button>
-
         <div class="directive-chip" id="directive-chip" hidden>
           <span class="directive-chip-label">系统指令</span>
           <span class="directive-chip-text" id="directive-chip-text"></span>
           <button type="button" class="directive-chip-clear" id="btn-directive-clear" aria-label="清除系统指令"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg></button>
+        </div>
+
+        <div class="chat-quote-chip" id="chat-quote-chip" hidden>
+          <span class="chat-quote-label">引用</span>
+          <span class="chat-quote-text" id="chat-quote-text"></span>
+          <button type="button" class="chat-quote-clear" id="btn-chat-quote-clear" aria-label="取消引用"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg></button>
         </div>
 
         <div class="chat-inputbar">

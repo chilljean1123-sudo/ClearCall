@@ -207,11 +207,16 @@ function directBuildMessages(persona, memory, history, message, worldBefore, wor
   return messages;
 }
 
-async function directChat(baseUrl, apiKey, model, persona, memory, history, message, worldBefore, worldAfter, worldDepth) {
+async function directChat(baseUrl, apiKey, model, persona, memory, history, message, worldBefore, worldAfter, worldDepth, signal) {
   const url = directChatUrl(baseUrl);
   if (!url) return { ok: false, reason: '接口地址不能为空', hints: ['填写服务商提供的 Base URL'] };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), DIRECT_TIMEOUT_MS);
+  // 外部（聊天页暂停键）也能中止请求
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener('abort', () => controller.abort(), { once: true });
+  }
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -228,7 +233,10 @@ async function directChat(baseUrl, apiKey, model, persona, memory, history, mess
     const errMsg = (data && (data.error && (data.error.message || data.error.code))) || (data && data.message) || text || ('HTTP ' + res.status);
     return { ok: false, status: res.status, reason: '服务商返回错误（HTTP ' + res.status + '）', message: String(errMsg).slice(0, 500), hints: ['检查接口地址、API Key、模型名是否正确'] };
   } catch (err) {
-    if (err && err.name === 'AbortError') return { ok: false, reason: '请求超时（90 秒未响应）', hints: ['服务商可能较慢，稍后重试'] };
+    if (err && err.name === 'AbortError') {
+      if (signal && signal.aborted) return { ok: false, aborted: true, reason: '已暂停' };
+      return { ok: false, reason: '请求超时（90 秒未响应）', hints: ['服务商可能较慢，稍后重试'] };
+    }
     return { ok: false, reason: '直连失败（可能是浏览器跨域 CORS 被拦截）：' + (err && err.message ? err.message : err), hints: ['纯静态托管要求服务商允许浏览器跨域 CORS', '建议改用 Vercel 部署（自带代理，无跨域问题）'] };
   } finally {
     clearTimeout(timer);
@@ -297,13 +305,27 @@ function isBackendResponse(res, text) {
 
 // 角色聊天回复（走后端 /api/chat，无后端则直连）
 // 不论走哪条通道，返回前都清洗一次思维链，旧模型/旧后端也不会把推理漏到界面
+// 用户点聊天页的正方形暂停键时，abortReplyRequest() 会中止这次请求
+let replyAbortController = null;
+
+function abortReplyRequest() {
+  const controller = replyAbortController;
+  replyAbortController = null;
+  if (controller) {
+    try { controller.abort(); } catch (_) {}
+  }
+}
+
 async function requestReply(payload) {
+  const controller = new AbortController();
+  replyAbortController = controller;
   let result = null;
   try {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+      signal: controller.signal,
     });
     const text = await res.text();
     if (isBackendResponse(res, text)) {
@@ -311,8 +333,13 @@ async function requestReply(payload) {
     }
   } catch (_) { /* 无后端 */ }
   if (!result) {
-    result = await directChat(payload.baseUrl, payload.apiKey, payload.model, payload.persona, payload.memory, payload.history, payload.message, payload.worldBefore, payload.worldAfter, payload.worldDepth);
+    if (controller.signal.aborted) {
+      if (replyAbortController === controller) replyAbortController = null;
+      return { ok: false, aborted: true, reason: '已暂停' };
+    }
+    result = await directChat(payload.baseUrl, payload.apiKey, payload.model, payload.persona, payload.memory, payload.history, payload.message, payload.worldBefore, payload.worldAfter, payload.worldDepth, controller.signal);
   }
+  if (replyAbortController === controller) replyAbortController = null;
   if (result && result.ok) {
     const cleaned = sanitizeAssistantReply(result.reply);
     result.reply = cleaned || '……';
