@@ -9141,11 +9141,18 @@ function renderUncleMessages() {
     return;
   }
   uncleMessages.forEach((m) => {
+    const isUser = m.role === 'user';
     const row = document.createElement('div');
-    row.className = 'uncle-row ' + (m.role === 'user' ? 'user' : 'assistant');
-    if (m.role !== 'user') row.appendChild(uncleAvatarEl());
-    const bubble = uiEl('div', 'uncle-bubble', String(m.content || ''));
-    row.appendChild(bubble);
+    row.className = 'uncle-row ' + (isUser ? 'user' : 'assistant');
+    if (!isUser) row.appendChild(uncleAvatarEl());
+    const stack = document.createElement('div');
+    stack.className = 'uncle-bubbles';
+    const parts = isUser
+      ? [String(m.content || '')]
+      : splitReplyIntoBubbles(m.content);
+    if (!parts.length) parts.push(String(m.content || ''));
+    parts.forEach((part) => stack.appendChild(uiEl('div', 'uncle-bubble', part)));
+    row.appendChild(stack);
     box.appendChild(row);
   });
   box.scrollTop = box.scrollHeight;
@@ -9313,9 +9320,11 @@ async function copyErrorToUncle() {
 }
 
 // ===== 更新公告 =====
-const WHATS_NEW_VERSION = '2026.11.17.1';
+const WHATS_NEW_VERSION = '2026.11.17.2';
 const WHATS_NEW_KEY = 'clearcall_whatsnew_seen';
 const WHATS_NEW_ITEMS = [
+  '余叔叔学会分条说话了：该断的地方就断，不再把 <split> 这种后台黑话念给你听。',
+  '右上角「清空」终于不是第二支返回箭头了，点它才能真清空，别点错。',
   '余叔叔换头像了，定妆照钉死在聊天室，顺便把气泡也摆正了——终于像个正经客服。',
   '常驻助手「余叔叔」上岗：手机哪里不对劲，直接找我，我沿用你填的主接口。',
   '报错不再占聊天框，改成弹窗；一键复制报错，自动打开我并填好内容。',

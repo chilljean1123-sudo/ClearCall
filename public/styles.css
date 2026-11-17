@@ -5860,8 +5860,20 @@ body.home-dragging .home-pages { scroll-snap-type: none; }
   color: var(--color-text-secondary);
 }
 
-.uncle-bubble {
+.uncle-bubbles {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
   max-width: calc(82% - 44px);
+}
+.uncle-row.user .uncle-bubbles {
+  align-items: flex-end;
+  max-width: 82%;
+}
+
+.uncle-bubble {
+  max-width: 100%;
   padding: 10px 14px;
   border-radius: var(--radius-md);
   font-size: var(--font-body-sm);
@@ -5875,7 +5887,6 @@ body.home-dragging .home-pages { scroll-snap-type: none; }
   border-top-left-radius: 6px;
 }
 .uncle-row.user .uncle-bubble {
-  max-width: 82%;
   background: var(--color-accent-light);
   border-top-right-radius: 6px;
 }
