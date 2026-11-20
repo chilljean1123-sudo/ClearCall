@@ -383,6 +383,12 @@ function notifySupported() {
 function updateNotifyHint() {
   const el = $('notify-status-hint');
   if (!el) return;
+  if (notifyMode() === 'wxpusher') {
+    el.textContent = wxPusherSpt()
+      ? '会通过 WxPusher 把消息推到你的手机。'
+      : '选了 WxPusher，但还没填 SPT，先在下面补上。';
+    return;
+  }
   if (!notifySupported()) {
     el.textContent = '这台设备还不会通知。';
     return;
@@ -403,6 +409,35 @@ function updateNotifyHint() {
   }
 }
 
+let notifyCfgCache = null;
+
+function notifyMode() {
+  return notifyCfgCache && notifyCfgCache.mode === 'wxpusher' ? 'wxpusher' : 'native';
+}
+
+function wxPusherSpt() {
+  return (notifyCfgCache && notifyCfgCache.wxpusher && notifyCfgCache.wxpusher.spt) || '';
+}
+
+function updateWxPusherUI(cfg) {
+  notifyCfgCache = cfg || null;
+  const mode = cfg && cfg.mode === 'wxpusher' ? 'wxpusher' : 'native';
+  if ($('rd-notify-native')) $('rd-notify-native').checked = mode === 'native';
+  if ($('rd-notify-wxpusher')) $('rd-notify-wxpusher').checked = mode === 'wxpusher';
+  const box = $('wxpusher-box');
+  if (box) box.hidden = mode !== 'wxpusher';
+  const input = $('input-wxpusher-spt');
+  const spt = (cfg && cfg.wxpusher && cfg.wxpusher.spt) || '';
+  if (input && document.activeElement !== input) input.value = spt;
+  const status = $('wxpusher-status');
+  if (status) {
+    status.textContent = spt
+      ? 'SPT 已保存（末尾 ' + spt.slice(-4) + '），后台会走 WxPusher。'
+      : '还没填 SPT。';
+  }
+  updateNotifyHint();
+}
+
 async function loadNotificationSettings() {
   const cfg = await getNotificationConfig();
   const enabled = $('chk-notify-enabled');
@@ -418,7 +453,52 @@ async function loadNotificationSettings() {
   const hasSound = !!cfg.soundId;
   if ($('btn-notify-sound-test')) $('btn-notify-sound-test').disabled = !hasSound;
   if ($('btn-notify-sound-clear')) $('btn-notify-sound-clear').disabled = !hasSound;
-  updateNotifyHint();
+  updateWxPusherUI(cfg);
+}
+
+async function changeNotifyMode(mode) {
+  const next = mode === 'wxpusher' ? 'wxpusher' : 'native';
+  await setNotificationConfig({ mode: next });
+  updateWxPusherUI(await getNotificationConfig());
+  toast(next === 'wxpusher' ? '已切到 WxPusher 通知' : '已切回原生通知');
+}
+
+async function saveWxPusherSpt() {
+  const input = $('input-wxpusher-spt');
+  const spt = (input && input.value.trim()) || '';
+  if (!spt) { toast('SPT 不能为空；要清空请点「删除 SPT」'); return; }
+  await setNotificationConfig({ wxpusher: { spt }, mode: 'wxpusher' });
+  updateWxPusherUI(await getNotificationConfig());
+  toast('SPT 已保存');
+}
+
+async function deleteWxPusherSpt() {
+  await setNotificationConfig({ wxpusher: { spt: '' } });
+  updateWxPusherUI(await getNotificationConfig());
+  toast('已删除 SPT');
+}
+
+async function testWxPusherPush() {
+  const spt = wxPusherSpt() || (($('input-wxpusher-spt') && $('input-wxpusher-spt').value.trim()) || '');
+  if (!spt) { toast('先填 SPT 再测试'); return; }
+  const cfg = await getNotificationConfig();
+  const played = cfg.soundId ? await playNotificationSound() : false;
+  const result = await sendWxPusherPush({
+    spt,
+    title: '虚拟手机测试通知',
+    content: '<div style="font-size:16px;font-weight:600;">虚拟手机测试通知</div><div style="margin-top:8px;color:#666;">WxPusher 已经接上了。角色回复时，会从这里提醒你。</div>',
+  });
+  if (result && result.ok) {
+    toast(played ? '测试推送已发出，提示音也响了' : '测试推送已发出');
+    return;
+  }
+  showErrorDialog({
+    title: 'WxPusher 没推出去',
+    text: (result && result.reason) || '未知错误',
+    reason: (result && result.reason) || '未知错误',
+    result: { reason: (result && result.reason) || '未知错误', hints: (result && result.hints) || [] },
+    retry: () => { closeErrorDialog(); testWxPusherPush(); },
+  });
 }
 
 // 注册 Service Worker：移动端浏览器只允许通过 Service Worker 弹通知
@@ -529,9 +609,14 @@ async function playNotificationSound() {
 }
 
 async function testBrowserNotification() {
+  const cfg = await getNotificationConfig();
+  updateWxPusherUI(cfg);
+  if (cfg.mode === 'wxpusher') {
+    await testWxPusherPush();
+    return;
+  }
   const ok = await ensureNotifyPermission();
   if (!ok) return;
-  const cfg = await getNotificationConfig();
   const played = cfg.soundId ? await playNotificationSound() : false;
   const sent = await sendBrowserNotification('虚拟手机测试通知', {
     body: '通知已开启，角色回复时会在这里提醒你。',
@@ -543,13 +628,39 @@ async function testBrowserNotification() {
 }
 
 // 角色回复通知：仅在页面处于后台、非通话中时推送
+function escapeNotifyHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
 async function notifyCharacterReply(characterId, reply) {
   if (callActive) return;
   if (typeof document !== 'undefined' && !document.hidden && !window.__shellHidden) return;
-  if (!nativePushReady() && !browserNotifyGranted()) return;
   let cfg;
   try { cfg = await getNotificationConfig(); } catch (_) { return; }
   if (!cfg.enabled) return;
+
+  // 第三方通知：WxPusher 不依赖浏览器通知权限
+  if (cfg.mode === 'wxpusher') {
+    if (!cfg.wxpusher || !cfg.wxpusher.spt) return;
+    const c = await getCharacter(characterId);
+    if (!c) return;
+    const body = String(reply || '')
+      .replace(/\[\[sticker:[^\]]*\]\]/g, '')
+      .replace(/<split>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 80) || '发来一条新消息';
+    if (cfg.soundId) await playNotificationSound();
+    await sendWxPusherPush({
+      spt: cfg.wxpusher.spt,
+      title: c.name || '角色',
+      content: '<div style="font-size:16px;font-weight:600;">' + escapeNotifyHtml(c.name || '角色') + '</div>'
+        + '<div style="margin-top:8px;color:#666;">' + escapeNotifyHtml(body) + '</div>',
+    });
+    return;
+  }
+
+  if (!nativePushReady() && !browserNotifyGranted()) return;
 
   const c = await getCharacter(characterId);
   if (!c) return;
@@ -1078,6 +1189,9 @@ function loadTriggerSettings() {
   $('chk-batch').checked = m.batch;
   $('chk-countdown').checked = m.countdown;
   $('input-countdown-sec').value = m.countdownSec;
+  const p = getChatPreferences();
+  const seq = $('chk-chat-sequential');
+  if (seq) seq.checked = p.sequential;
 }
 
 function saveTriggerSettings() {
@@ -1087,6 +1201,8 @@ function saveTriggerSettings() {
     countdown: $('chk-countdown').checked,
     countdownSec: parseInt($('input-countdown-sec').value, 10) || 3,
   });
+  const seq = $('chk-chat-sequential');
+  if (seq) setChatPreferences({ sequential: seq.checked });
 }
 
 async function openChat() {
@@ -2169,6 +2285,10 @@ async function flushQueue() {
       await refreshDirectiveChip();
       await renderChat();
       if (callActive && callCharacterId === characterId) await renderCallMessages();
+      // 模拟真实微信：多条回复按节奏一条一条出现，可到设置里关掉
+      if (!inCall && viewChat.classList.contains('active') && getChatPreferences().sequential) {
+        revealAssistantMessageSequentially(baseIndex).catch(() => {});
+      }
     }
     if (result && result.ok && callActive && callCharacterId === characterId) {
       autoPlayCallReply(result.reply, baseIndex).catch(() => {});
@@ -2239,6 +2359,9 @@ async function retryReply(index) {
     if ((await getActiveCharacterId()) === characterId) {
       await refreshDirectiveChip();
       await renderChat();
+      if (viewChat.classList.contains('active') && getChatPreferences().sequential) {
+        revealAssistantMessageSequentially(index).catch(() => {});
+      }
     }
     if (result && result.ok) {
       notifyCharacterReply(characterId, result.reply).catch(() => {});
@@ -3964,6 +4087,223 @@ async function savePinieAndImport() {
     btn.textContent = '保存并导入';
   }
 }
+
+// ===== 生成 NPC：以人设 + 记忆为底，补几个相关配角 =====
+const NPC_SYSTEM = [
+  '你是角色配角生成助手。根据主角的人设与记忆，写出和主角有真实关系的配角。',
+  '要求：',
+  '1. 只输出一个 JSON 数组，不要写解释，不要用 markdown 代码块。',
+  '2. 每项格式：{"name":"姓名","relation":"与主角的关系","persona":"完整人设"}',
+  '3. name 要是像真实姓名的中文名；不要和主角重名，配角之间也不要重名。',
+  '4. relation 写具体关系，例如「大学室友」「亲妹妹」「前同事」「暗恋主角的学长」。',
+  '5. persona 写完整人设，包含：性别、年龄、职业、与主角的关系、外貌、性格、说话风格、和主角之间的具体故事。',
+  '6. persona 里不要用「用户」「user」，需要指代时直接写主角的名字。',
+  '7. 不要空话、不要比喻；记忆里提过的人优先，但不要编造主角人设里没有的关键事实。',
+  '8. 示例：[{"name":"周迟","relation":"大学室友","persona":"周迟，男，27 岁，独立摄影师。和沈砚大学同宿舍四年，毕业后一直保持联系。外貌：略卷的黑发，戴细框眼镜，手指上常有胶卷留下的痕迹。性格：话不多，但观察力很强，喜欢在别人说完之后补一句关键的。说话风格：语速慢，句子短，偶尔用摄影术语打比方。和主角之间：当年沈砚家里出事休学，周迟帮他顶过一次小组作业，这件事两个人都没再提。"}]',
+].join('\n');
+
+let npcCount = 1;
+let npcBusy = false;
+let npcDraftOnly = false;
+
+function setNpcCount(n) {
+  npcCount = Math.min(5, Math.max(1, Number(n) || 1));
+  document.querySelectorAll('#npc-count-row .npc-count-btn').forEach((btn) => {
+    btn.classList.toggle('active', Number(btn.dataset.count) === npcCount);
+  });
+}
+
+function setNpcBusy(busy, status) {
+  npcBusy = busy;
+  const btn = $('btn-npc-generate');
+  if (btn) {
+    btn.disabled = busy;
+    btn.textContent = busy ? '正在生成…' : '生成';
+  }
+  if ($('npc-status') && status != null) $('npc-status').textContent = status;
+}
+
+async function openNpcDialog(preferDraft) {
+  const { list, activeId } = await getCharacters();
+  const sel = $('npc-character-select');
+  if (!sel) return;
+  sel.innerHTML = '';
+
+  npcDraftOnly = !!(preferDraft && pinieDraft && pinieDraft.name && !list.some((c) => c.name === pinieDraft.name));
+  if (npcDraftOnly) {
+    const opt = document.createElement('option');
+    opt.value = '__draft__';
+    opt.textContent = '当前人设：' + pinieDraft.name + '（未保存）';
+    sel.appendChild(opt);
+  }
+  list.forEach((c) => {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = c.name + (c.remark ? ' · ' + c.remark : '');
+    sel.appendChild(opt);
+  });
+  if (!sel.options.length) {
+    toast('先去通讯录捏一个角色，再生成配角');
+    return;
+  }
+  sel.value = npcDraftOnly ? '__draft__' : (activeId && list.some((c) => c.id === activeId) ? activeId : list[0].id);
+  if ($('npc-extra')) $('npc-extra').value = '';
+  setNpcCount(1);
+  setNpcBusy(false, '');
+  $('npc-modal').hidden = false;
+}
+
+function closeNpcDialog() {
+  if ($('npc-modal')) $('npc-modal').hidden = true;
+}
+
+function flattenNpcPersona(v) {
+  if (!v) return '';
+  if (typeof v === 'string') return v.trim();
+  if (typeof v === 'object') {
+    return Object.keys(v).map((k) => k + '：' + String(v[k] == null ? '' : v[k]).trim()).filter((line) => !line.endsWith('：')).join('\n');
+  }
+  return String(v).trim();
+}
+
+function parseNpcList(text) {
+  let s = String(text || '').trim();
+  s = s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  let data = null;
+  const start = s.indexOf('[');
+  const end = s.lastIndexOf(']');
+  if (start >= 0 && end > start) {
+    try { data = JSON.parse(s.slice(start, end + 1)); } catch (_) { data = null; }
+  }
+  if (!data) {
+    const os = s.indexOf('{');
+    const oe = s.lastIndexOf('}');
+    if (os >= 0 && oe > os) {
+      try { data = JSON.parse(s.slice(os, oe + 1)); } catch (_) { data = null; }
+    }
+  }
+  const raw = Array.isArray(data) ? data : (data && (data.npcs || data.items || data.list)) || [];
+  return raw.map((item) => {
+    if (!item || typeof item !== 'object') return null;
+    const name = String(item.name || item.姓名 || '').trim();
+    const persona = flattenNpcPersona(item.persona || item.profile || item.人设 || item.description);
+    if (!name || !persona) return null;
+    const relation = String(item.relation || item.关系 || item.role || '').trim();
+    return { name, relation, persona };
+  }).filter(Boolean);
+}
+
+async function generateNpcs() {
+  if (npcBusy) return;
+  const api = toolApiConfig('pinie');
+  if (!api.baseUrl || !api.apiKey || !api.model) {
+    setNpcBusy(false, '先去「设置」填好接口地址、Key 和模型');
+    return;
+  }
+  const sel = $('npc-character-select');
+  const pick = sel && sel.value;
+  if (!pick) { setNpcBusy(false, '先选一个角色'); return; }
+
+  let mainName = '';
+  let persona = '';
+  let coreText = '';
+  let longText = '';
+  if (pick === '__draft__') {
+    collectPinieDraft();
+    mainName = String(pinieDraft.name || '').trim();
+    persona = piniePersonaText();
+  } else {
+    const c = await getCharacter(pick);
+    if (!c) { setNpcBusy(false, '找不到这个角色'); return; }
+    mainName = c.name;
+    persona = c.persona || '';
+    try {
+      const mem = await getMemory(pick);
+      const pickText = (e) => String((e && (e.text || e.content)) || '').trim();
+      coreText = (mem.core || []).map(pickText).filter(Boolean).slice(0, 8).join('\n');
+      longText = (mem.longTerm || []).map(pickText).filter(Boolean).slice(0, 12).join('\n');
+    } catch (_) {}
+  }
+  if (!mainName) { setNpcBusy(false, '这个角色还没有名字'); return; }
+
+  const extra = ($('npc-extra') && $('npc-extra').value.trim()) || '';
+  const user = [
+    '主角姓名：' + mainName,
+    '主角人设：',
+    '"""',
+    persona,
+    '"""',
+    coreText ? '核心记忆：\n"""\n' + coreText + '\n"""' : '',
+    longText ? '长期记忆：\n"""\n' + longText + '\n"""' : '',
+    extra ? '补充要求：' + extra : '',
+    '请生成 ' + npcCount + ' 个和主角有关联的配角，只输出 JSON 数组。',
+  ].filter(Boolean).join('\n');
+
+  setNpcBusy(true, '正在生成，稍等…');
+  let result = null;
+  try {
+    result = await requestPinieChat({
+      baseUrl: api.baseUrl,
+      apiKey: api.apiKey,
+      model: api.model,
+      system: NPC_SYSTEM,
+      user,
+      maxTokens: 2600,
+    });
+  } catch (err) {
+    result = { ok: false, reason: '请求失败：' + (err && err.message ? err.message : err), hints: ['检查网络后重试'] };
+  }
+
+  if (!result || !result.ok) {
+    setNpcBusy(false, pinieErrorText(result));
+    return;
+  }
+  const npcs = parseNpcList(result.reply);
+  if (!npcs.length) {
+    setNpcBusy(false, '模型返回的格式不对，再点一次试试');
+    return;
+  }
+
+  const { list } = await getCharacters();
+  const names = new Set(list.map((c) => c.name));
+  let created = 0;
+  let skipped = 0;
+  try {
+    for (const npc of npcs.slice(0, npcCount)) {
+      if (names.has(npc.name)) { skipped += 1; continue; }
+      await addCharacter({
+        name: npc.name,
+        remark: npc.relation,
+        persona: npc.persona,
+      });
+      names.add(npc.name);
+      created += 1;
+    }
+  } catch (err) {
+    setNpcBusy(false, '保存失败：' + (err && err.message ? err.message : err));
+    return;
+  }
+
+  closeNpcDialog();
+  if (viewCharacters.classList.contains('active')) await renderCharactersUI();
+  if (!created) {
+    toast('这几个名字通讯录里都有了，换点要求再生成');
+    return;
+  }
+  toast('生成了 ' + created + ' 个配角' + (skipped ? '，' + skipped + ' 个重名跳过' : ''));
+}
+
+$('btn-pinie-npc').addEventListener('click', () => { openNpcDialog(true).catch(() => toast('打不开生成窗口')); });
+$('btn-wb-npc').addEventListener('click', () => { openNpcDialog(false).catch(() => toast('打不开生成窗口')); });
+$('btn-npc-cancel').addEventListener('click', closeNpcDialog);
+$('btn-npc-generate').addEventListener('click', () => { generateNpcs(); });
+$('npc-count-row').addEventListener('click', (e) => {
+  const btn = e.target.closest('.npc-count-btn');
+  if (btn) setNpcCount(btn.dataset.count);
+});
+$('npc-modal').addEventListener('click', (e) => {
+  if (e.target === $('npc-modal')) closeNpcDialog();
+});
 
 // ===== 论坛 =====
 const FORUM_NPC_NAMES = [
@@ -7109,6 +7449,7 @@ document.querySelectorAll('.app-icon, .dock-icon').forEach((btn) => {
     } else if (app === 'settings') {
       loadSaved();
       loadTriggerSettings();
+      loadGithubBackupSettings();
       refreshAppearance();
       loadNotificationSettings().catch(() => {});
       $('result').hidden = true;
@@ -8202,10 +8543,6 @@ $('file-widget-image').addEventListener('change', async (e) => {
   }
 });
 
-function homeItemSizeOf(item) {
-  return (item && item.type === 'widget' && HOME_WIDGET_META[item.widget]) ? HOME_WIDGET_META[item.widget].size : 1;
-}
-
 function setHomeDropHighlight(el) {
   if (homeDropTargetEl === el) return;
   if (homeDropTargetEl) homeDropTargetEl.classList.remove('home-drop-target');
@@ -8310,15 +8647,7 @@ async function finishHomeDrag(e) {
     if (idx >= 0) insertIndex = idx;
   } else if (targetPage) {
     const pageIndex = Number(targetPage.dataset.page) || 0;
-    const pages = [];
-    let used = 0;
-    items.forEach((item) => {
-      const size = homeItemSizeOf(item);
-      if (used + size > HOME_PAGE_CAPACITY && pages.length) { pages.push([]); used = 0; }
-      if (!pages.length) pages.push([]);
-      pages[pages.length - 1].push(item);
-      used += size;
-    });
+    const pages = paginateHomeItems(items);
     const targetItems = pages[Math.min(pageIndex, pages.length - 1)] || [];
     if (targetItems.length) {
       const lastKey = homeItemKey(targetItems[targetItems.length - 1]);
@@ -8447,6 +8776,21 @@ $('btn-font-import-clear').addEventListener('click', async () => {
 });
 
 // 备份：导出 / 导入
+async function afterBackupRestored() {
+  loadSaved();
+  loadTriggerSettings();
+  loadGithubBackupSettings();
+  await refreshAppearance();
+  await loadNotificationSettings().catch(() => {});
+  try {
+    const ncfg = await getNotificationConfig();
+    if (ncfg.keepAlive) startKeepAlive().catch(() => {});
+    else stopKeepAlive();
+  } catch (_) {}
+  wbScope = 'global';
+  await updateChatTitle();
+}
+
 $('btn-export').addEventListener('click', async () => {
   try {
     const backup = await buildBackup();
@@ -8480,22 +8824,203 @@ $('file-import').addEventListener('change', async (e) => {
     const text = await f.text();
     const data = JSON.parse(text);
     await applyBackup(data);
-    loadSaved();
-    loadTriggerSettings();
-    await refreshAppearance();
-    await loadNotificationSettings().catch(() => {});
-    try {
-      const ncfg = await getNotificationConfig();
-      if (ncfg.keepAlive) startKeepAlive().catch(() => {});
-      else stopKeepAlive();
-    } catch (_) {}
-    wbScope = 'global';
-    await updateChatTitle();
+    await afterBackupRestored();
     toast('备份已导入');
   } catch (err) {
     toast('导入失败：' + (err && err.message ? err.message : err));
   }
 });
+
+// ---- 云端备份（GitHub Contents API） ----
+function loadGithubBackupSettings() {
+  const s = getGithubBackupSettings();
+  if ($('input-github-token') && document.activeElement !== $('input-github-token')) $('input-github-token').value = s.token;
+  if ($('input-github-repo')) $('input-github-repo').value = s.repo;
+  if ($('input-github-branch')) $('input-github-branch').value = s.branch || 'main';
+  if ($('input-github-path')) $('input-github-path').value = s.path || 'clearcall-backup.json';
+  updateGithubBackupStatus(s);
+}
+
+function readGithubBackupForm() {
+  return {
+    token: ($('input-github-token') && $('input-github-token').value.trim()) || '',
+    repo: ($('input-github-repo') && $('input-github-repo').value.trim().replace(/^\/+|\/+$/g, '')) || '',
+    branch: ($('input-github-branch') && $('input-github-branch').value.trim()) || 'main',
+    path: (($('input-github-path') && $('input-github-path').value.trim()) || 'clearcall-backup.json').replace(/^\/+/, ''),
+  };
+}
+
+function updateGithubBackupStatus(s) {
+  const el = $('github-backup-status');
+  if (!el) return;
+  if (s && s.token && s.repo) {
+    el.textContent = '已存密钥：' + s.repo + ' · ' + (s.branch || 'main') + ' · ' + (s.path || 'clearcall-backup.json');
+  } else if (s && s.repo) {
+    el.textContent = '填了仓库，但还缺 GitHub 密钥。';
+  } else {
+    el.textContent = '还没配置云端备份。';
+  }
+}
+
+function saveGithubBackupSettings() {
+  const s = readGithubBackupForm();
+  if (!s.token) { toast('先填 GitHub 密钥'); return; }
+  if (!/^[^/\s]+\/[^/\s]+$/.test(s.repo)) { toast('仓库要写成 owner/repo'); return; }
+  setGithubBackupSettings(s);
+  updateGithubBackupStatus(s);
+  toast('云端备份配置已保存');
+}
+
+function deleteGithubBackupToken() {
+  const s = readGithubBackupForm();
+  s.token = '';
+  setGithubBackupSettings(s);
+  if ($('input-github-token')) $('input-github-token').value = '';
+  updateGithubBackupStatus(s);
+  toast('GitHub 密钥已删除');
+}
+
+function githubBase64Utf8(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(bin);
+}
+
+function githubContentsUrl(s) {
+  const [owner, repo] = s.repo.split('/');
+  return 'https://api.github.com/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo)
+    + '/contents/' + s.path.split('/').map(encodeURIComponent).join('/');
+}
+
+function githubHeaders(token) {
+  return {
+    Authorization: 'Bearer ' + token,
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+  };
+}
+
+function githubErrorText(status, data) {
+  const msg = (data && (data.message || data.error)) || '';
+  if (status === 401) return 'GitHub 密钥无效或已过期。';
+  if (status === 403) return '密钥权限不够，或触发了频率限制。' + (msg ? '（' + msg + '）' : '');
+  if (status === 404) return '找不到仓库或分支，检查 owner/repo、分支名，以及 token 是否有该仓库权限。';
+  if (status === 409 || status === 422) return '仓库内容冲突或分支不存在。' + (msg ? '（' + msg + '）' : '');
+  return 'GitHub 返回 HTTP ' + status + (msg ? '：' + msg : '');
+}
+
+async function githubUploadBackup() {
+  const s = readGithubBackupForm();
+  if (!s.token || !/^[^/\s]+\/[^/\s]+$/.test(s.repo)) {
+    toast('先保存 GitHub 密钥和仓库');
+    return;
+  }
+  setGithubBackupSettings(s);
+  const statusEl = $('github-backup-status');
+  if (statusEl) statusEl.textContent = '正在打包上传…';
+  try {
+    const backup = await buildBackup();
+    const content = githubBase64Utf8(JSON.stringify(backup));
+    if (content.length > 45 * 1024 * 1024) {
+      throw new Error('备份太大（超过 45MB），先把大图片清理一下，或改用本地导出');
+    }
+    const url = githubContentsUrl(s);
+    let sha = null;
+    const head = await fetch(url + '?ref=' + encodeURIComponent(s.branch), {
+      headers: githubHeaders(s.token),
+      cache: 'no-store',
+    });
+    if (head.ok) {
+      const info = await head.json();
+      sha = info && info.sha;
+    } else if (head.status !== 404) {
+      let data = null;
+      try { data = await head.json(); } catch (_) {}
+      throw new Error(githubErrorText(head.status, data));
+    }
+    const body = {
+      message: 'chore: 更新虚拟手机云备份 ' + new Date().toISOString().slice(0, 10),
+      content,
+      branch: s.branch,
+    };
+    if (sha) body.sha = sha;
+    const res = await fetch(url, {
+      method: 'PUT',
+      headers: Object.assign({ 'Content-Type': 'application/json' }, githubHeaders(s.token)),
+      body: JSON.stringify(body),
+    });
+    let data = null;
+    try { data = await res.json(); } catch (_) {}
+    if (!res.ok) throw new Error(githubErrorText(res.status, data));
+    updateGithubBackupStatus(s);
+    if (statusEl) statusEl.textContent = '已上传：' + s.repo + ' · ' + s.path;
+    toast('云端备份已上传');
+  } catch (err) {
+    updateGithubBackupStatus(s);
+    if (statusEl) statusEl.textContent = '上传失败：' + (err && err.message ? err.message : err);
+    showErrorDialog({
+      title: '云端备份没传上去',
+      text: (err && err.message) || '未知错误',
+      reason: (err && err.message) || '未知错误',
+      result: { reason: (err && err.message) || '未知错误', hints: ['确认仓库存在、分支正确', '确认 token 勾选了该仓库的 Contents 读写权限', '大文件备份建议改成本地导出'] },
+      retry: () => { closeErrorDialog(); githubUploadBackup(); },
+    });
+  }
+}
+
+async function githubDownloadBackup() {
+  const s = readGithubBackupForm();
+  if (!s.token || !/^[^/\s]+\/[^/\s]+$/.test(s.repo)) {
+    toast('先保存 GitHub 密钥和仓库');
+    return;
+  }
+  setGithubBackupSettings(s);
+  const statusEl = $('github-backup-status');
+  if (statusEl) statusEl.textContent = '正在从云端读取…';
+  try {
+    const url = githubContentsUrl(s);
+    const res = await fetch(url + '?ref=' + encodeURIComponent(s.branch), {
+      headers: Object.assign({ Accept: 'application/vnd.github.raw' }, githubHeaders(s.token)),
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      let data = null;
+      try { data = await res.json(); } catch (_) {}
+      throw new Error(githubErrorText(res.status, data));
+    }
+    const text = await res.text();
+    const data = JSON.parse(text);
+    await applyBackup(data);
+    await afterBackupRestored();
+    if (statusEl) statusEl.textContent = '已从云端恢复：' + s.repo + ' · ' + s.path;
+    toast('已从云端恢复备份');
+  } catch (err) {
+    updateGithubBackupStatus(s);
+    if (statusEl) statusEl.textContent = '恢复失败：' + (err && err.message ? err.message : err);
+    showErrorDialog({
+      title: '云端备份没读回来',
+      text: (err && err.message) || '未知错误',
+      reason: (err && err.message) || '未知错误',
+      result: { reason: (err && err.message) || '未知错误', hints: ['确认云端文件路径和分支正确', '确认 token 有仓库 Contents 读取权限', '文件不是有效的虚拟手机备份'] },
+      retry: () => { closeErrorDialog(); githubDownloadBackup(); },
+    });
+  }
+}
+
+$('btn-toggle-github-token').addEventListener('click', () => {
+  const input = $('input-github-token');
+  const show = input.type === 'password';
+  input.type = show ? 'text' : 'password';
+  $('btn-toggle-github-token').textContent = show ? '隐藏' : '显示';
+});
+$('btn-github-save').addEventListener('click', saveGithubBackupSettings);
+$('btn-github-delete').addEventListener('click', deleteGithubBackupToken);
+$('btn-github-upload').addEventListener('click', () => { githubUploadBackup(); });
+$('btn-github-download').addEventListener('click', () => { githubDownloadBackup(); });
 
 // ---- 版本更新检查 ----
 const WEB_VERSION_KEY = 'clearcall_web_version';
@@ -9507,17 +10032,21 @@ $('chk-instant').addEventListener('change', saveTriggerSettings);
 $('chk-batch').addEventListener('change', saveTriggerSettings);
 $('chk-countdown').addEventListener('change', saveTriggerSettings);
 $('input-countdown-sec').addEventListener('input', saveTriggerSettings);
+$('chk-chat-sequential').addEventListener('change', saveTriggerSettings);
 
 // 通知：开关 / 测试 / 提示音 / 后台保活
 $('chk-notify-enabled').addEventListener('change', async () => {
   const on = $('chk-notify-enabled').checked;
   if (on) {
-    const ok = await ensureNotifyPermission();
-    if (!ok) {
-      $('chk-notify-enabled').checked = false;
-      await setNotificationConfig({ enabled: false });
-      updateNotifyHint();
-      return;
+    const cfg = await getNotificationConfig();
+    if (cfg.mode !== 'wxpusher') {
+      const ok = await ensureNotifyPermission();
+      if (!ok) {
+        $('chk-notify-enabled').checked = false;
+        await setNotificationConfig({ enabled: false });
+        updateNotifyHint();
+        return;
+      }
     }
   }
   await setNotificationConfig({ enabled: on });
@@ -9527,6 +10056,29 @@ $('chk-notify-enabled').addEventListener('change', async () => {
 
 $('btn-notify-test').addEventListener('click', () => {
   testBrowserNotification().catch(() => toast('测试通知发送失败'));
+});
+
+// 通知方式：原生 / WxPusher
+$('rd-notify-native').addEventListener('change', () => {
+  if ($('rd-notify-native').checked) changeNotifyMode('native').catch(() => toast('切换失败，稍后再试'));
+});
+$('rd-notify-wxpusher').addEventListener('change', () => {
+  if ($('rd-notify-wxpusher').checked) changeNotifyMode('wxpusher').catch(() => toast('切换失败，稍后再试'));
+});
+$('btn-toggle-wxpusher-spt').addEventListener('click', () => {
+  const input = $('input-wxpusher-spt');
+  const show = input.type === 'password';
+  input.type = show ? 'text' : 'password';
+  $('btn-toggle-wxpusher-spt').textContent = show ? '隐藏' : '显示';
+});
+$('btn-wxpusher-save').addEventListener('click', () => {
+  saveWxPusherSpt().catch((err) => toast('保存失败：' + (err && err.message ? err.message : err)));
+});
+$('btn-wxpusher-test').addEventListener('click', () => {
+  testWxPusherPush().catch(() => toast('测试推送失败'));
+});
+$('btn-wxpusher-delete').addEventListener('click', () => {
+  deleteWxPusherSpt().catch((err) => toast('删除失败：' + (err && err.message ? err.message : err)));
 });
 
 $('btn-notify-sound-pick').addEventListener('click', () => $('file-notify-sound').click());
@@ -9941,14 +10493,14 @@ async function copyErrorToUncle() {
 }
 
 // ===== 更新公告 =====
-const WHATS_NEW_VERSION = '2026.11.17.4';
+const WHATS_NEW_VERSION = '2026.11.21.1';
 const WHATS_NEW_KEY = 'clearcall_whatsnew_seen';
 const WHATS_NEW_ITEMS = [
-  '生图设置也能「拉取模型」了，拉到就选，拉不到还能手填，不耽误画图。',
-  '日程那边我认了错：模型回数组、回纯文本、字段名乱起，现在都能收拾成正经日程。',
-  '新开「群聊」：把几个角色拉进一个群，聊天室那套功能键一个不少，照片、表情、转账照样能用。',
-  '群聊活跃度上线：设定多少分钟后，群里随机一位成员会自己找话说，不一定接上文，可以自己开新话题。',
-  '提醒一句：群聊自主发消息要页面开着才会跑，网页关了它就老实待着。',
+  '角色回复会一条一条往外冒了，中间还带「正在输入」的停顿，像真在微信那头打字；嫌慢去设置里关掉。',
+  '首页小组件不再把应用图标挤到屏幕外：一屏固定 4×4，摆不下就翻页，横滑也顺手了。',
+  '通知可以选「原生通知」或「WxPusher」了，SPT 能保存、删除、测试；选了 WxPusher 就不用再跟浏览器权限较劲。',
+  '备份多了「云端备份（GitHub）」：填 token 和仓库，就能上传或从云端恢复。token 只留在本机。',
+  '捏捏能生配角了：人设卡写好后点「生成 NPC」，选角色、1 到 5 个、补点要求，带着记忆写出来的 NPC 直接进通讯录。',
 ];
 
 function maybeShowWhatsNew() {

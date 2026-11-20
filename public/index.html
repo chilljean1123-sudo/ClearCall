@@ -890,6 +890,11 @@
                 <input type="number" id="input-countdown-sec" min="1" max="60" value="3" />
               </div>
               <span class="field-hint">可多选；全关，就是即时。</span>
+              <label class="check-row">
+                <input type="checkbox" id="chk-chat-sequential" />
+                <span>角色消息逐条发送（多条回复按微信节奏一条一条出现）</span>
+              </label>
+              <span class="field-hint">关掉就一次性全部显示；历史消息不受影响。</span>
             </div>
           </details>
 
@@ -907,6 +912,35 @@
 
               <div class="notify-actions">
                 <button type="button" class="fetch-btn" id="btn-notify-test">发送测试通知</button>
+              </div>
+
+              <div class="field">
+                <span class="field-label">通知方式</span>
+                <div class="radio-group">
+                  <label class="radio-row">
+                    <input type="radio" name="notify-mode" id="rd-notify-native" value="native" />
+                    <span>原生通知（系统 / 浏览器）</span>
+                  </label>
+                  <label class="radio-row">
+                    <input type="radio" name="notify-mode" id="rd-notify-wxpusher" value="wxpusher" />
+                    <span>第三方通知（WxPusher）</span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="field wxpusher-box" id="wxpusher-box" hidden>
+                <span class="field-label">WxPusher SPT</span>
+                <div class="key-wrap">
+                  <input type="password" id="input-wxpusher-spt" placeholder="SPT_xxxxxxxx" autocomplete="off" />
+                  <button type="button" class="toggle-key" id="btn-toggle-wxpusher-spt">显示</button>
+                </div>
+                <span class="field-hint">在 WxPusher 后台拿到 SPT 填进来。它是推送钥匙，别转给别人。</span>
+                <div class="notify-actions notify-actions-wrap">
+                  <button type="button" class="fetch-btn" id="btn-wxpusher-save">保存 SPT</button>
+                  <button type="button" class="fetch-btn" id="btn-wxpusher-test">测试推送</button>
+                  <button type="button" class="fetch-btn" id="btn-wxpusher-delete">删除 SPT</button>
+                </div>
+                <span class="field-hint" id="wxpusher-status">还没填 SPT。</span>
               </div>
 
               <div class="field">
@@ -977,6 +1011,43 @@
                 <input type="file" id="file-import" accept="application/json,.json" hidden />
               </div>
               <span class="field-hint">备份藏着所有设定与回忆；内含 API Key，请妥帖收好。</span>
+
+              <div class="cloud-backup">
+                <div class="cloud-backup-head">
+                  <span class="cloud-backup-title">云端备份（GitHub）</span>
+                  <span class="cloud-backup-badge">可选</span>
+                </div>
+                <div class="field">
+                  <span class="field-label">GitHub 密钥</span>
+                  <div class="key-wrap">
+                    <input type="password" id="input-github-token" placeholder="ghp_... / github_pat_..." autocomplete="off" />
+                    <button type="button" class="toggle-key" id="btn-toggle-github-token">显示</button>
+                  </div>
+                  <span class="field-hint">只存在本机，不会写进备份文件。建议用只勾选单个仓库 Contents 权限的 fine-grained token。</span>
+                </div>
+                <div class="field">
+                  <span class="field-label">仓库</span>
+                  <input type="text" id="input-github-repo" placeholder="owner/repo" autocomplete="off" />
+                </div>
+                <div class="cloud-backup-grid">
+                  <div class="field">
+                    <span class="field-label">分支</span>
+                    <input type="text" id="input-github-branch" placeholder="main" autocomplete="off" />
+                  </div>
+                  <div class="field">
+                    <span class="field-label">文件路径</span>
+                    <input type="text" id="input-github-path" placeholder="clearcall-backup.json" autocomplete="off" />
+                  </div>
+                </div>
+                <div class="backup-row">
+                  <button type="button" class="fetch-btn" id="btn-github-save">保存密钥</button>
+                  <button type="button" class="fetch-btn" id="btn-github-upload">上传到云端</button>
+                  <button type="button" class="fetch-btn" id="btn-github-download">从云端恢复</button>
+                  <button type="button" class="fetch-btn" id="btn-github-delete">删除密钥</button>
+                </div>
+                <span class="field-hint" id="github-backup-status">还没配置云端备份。</span>
+                <span class="field-hint">注意：备份文件里有 API Key 和 SPT，仓库一定要设成私有。</span>
+              </div>
             </div>
           </details>
 
@@ -1597,6 +1668,7 @@
             <div class="pinie-table-wrap" id="pinie-table"></div>
             <div class="pinie-toolbar">
               <button class="fetch-btn" id="btn-pinie-worldbook" type="button">写世界书</button>
+              <button class="fetch-btn" id="btn-pinie-npc" type="button">生成 NPC</button>
             </div>
           </div>
         </div>
@@ -1641,6 +1713,7 @@
             <button type="button" class="fetch-btn" id="btn-wb-add">添加条目</button>
             <button type="button" class="fetch-btn" id="btn-wb-export">导出</button>
             <button type="button" class="fetch-btn" id="btn-wb-import">导入</button>
+            <button type="button" class="fetch-btn" id="btn-wb-npc">+ NPC</button>
             <input type="file" id="file-wb-import" accept="application/json,.json" hidden />
           </div>
           <p class="wb-hint">关键词命中才注入；关键词留空表示无条件触发。概率开关打开后，命中还要通过随机判定才注入。添加条目时可在表单里选择绑定「全局」或某个角色；导出 / 导入作用于当前选中的列表。</p>
@@ -1742,6 +1815,37 @@
         <button class="cc-modal-btn ghost" id="btn-error-close" type="button">关闭</button>
         <button class="cc-modal-btn primary" id="btn-error-copy" type="button">复制给余叔叔</button>
       </div>
+    </div>
+  </div>
+
+  <!-- 生成 NPC：以某个角色的人设和记忆为底，补几个配角 -->
+  <div class="cc-modal npc-modal" id="npc-modal" hidden>
+    <div class="cc-modal-card npc-card">
+      <div class="npc-title">GENERATE NPC</div>
+      <div class="field">
+        <span class="field-label">为哪位角色生成配角</span>
+        <select class="wb-select" id="npc-character-select"></select>
+      </div>
+      <div class="field">
+        <span class="field-label">生成数量</span>
+        <div class="npc-count-row" id="npc-count-row">
+          <button type="button" class="npc-count-btn active" data-count="1">1</button>
+          <button type="button" class="npc-count-btn" data-count="2">2</button>
+          <button type="button" class="npc-count-btn" data-count="3">3</button>
+          <button type="button" class="npc-count-btn" data-count="4">4</button>
+          <button type="button" class="npc-count-btn" data-count="5">5</button>
+        </div>
+      </div>
+      <div class="field">
+        <span class="field-label">补充要求（可选）</span>
+        <textarea id="npc-extra" rows="3" placeholder="例如：生成一个损友 / 她的亲妹妹 / 暗恋她的学长…"></textarea>
+      </div>
+      <p class="npc-hint">会带上 TA 的核心记忆与相关长期记忆——记忆里提过的人是最好的配角素材。</p>
+      <div class="cc-modal-actions">
+        <button class="cc-modal-btn ghost" id="btn-npc-cancel" type="button">取消</button>
+        <button class="cc-modal-btn primary" id="btn-npc-generate" type="button">生成</button>
+      </div>
+      <span class="npc-status" id="npc-status"></span>
     </div>
   </div>
 

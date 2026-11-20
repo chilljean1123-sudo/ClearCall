@@ -186,6 +186,19 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // WxPusher 消息推送（第三方通知）
+  if (req.method === 'POST' && url.pathname === '/api/wxpusher') {
+    const payload = await ai.readJsonBody(req, 1e5);
+    const result = await ai.wxPusherPush({
+      spt: payload.spt,
+      summary: payload.summary,
+      content: payload.content,
+    });
+    console.log('[api/wxpusher]', result.ok ? 'success' : 'failed', result.reason || '');
+    ai.sendJson(res, result);
+    return;
+  }
+
   // 记忆整理接口
   if (req.method === 'POST' && url.pathname === '/api/memory') {
     const payload = await ai.readJsonBody(req, 5e6);

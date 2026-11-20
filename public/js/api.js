@@ -1102,3 +1102,46 @@ async function requestEmbedding(payload) {
   } catch (_) { /* 无后端 */ }
   return directEmbedding(payload);
 }
+
+// WxPusher 简单推送（SPT）：优先走自家后端代理，纯静态托管时再试一次直连
+function wxPusherBody(payload) {
+  return {
+    spt: String((payload && payload.spt) || ''),
+    summary: String((payload && payload.title) || '虚拟手机').slice(0, 100),
+    content: String((payload && payload.content) || ''),
+    contentType: 2,
+  };
+}
+
+async function sendWxPusherPush(payload) {
+  const body = wxPusherBody(payload);
+  if (!body.spt) return { ok: false, reason: '还没填 WxPusher SPT' };
+  if (!body.content) return { ok: false, reason: '通知内容为空' };
+  try {
+    const res = await fetch('/api/wxpusher', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const text = await res.text();
+    if (isBackendResponse(res, text)) {
+      try { return JSON.parse(text); } catch (_) {}
+    }
+  } catch (_) { /* 无后端 */ }
+
+  try {
+    const res = await fetch('https://wxpusher.zjiecode.com/api/send/message/simple-push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ spt: body.spt, summary: body.summary, content: body.content, contentType: body.contentType }),
+    });
+    const text = await res.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch (_) { data = null; }
+    if (data && (data.code === 1000 || data.success)) return { ok: true };
+    const reason = (data && (data.msg || data.message)) || ('HTTP ' + res.status);
+    return { ok: false, reason: 'WxPusher 返回：' + reason, hints: ['检查 SPT 是否有效', '换用 Vercel / 本地服务部署可避开浏览器跨域'] };
+  } catch (err) {
+    return { ok: false, reason: '连不上 WxPusher：' + (err && err.message ? err.message : err), hints: ['纯静态托管可能被跨域拦截，建议用 Vercel 或本地 Node 服务'] };
+  }
+}

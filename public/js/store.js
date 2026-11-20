@@ -19,6 +19,21 @@ const TRIGGER_KEYS = {
   countdownSec: 'clearcall.trigger.countdownSec',
 };
 
+// 聊天显示偏好：角色多条回复是否一条一条上屏
+const CHAT_PREF_KEYS = {
+  sequential: 'clearcall.chat.sequential',
+};
+
+function getChatPreferences() {
+  return {
+    sequential: localStorage.getItem(CHAT_PREF_KEYS.sequential) !== '0',
+  };
+}
+
+function setChatPreferences(p) {
+  localStorage.setItem(CHAT_PREF_KEYS.sequential, (p && p.sequential) ? '1' : '0');
+}
+
 // 旧版（纯 localStorage）数据键，用于一次性迁移
 const OLD_KEYS = {
   name: 'clearcall.charName',
@@ -72,6 +87,30 @@ const CF_KEYS = {
   clientId: 'clearcall.autopushClientId',
   lastAt: 'clearcall.autopushLastAt',
 };
+
+// 云端备份（GitHub 仓库）配置，只存轻量字段，token 不写进备份文件
+const GITHUB_BACKUP_KEYS = {
+  token: 'clearcall.githubBackupToken',
+  repo: 'clearcall.githubBackupRepo',
+  branch: 'clearcall.githubBackupBranch',
+  path: 'clearcall.githubBackupPath',
+};
+
+function getGithubBackupSettings() {
+  return {
+    token: localStorage.getItem(GITHUB_BACKUP_KEYS.token) || '',
+    repo: localStorage.getItem(GITHUB_BACKUP_KEYS.repo) || '',
+    branch: localStorage.getItem(GITHUB_BACKUP_KEYS.branch) || 'main',
+    path: localStorage.getItem(GITHUB_BACKUP_KEYS.path) || 'clearcall-backup.json',
+  };
+}
+
+function setGithubBackupSettings(s) {
+  localStorage.setItem(GITHUB_BACKUP_KEYS.token, (s && s.token) || '');
+  localStorage.setItem(GITHUB_BACKUP_KEYS.repo, (s && s.repo) || '');
+  localStorage.setItem(GITHUB_BACKUP_KEYS.branch, (s && s.branch) || 'main');
+  localStorage.setItem(GITHUB_BACKUP_KEYS.path, (s && s.path) || 'clearcall-backup.json');
+}
 
 // 工具 API：翻译 / 论坛 / 购物 / 外卖 / 捏捏可各用一套接口，留空即借用聊天接口
 const TOOL_API_OPTIONS = [
@@ -828,12 +867,17 @@ async function getAppearanceIconUrl(app) {
 // 通知开关与保活开关是轻量设置；提示音 Blob 存 files，文档只存引用。
 function normalizeNotification(doc) {
   const d = doc || {};
+  const wx = d.wxpusher || {};
   return {
     enabled: !!d.enabled,
     keepAlive: !!d.keepAlive,
     soundId: d.soundId || null,
     soundName: d.soundName || '',
     soundType: d.soundType || '',
+    mode: d.mode === 'wxpusher' ? 'wxpusher' : 'native',
+    wxpusher: {
+      spt: typeof wx.spt === 'string' ? wx.spt : '',
+    },
   };
 }
 
@@ -844,11 +888,16 @@ async function getNotificationConfig() {
 function setNotificationConfig(patch) {
   return mutateDoc(DOC_NOTIFICATION, (doc) => {
     const next = Object.assign(normalizeNotification(doc), patch || {});
+    if (patch && patch.wxpusher) {
+      next.wxpusher = Object.assign({}, normalizeNotification(doc).wxpusher, patch.wxpusher);
+    }
     doc.enabled = !!next.enabled;
     doc.keepAlive = !!next.keepAlive;
     doc.soundId = next.soundId || null;
     doc.soundName = next.soundName || '';
     doc.soundType = next.soundType || '';
+    doc.mode = next.mode === 'wxpusher' ? 'wxpusher' : 'native';
+    doc.wxpusher = { spt: next.wxpusher && next.wxpusher.spt ? String(next.wxpusher.spt) : '' };
   });
 }
 
@@ -3586,6 +3635,8 @@ async function applyBackup(data) {
     soundId: notification.soundId,
     soundName: notification.soundName,
     soundType: notification.soundType,
+    mode: notification.mode,
+    wxpusher: notification.wxpusher,
   });
   const forum = normalizeForum(data.forum);
   await putDoc({

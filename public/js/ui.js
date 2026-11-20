@@ -1056,6 +1056,44 @@ async function renderChat() {
   await renderMessagesInto('chat-messages', {});
 }
 
+// 逐条上屏：只给刚收到的回复用，历史消息仍旧一次性显示
+// 返回 true 表示做了分段播放（调用方可据此安排后续动作）
+async function revealAssistantMessageSequentially(index) {
+  const row = document.querySelector('#chat-messages .msg-row.assistant[data-msg-index="' + index + '"]');
+  if (!row) return false;
+  const stack = row.querySelector('.msg-stack');
+  if (!stack) return false;
+  const bubbles = Array.from(stack.children).filter((el) => (
+    el.classList && (
+      el.classList.contains('msg-bubble')
+      || el.classList.contains('sticker-img')
+      || el.classList.contains('chat-voice-note')
+    )
+  ));
+  if (bubbles.length <= 1) return false;
+
+  bubbles.slice(1).forEach((b) => { b.style.display = 'none'; });
+  scrollChatToBottom();
+
+  for (let i = 1; i < bubbles.length; i += 1) {
+    if (!row.isConnected) return true;
+    const typing = document.createElement('div');
+    typing.className = 'msg-bubble assistant-bubble typing-bubble seq-typing';
+    const dots = document.createElement('span');
+    dots.className = 'typing-dots';
+    dots.innerHTML = '<i></i><i></i><i></i>';
+    typing.appendChild(dots);
+    stack.insertBefore(typing, bubbles[i]);
+    scrollChatToBottom();
+    await new Promise((resolve) => setTimeout(resolve, 650 + Math.random() * 550));
+    if (!row.isConnected) return true;
+    typing.remove();
+    bubbles[i].style.display = '';
+    scrollChatToBottom();
+  }
+  return true;
+}
+
 async function renderCallMessages() {
   await renderMessagesInto('call-messages', { limit: 30, call: true });
 }
@@ -2970,7 +3008,10 @@ function renderWallpaperDevice() {
 }
 
 // ===== 主屏分页 / 小组件 / 图标整理 =====
-const HOME_PAGE_CAPACITY = 20;
+// 一屏固定 4 列 × 4 行，小组件按占格摆放，放不下就翻页，不再把图标挤到屏幕外
+const HOME_COLUMNS = 4;
+const HOME_PAGE_ROWS = 4;
+const HOME_PAGE_CAPACITY = HOME_COLUMNS * HOME_PAGE_ROWS;
 const HOME_WIDGET_META = {
   small1: { size: 4, title: '小号 · 一', sub: '2×2' },
   small2: { size: 4, title: '小号 · 二', sub: '2×2' },
@@ -3003,9 +3044,12 @@ function homeLayoutItems(cfg) {
   return items.concat(missing);
 }
 
-function homeItemSize(item) {
-  if (item && item.type === 'widget' && HOME_WIDGET_META[item.widget]) return HOME_WIDGET_META[item.widget].size;
-  return 1;
+// 小组件占几列几行（和 styles.css 里的 grid-column / grid-row span 对齐）
+function homeItemSpan(item) {
+  if (item && item.type === 'widget' && HOME_WIDGET_META[item.widget]) {
+    return item.widget === 'large' ? { w: 4, h: 2 } : { w: 2, h: 2 };
+  }
+  return { w: 1, h: 1 };
 }
 
 function homeItemKey(item) {
@@ -3013,34 +3057,74 @@ function homeItemKey(item) {
   return item.type === 'widget' ? 'widget:' + item.widget : 'app:' + item.app;
 }
 
-function homePageCount(items) {
-  const list = Array.isArray(items) ? items : [];
-  let pages = 1;
-  let used = 0;
-  list.forEach((item) => {
-    const size = homeItemSize(item);
-    if (used + size > HOME_PAGE_CAPACITY && used > 0) {
-      pages += 1;
-      used = 0;
+function newHomePageState() {
+  return {
+    cells: new Array(HOME_PAGE_CAPACITY).fill(false),
+    cursorRow: 0,
+    cursorCol: 0,
+    items: [],
+  };
+}
+
+function homeCellFree(page, row, col, w, h) {
+  for (let r = row; r < row + h; r += 1) {
+    for (let c = col; c < col + w; c += 1) {
+      if (page.cells[r * HOME_COLUMNS + c]) return false;
     }
-    used += size;
-  });
-  return pages;
+  }
+  return true;
+}
+
+function occupyHomeCells(page, row, col, w, h) {
+  for (let r = row; r < row + h; r += 1) {
+    for (let c = col; c < col + w; c += 1) {
+      page.cells[r * HOME_COLUMNS + c] = true;
+    }
+  }
+}
+
+// 按 CSS grid 的 sparse 自动排布模拟：从光标往后找第一块空地
+function placeHomeItem(page, item) {
+  const span = homeItemSpan(item);
+  let row = page.cursorRow;
+  let col = page.cursorCol;
+  while (row + span.h <= HOME_PAGE_ROWS) {
+    if (col + span.w > HOME_COLUMNS) {
+      row += 1;
+      col = 0;
+      continue;
+    }
+    if (homeCellFree(page, row, col, span.w, span.h)) {
+      occupyHomeCells(page, row, col, span.w, span.h);
+      page.items.push(item);
+      page.cursorRow = row;
+      page.cursorCol = col + span.w;
+      return true;
+    }
+    col += 1;
+  }
+  return false;
+}
+
+function homePageCount(items) {
+  return paginateHomeItems(items).length;
 }
 
 function paginateHomeItems(items) {
-  const pages = [[]];
-  let used = 0;
+  const pages = [];
+  let page = newHomePageState();
   (items || []).forEach((item) => {
-    const size = homeItemSize(item);
-    if (used + size > HOME_PAGE_CAPACITY && pages[pages.length - 1].length) {
-      pages.push([]);
-      used = 0;
+    if (!placeHomeItem(page, item)) {
+      pages.push(page);
+      page = newHomePageState();
+      if (!placeHomeItem(page, item)) {
+        // 极端情况（单元格比一屏还大）也不能死循环，直接单开一页放下
+        page.items.push(item);
+      }
     }
-    pages[pages.length - 1].push(item);
-    used += size;
   });
-  return pages;
+  pages.push(page);
+  return pages.map((p) => p.items);
 }
 
 function getHomeItemsSnapshot() {
