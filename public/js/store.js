@@ -707,6 +707,9 @@ function normalizeAppearance(doc) {
     fontFamily: String(d.fontFamily || '').trim().slice(0, 160),
     fontFileId: d.fontFileId || null,
     fontFileName: String(d.fontFileName || '').trim().slice(0, 120),
+    chatCss: String(d.chatCss || '').slice(0, 20000),
+    chatBgColor: color(d.chatBgColor),
+    chatBgImageId: d.chatBgImageId || null,
   };
 }
 
@@ -728,6 +731,9 @@ function setAppearance(patch) {
     doc.fontFamily = next.fontFamily || '';
     doc.fontFileId = next.fontFileId || null;
     doc.fontFileName = next.fontFileName || '';
+    doc.chatCss = String(next.chatCss || '').slice(0, 20000);
+    doc.chatBgColor = next.chatBgColor || '';
+    doc.chatBgImageId = next.chatBgImageId || null;
   });
 }
 
@@ -757,6 +763,35 @@ async function clearAppearanceFont() {
     try { await deleteFile(cfg.fontFileId); } catch (_) {}
   }
   await setAppearance({ fontFileId: null, fontFileName: '' });
+}
+
+// 聊天背景图：图片存 files，appearance 只留引用；换图或清除时清理旧 Blob
+async function setAppearanceChatBgBlob(blob, type, name) {
+  const cfg = await getAppearance();
+  const oldId = cfg.chatBgImageId;
+  const id = genId();
+  await putFile({
+    id,
+    name: name || 'chat-bg',
+    type: type || (blob && blob.type) || 'image/jpeg',
+    blob,
+  });
+  await setAppearance({ chatBgImageId: id });
+  if (oldId) {
+    revokeFileUrl(oldId);
+    try { await deleteFile(oldId); } catch (_) {}
+  }
+  return id;
+}
+
+async function clearAppearanceChatBgImage() {
+  const cfg = await getAppearance();
+  const oldId = cfg.chatBgImageId;
+  await setAppearance({ chatBgImageId: null });
+  if (oldId) {
+    revokeFileUrl(oldId);
+    try { await deleteFile(oldId); } catch (_) {}
+  }
 }
 
 // 仅主屏幕壁纸
@@ -3497,6 +3532,7 @@ async function buildBackup() {
   const appearanceFileIds = [
     appearance.wallpaperId,
     appearance.fontFileId,
+    appearance.chatBgImageId,
     ...Object.values(appearance.icons),
     ...Object.values(appearance.widgets),
     notification.soundId,
@@ -3626,6 +3662,9 @@ async function applyBackup(data) {
     fontFamily: appearance.fontFamily,
     fontFileId: appearance.fontFileId,
     fontFileName: appearance.fontFileName,
+    chatCss: appearance.chatCss,
+    chatBgColor: appearance.chatBgColor,
+    chatBgImageId: appearance.chatBgImageId,
   });
   const notification = normalizeNotification(data.notification);
   await putDoc({

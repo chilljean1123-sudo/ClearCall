@@ -130,6 +130,8 @@
 - 「居中」不要用固定列数的 grid：图标隐藏或增删后会偏左。Dock 改用固定高度 + 四等分格子，图标在格内居中，标签去掉后外框高度不变。
 - 感知里的电量用 `navigator.getBattery()`，读不到再走壳的 `getBatteryInfo`；使用时长/睡眠依赖壳的 `getUsageSummary`，必须引导用户去系统「使用情况访问」授权，未授权时要给入口而不是静默失败。
 - 角色回复只输出角色说的话，格式/身份指令走 system 消息注入，别写进用户消息。
+- 单选行里的 `input[type=radio]` 会被 `.field input { width:100% }` 撑满，必须显式 `width/min-width:18px; padding:0`，否则旁边文字会被挤成竖排。
+- 用户自定义 CSS 注入统一包一层 `@scope (#view-chat) { ... }`，只让它在聊天页生效，避免一条坏样式把整个小手机弄瘫；同时保留「一键清空」。
 - 主屏容量按 4 列 × 4 行算，小组件按占格（2×2 / 4×2）排；只数格子不判行高，会把图标挤到屏幕外。
 - 逐条上屏只是渲染层动画，消息仍按一条存（`<split>` 分段），别把气泡拆成多条聊天记录。
 - 页面是否铺满看定位：`.app-view` 是 `position:absolute; inset:0`，若某个 view 用 ID 改成 `position:relative`，它会退回流式布局、高度由内容撑开；聊天页要 `flex:1 1 auto; min-height:0` 才能让输入框贴底。

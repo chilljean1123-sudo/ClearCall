@@ -1280,6 +1280,77 @@
         </div>
       </div>
 
+      <!-- 聊天外观：预设 CSS / 自定义 CSS / 聊天背景 -->
+      <div class="app-view" id="view-chat-css">
+        <header class="app-header">
+          <button class="back-btn" id="btn-chat-css-back" type="button">返回</button>
+          <span class="app-title">聊天外观</span>
+          <span class="app-header-spacer"></span>
+        </header>
+
+        <div class="chat-css-body" id="chat-css-body">
+          <section class="chat-css-section">
+            <div class="chat-css-section-head">
+              <div class="chat-css-section-title">风格预设</div>
+              <div class="chat-css-section-sub">先挑一个顺眼的，再慢慢改</div>
+            </div>
+            <div class="chat-css-presets" id="chat-css-presets">
+              <button type="button" class="chat-css-preset" data-css-preset="current">
+                <span class="chat-css-preset-name">现在的样式</span>
+                <span class="chat-css-preset-desc">保持原样，不额外加一层 CSS</span>
+              </button>
+              <button type="button" class="chat-css-preset" data-css-preset="imessage">
+                <span class="chat-css-preset-name">iMessage 风格</span>
+                <span class="chat-css-preset-desc">悬浮头像 · 毛玻璃气泡 · 气泡下方时间</span>
+              </button>
+            </div>
+          </section>
+
+          <section class="chat-css-section" id="chat-bg-section">
+            <div class="chat-css-section-head">
+              <div class="chat-css-section-title">聊天背景</div>
+              <div class="chat-css-section-sub">一张图，或一点颜色</div>
+            </div>
+            <div class="chat-bg-row">
+              <input type="color" id="input-chat-bg-color" value="#f5f2f4" aria-label="聊天背景颜色" />
+              <button type="button" class="fetch-btn" id="btn-chat-bg-upload">上传背景图</button>
+              <button type="button" class="fetch-btn" id="btn-chat-bg-clear">清除背景</button>
+            </div>
+            <span class="field-hint" id="chat-bg-status">还没设置背景。</span>
+          </section>
+
+          <section class="chat-css-section">
+            <div class="chat-css-section-head">
+              <div class="chat-css-section-title">自定义 CSS</div>
+              <div class="chat-css-section-sub">只作用于聊天窗口</div>
+            </div>
+            <textarea class="chat-css-editor" id="chat-css-input" spellcheck="false" placeholder="/* 在这里写 CSS，或粘贴 AI 写好的 */"></textarea>
+            <div class="chat-css-actions">
+              <button type="button" class="fetch-btn" id="btn-chat-css-paste">粘贴导入</button>
+              <button type="button" class="fetch-btn" id="btn-chat-css-apply-inline">应用 CSS</button>
+              <button type="button" class="fetch-btn" id="btn-chat-css-clear">一键清空</button>
+            </div>
+            <span class="field-hint" id="chat-css-status">写坏了就一键清空，不会卡住。</span>
+          </section>
+
+          <section class="chat-css-section">
+            <div class="chat-css-section-head">
+              <div class="chat-css-section-title">写 CSS 的容器框架</div>
+              <div class="chat-css-section-sub">把下面这段发给 AI，让它照着写</div>
+            </div>
+            <pre class="chat-css-framework" id="chat-css-framework"></pre>
+            <button type="button" class="fetch-btn" id="btn-chat-css-copy-framework">复制框架</button>
+            <pre class="chat-css-prompt" id="chat-css-prompt"></pre>
+            <button type="button" class="fetch-btn" id="btn-chat-css-copy-prompt">复制提示词</button>
+          </section>
+        </div>
+
+        <div class="chat-css-footer">
+          <button type="button" class="fetch-btn" id="btn-chat-css-apply">应用 CSS</button>
+        </div>
+        <input type="file" id="file-chat-bg" accept="image/*" hidden />
+      </div>
+
       <!-- 应用图标管理 -->
       <div class="app-view" id="view-icon-manager">
         <header class="app-header">
@@ -1668,7 +1739,6 @@
             <div class="pinie-table-wrap" id="pinie-table"></div>
             <div class="pinie-toolbar">
               <button class="fetch-btn" id="btn-pinie-worldbook" type="button">写世界书</button>
-              <button class="fetch-btn" id="btn-pinie-npc" type="button">生成 NPC</button>
             </div>
           </div>
         </div>
@@ -1841,9 +1911,17 @@
         <textarea id="npc-extra" rows="3" placeholder="例如：生成一个损友 / 她的亲妹妹 / 暗恋她的学长…"></textarea>
       </div>
       <p class="npc-hint">会带上 TA 的核心记忆与相关长期记忆——记忆里提过的人是最好的配角素材。</p>
-      <div class="cc-modal-actions">
+      <div class="npc-result" id="npc-result" hidden>
+        <div class="npc-result-head">生成结果<span class="npc-result-count" id="npc-result-count"></span></div>
+        <div class="npc-result-list" id="npc-result-list"></div>
+      </div>
+      <div class="cc-modal-actions" id="npc-config-actions">
         <button class="cc-modal-btn ghost" id="btn-npc-cancel" type="button">取消</button>
         <button class="cc-modal-btn primary" id="btn-npc-generate" type="button">生成</button>
+      </div>
+      <div class="cc-modal-actions" id="npc-result-actions" hidden>
+        <button class="cc-modal-btn ghost" id="btn-npc-retry" type="button">重刷</button>
+        <button class="cc-modal-btn primary" id="btn-npc-add" type="button">加入角色卡</button>
       </div>
       <span class="npc-status" id="npc-status"></span>
     </div>

@@ -2142,7 +2142,7 @@ body.statusbar-off .statusbar { visibility: hidden; }
 .radio-group { display: flex; flex-direction: column; gap: var(--space-1); }
 .radio-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-1);
   padding: var(--space-1) var(--space-2);
   border: 1px solid var(--color-border);
@@ -2151,7 +2151,16 @@ body.statusbar-off .statusbar { visibility: hidden; }
   font-size: var(--font-body-sm);
   cursor: pointer;
 }
-.radio-row input { flex: 0 0 auto; accent-color: var(--color-accent); }
+.radio-row span { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.radio-row input[type="radio"] {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  padding: 0;
+  margin: 3px 0 0;
+  accent-color: var(--color-accent);
+}
 .wxpusher-box {
   padding: var(--space-2);
   border: 1px dashed var(--color-border);
@@ -2161,7 +2170,9 @@ body.statusbar-off .statusbar { visibility: hidden; }
 .wxpusher-box .key-wrap { margin-bottom: var(--space-1); }
 .wxpusher-box .notify-actions { margin-bottom: var(--space-1); }
 .notify-actions-wrap { flex-wrap: wrap; }
-#wxpusher-status { display: block; }
+#wxpusher-status { display: block; overflow-wrap: anywhere; }
+#wxpusher-box .key-wrap input { min-width: 0; }
+#wxpusher-box, #notification-drawer .field-hint { overflow-wrap: anywhere; }
 
 /* ===== 小手机通知横幅 ===== */
 .phone-notice {
@@ -6429,4 +6440,185 @@ body.home-dragging .home-pages { scroll-snap-type: none; }
   margin: 0 0 4px 2px;
   font-size: var(--font-caption);
   color: var(--color-text-tertiary);
+}
+
+/* ===== 聊天时间气泡下方（默认隐藏，iMessage 预设打开） ===== */
+.msg-time { display: none; }
+.chat-messages.has-chat-bg {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+/* ===== 聊天外观：自定义 CSS / 聊天背景 ===== */
+.chat-css-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.chat-css-section {
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.chat-css-section-head { margin-bottom: var(--space-1); }
+.chat-css-section-title { font-size: var(--font-body-sm); font-weight: 600; }
+.chat-css-section-sub {
+  margin-top: 2px;
+  font-size: var(--font-caption);
+  line-height: var(--leading-body);
+  color: var(--color-text-secondary);
+}
+.chat-css-presets { display: flex; flex-direction: column; gap: var(--space-1); }
+.chat-css-preset {
+  width: 100%;
+  text-align: left;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-page-bg);
+  color: var(--color-text-primary);
+  font-family: inherit;
+  cursor: pointer;
+}
+.chat-css-preset.active {
+  border-color: var(--color-accent);
+  background: var(--color-accent-light, #f3e7ec);
+}
+.chat-css-preset-name { display: block; font-size: var(--font-body-sm); font-weight: 600; }
+.chat-css-preset-desc {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--font-caption);
+  line-height: var(--leading-body);
+  color: var(--color-text-secondary);
+}
+.chat-bg-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+#input-chat-bg-color {
+  width: 48px;
+  height: 36px;
+  padding: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  cursor: pointer;
+}
+.chat-css-editor {
+  width: 100%;
+  min-height: 220px;
+  box-sizing: border-box;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: #fbfafb;
+  color: var(--color-text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--font-caption);
+  line-height: 1.5;
+  resize: vertical;
+}
+.chat-css-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+}
+.chat-css-framework,
+.chat-css-prompt {
+  max-height: 230px;
+  margin: var(--space-1) 0;
+  padding: var(--space-2);
+  overflow: auto;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-sm);
+  background: #fbfafb;
+  color: var(--color-text-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--font-caption);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.chat-css-footer {
+  flex: 0 0 auto;
+  padding: var(--space-1) var(--space-2) var(--space-2);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+.chat-css-footer .fetch-btn {
+  width: 100%;
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+
+/* ===== 角色卡：生成 NPC ===== */
+.char-npc-section {
+  margin-top: var(--space-2);
+  padding: var(--space-2);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-page-bg);
+}
+.char-npc-section-title { font-size: var(--font-body-sm); font-weight: 600; }
+.char-npc-section-sub {
+  margin-top: 2px;
+  font-size: var(--font-caption);
+  line-height: var(--leading-body);
+  color: var(--color-text-secondary);
+}
+.char-npc-section .fetch-btn { margin-top: var(--space-1); }
+.npc-result {
+  margin: var(--space-1) 0;
+  padding: var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-page-bg);
+}
+.npc-result-head { font-size: var(--font-body-sm); font-weight: 600; }
+.npc-result-count {
+  margin-left: 4px;
+  font-size: var(--font-caption);
+  font-weight: 400;
+  color: var(--color-text-secondary);
+}
+.npc-result-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-height: 240px;
+  margin-top: var(--space-1);
+  overflow-y: auto;
+}
+.npc-result-item {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+.npc-result-headline { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.npc-result-name { font-size: var(--font-body-sm); font-weight: 600; }
+.npc-result-rel {
+  font-size: var(--font-caption);
+  color: var(--color-text-secondary);
+}
+.npc-result-persona {
+  margin-top: 4px;
+  font-size: var(--font-caption);
+  line-height: var(--leading-body);
+  color: var(--color-text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }

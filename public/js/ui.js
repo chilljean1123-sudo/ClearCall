@@ -31,6 +31,7 @@ const viewCallPicker = $('view-call-picker');
 const viewCall = $('view-call');
 const viewForum = $('view-forum');
 const viewChatStyle = $('view-chat-style');
+const viewChatCss = $('view-chat-css');
 const viewEmail = $('view-email');
 const viewBooks = $('view-books');
 const viewDiary = $('view-diary');
@@ -863,6 +864,18 @@ function buildQuoteEl(quote) {
   return el;
 }
 
+function buildMsgTimeEl(m) {
+  const ts = Number(m && (m.at || m.createdAt));
+  if (!Number.isFinite(ts) || ts <= 0) return null;
+  const d = new Date(ts);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const el = document.createElement('div');
+  el.className = 'msg-time';
+  el.textContent = hh + ':' + mm;
+  return el;
+}
+
 function renderMessage(m, index, avatar, name, ctx) {
   if (m.role === 'user') {
     if (m.kind && m.kind !== 'text') return renderUserAttachment(m, ctx || {});
@@ -873,6 +886,8 @@ function renderMessage(m, index, avatar, name, ctx) {
     if (m.quote) bubble.appendChild(buildQuoteEl(m.quote));
     bubble.appendChild(uiEl('div', 'msg-bubble-text', m.content));
     row.appendChild(bubble);
+    const userTime = buildMsgTimeEl(m);
+    if (userTime) row.appendChild(userTime);
     return row;
   }
 
@@ -915,6 +930,9 @@ function renderMessage(m, index, avatar, name, ctx) {
     });
     stack.appendChild(voice);
   }
+
+  const msgTime = buildMsgTimeEl(m);
+  if (msgTime) stack.appendChild(msgTime);
 
   row.appendChild(stack);
   return row;
@@ -985,8 +1003,24 @@ async function renderMessagesInto(boxId, options) {
     }
   }
   renderChatErrorNotice(history, !!(options && options.call));
+  markAssistantGroups(box);
   if (typeof onChatMessagesRendered === 'function') onChatMessagesRendered(boxId);
   box.scrollTop = box.scrollHeight;
+}
+
+// 同一角色连续发言时，后续消息头像由 iMessage 预设隐藏
+function markAssistantGroups(box) {
+  let prevAssistant = false;
+  let prevSender = '';
+  Array.from(box.children).forEach((row) => {
+    if (!row.classList || !row.classList.contains('msg-row')) { prevAssistant = false; prevSender = ''; return; }
+    const isAssistant = row.classList.contains('assistant');
+    const senderEl = row.querySelector('.msg-sender-name');
+    const sender = senderEl ? senderEl.textContent.trim() : '';
+    row.classList.toggle('msg-cont', isAssistant && prevAssistant && sender === prevSender);
+    prevAssistant = isAssistant;
+    prevSender = isAssistant ? sender : '';
+  });
 }
 
 // 请求失败不占聊天气泡，单独以灰底浮层提示，附原因与重试
@@ -1072,6 +1106,9 @@ async function revealAssistantMessageSequentially(index) {
   ));
   if (bubbles.length <= 1) return false;
 
+  const timeEl = stack.querySelector('.msg-time');
+  if (timeEl) timeEl.style.display = 'none';
+
   bubbles.slice(1).forEach((b) => { b.style.display = 'none'; });
   scrollChatToBottom();
 
@@ -1091,6 +1128,7 @@ async function revealAssistantMessageSequentially(index) {
     bubbles[i].style.display = '';
     scrollChatToBottom();
   }
+  if (timeEl) timeEl.style.display = '';
   return true;
 }
 
@@ -1489,6 +1527,8 @@ const CHAT_TOOL_TITLES = {
   directive: '系统指令',
   mail: '发邮件',
   style: '聊天方式',
+  chatCss: '自定义 CSS',
+  chatBg: '聊天背景',
   diary: '日记',
   autopush: '主动消息',
   groupActivity: '群聊活跃度',
@@ -1517,6 +1557,8 @@ const CHAT_TOOL_ICON_SVGS = {
   directive: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="20" height="18" rx="3" fill="currentColor"/><path d="m7 8 4 4-4 4M13 16h4" fill="none" stroke="var(--tool-cutout)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   mail: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="3" fill="currentColor"/><path d="m4 7 8 6 8-6" fill="none" stroke="var(--tool-cutout)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   style: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><circle cx="8" cy="6" r="3" fill="var(--tool-cutout)" stroke="currentColor" stroke-width="2.4"/><circle cx="16" cy="12" r="3" fill="var(--tool-cutout)" stroke="currentColor" stroke-width="2.4"/><circle cx="10" cy="18" r="3" fill="var(--tool-cutout)" stroke="currentColor" stroke-width="2.4"/></svg>',
+  chatCss: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0 0 20c1.6 0 2.4-1 2.4-2.2 0-1-.6-1.6-.6-2.4 0-1 .8-1.8 1.9-1.8H18a4 4 0 0 0 4-4C22 6.2 17.5 2 12 2Z"/><circle cx="7.5" cy="9" r="1.5" fill="var(--tool-cutout)"/><circle cx="12" cy="6.5" r="1.5" fill="var(--tool-cutout)"/><circle cx="16.5" cy="9" r="1.5" fill="var(--tool-cutout)"/></svg>',
+  chatBg: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="2.6"/><circle cx="8.5" cy="9.5" r="1.9" fill="currentColor"/><path d="m5 18 5-5 3 3 2-2 4 4" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   diary: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M5 2h15v20H5a3 3 0 0 1-3-3V5a3 3 0 0 1 3-3Z"/><path d="M7 2v20M10 7h6M10 11h6M10 15h4" fill="none" stroke="var(--tool-cutout)" stroke-width="2.3" stroke-linecap="round"/></svg>',
   autopush: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 22a2.6 2.6 0 0 0 2.6-2.6H9.4A2.6 2.6 0 0 0 12 22Z"/><path fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" d="M18 9a6 6 0 1 0-12 0c0 5-2 6-2 6h16s-2-1-2-6Z"/></svg>',
   groupActivity: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0 2c-3.9 0-7 2.2-7 5v3h14v-3c0-2.8-3.1-5-7-5Zm8-2a3.4 3.4 0 1 0 0-6.8 3.4 3.4 0 0 0 0 6.8Zm1.6 2.2c-1 0-1.9.2-2.7.6 1.4 1.3 2.2 3 2.2 5.2V21h5v-2.6c0-2.7-2.5-5-4.5-5Z"/></svg>',
@@ -1532,6 +1574,8 @@ function renderChatToolMenu(body) {
     ['directive', '系统指令'],
     ['mail', '邮件'],
     ['style', '聊天方式'],
+    ['chatBg', '聊天背景'],
+    ['chatCss', '自定义 CSS'],
     ['diary', '日记'],
     ['autopush', '主动消息'],
   ];
@@ -2313,6 +2357,16 @@ function openCharacterCardViewer(c, opts) {
   });
   actions.appendChild(editBtn);
 
+  const npcBtn = document.createElement('button');
+  npcBtn.type = 'button';
+  npcBtn.className = 'fetch-btn';
+  npcBtn.textContent = '生成 NPC';
+  npcBtn.addEventListener('click', () => {
+    closeCharacterCardViewer();
+    if (typeof openCharacterNpcGenerator === 'function') openCharacterNpcGenerator(c.id);
+  });
+  actions.appendChild(npcBtn);
+
   const delBtn = document.createElement('button');
   delBtn.type = 'button';
   delBtn.className = 'fetch-btn fetch-btn-ghost';
@@ -2677,6 +2731,31 @@ function renderCharacterForm(character, avatarUrl, refImageUrl, personaUrl) {
   btns.appendChild(cancelBtn);
   btns.appendChild(saveBtn);
   box.classList.add('char-sheet');
+
+  // 结尾：以当前角色为底生成配角，生成后可选加入或重刷
+  if (character && character.id) {
+    const npcSection = document.createElement('div');
+    npcSection.className = 'char-npc-section';
+    const npcTitle = document.createElement('div');
+    npcTitle.className = 'char-npc-section-title';
+    npcTitle.textContent = '生成 NPC';
+    const npcSub = document.createElement('div');
+    npcSub.className = 'char-npc-section-sub';
+    npcSub.textContent = '以 TA 的人设和记忆为底，生成有关系的配角。生成后可以加入角色卡，也可以重刷。';
+    const npcBtn = document.createElement('button');
+    npcBtn.type = 'button';
+    npcBtn.className = 'fetch-btn';
+    npcBtn.textContent = '生成 NPC';
+    npcBtn.addEventListener('click', () => {
+      if (typeof openCharacterNpcGenerator === 'function') openCharacterNpcGenerator(character.id);
+      else toast('生成窗口还没准备好');
+    });
+    npcSection.appendChild(npcTitle);
+    npcSection.appendChild(npcSub);
+    npcSection.appendChild(npcBtn);
+    box.appendChild(npcSection);
+  }
+
   if (box.scrollIntoView) box.scrollIntoView({ block: 'start' });
 }
 
@@ -3324,6 +3403,184 @@ function applyChatAppearance(cfg) {
       ? ('笔迹：' + (cfg.fontFileName || '自定义字体'))
       : '字体文件，也可以轻轻放下。';
   }
+
+  applyChatCustomCss(cfg);
+  applyChatBackground(cfg);
+}
+
+// ===== 聊天自定义 CSS =====
+// 只注入聊天页：用 @scope 限定在 #view-chat 内，避免一条坏 CSS 把整个小手机弄瘫。
+const CHAT_CSS_PRESET_IMESSAGE = `/* iMessage 风格：悬浮透明头像、我方不显示头像、蓝灰毛玻璃气泡 */
+.chat-messages {
+  gap: 10px;
+}
+.msg-row {
+  align-items: flex-end;
+}
+.msg-row.user {
+  flex-direction: row-reverse;
+  flex-wrap: wrap;
+}
+.msg-row.user .msg-avatar {
+  display: none;
+}
+.msg-row.assistant.msg-cont .msg-avatar {
+  visibility: hidden;
+}
+.msg-avatar {
+  width: 34px;
+  height: 34px;
+  background: transparent;
+  overflow: visible;
+  filter: drop-shadow(0 6px 10px rgba(40, 60, 90, 0.18));
+}
+.msg-avatar .msg-avatar-img {
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+}
+.msg-avatar > span {
+  background: rgba(255, 255, 255, 0.65);
+  color: #33404f;
+  border-radius: 50%;
+}
+.msg-stack {
+  max-width: 78%;
+  gap: 6px;
+}
+.msg-bubble {
+  padding: 8px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  border-radius: 18px;
+  background: rgba(126, 148, 176, 0.34);
+  color: #1f2a37;
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+  box-shadow: 0 6px 18px rgba(40, 60, 90, 0.12);
+}
+.assistant-bubble {
+  border-top-left-radius: 6px;
+}
+.msg-row.user .msg-bubble.user-bubble {
+  background: rgba(76, 118, 168, 0.62);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.22);
+  border-top-right-radius: 6px;
+}
+.msg-time {
+  display: block;
+  flex: 0 0 100%;
+  margin-top: 2px;
+  font-size: var(--font-caption);
+  line-height: 1.3;
+  color: rgba(58, 58, 64, 0.55);
+  text-align: left;
+}
+.msg-row.user > .msg-time {
+  text-align: right;
+}`;
+
+function chatCssPresetText(name) {
+  return name === 'imessage' ? CHAT_CSS_PRESET_IMESSAGE : '';
+}
+
+function ensureChatCssStyleEl() {
+  let el = document.getElementById('chat-custom-css');
+  if (!el) {
+    el = document.createElement('style');
+    el.id = 'chat-custom-css';
+    document.head.appendChild(el);
+  }
+  return el;
+}
+
+function applyChatCustomCss(cfg) {
+  const css = String((cfg && cfg.chatCss) || '').trim();
+  const el = ensureChatCssStyleEl();
+  el.textContent = css ? ('@scope (#view-chat) {\n' + css + '\n}') : '';
+}
+
+async function applyChatBackground(cfg) {
+  const box = $('chat-messages');
+  if (!box) return;
+  const token = (applyChatBackground._token || 0) + 1;
+  applyChatBackground._token = token;
+  let url = '';
+  if (cfg && cfg.chatBgImageId) {
+    try { url = (await getFileUrl(cfg.chatBgImageId)) || ''; } catch (_) { url = ''; }
+  }
+  if (token !== applyChatBackground._token) return;
+  box.style.backgroundImage = url ? ('url("' + String(url).replace(/"/g, '%22') + '")') : '';
+  box.style.backgroundColor = (cfg && cfg.chatBgColor) || '';
+  box.classList.toggle('has-chat-bg', !!(url || (cfg && cfg.chatBgColor)));
+}
+
+function chatCssFrameworkText() {
+  return [
+    '#view-chat                    聊天页根容器（整页）',
+    '  .chat-messages              消息滚动区：背景、间距写这里',
+    '    .msg-row.user             我方消息行',
+    '    .msg-row.assistant        对方消息行',
+    '      .msg-avatar             头像',
+    '      .msg-stack              气泡堆叠列',
+    '        .msg-bubble           气泡',
+    '          .user-bubble        我方气泡',
+    '          .assistant-bubble   对方气泡',
+    '        .sticker-img          表情包图片',
+    '        .chat-voice-note      语音条',
+    '        .msg-time             气泡下方的时间',
+    '    .msg-row.assistant.msg-cont   同一人连续发送的后续消息（头像已隐藏）',
+    '',
+    '提示：选择器直接写 .msg-bubble 这类即可，系统会自动限定在聊天页内。',
+  ].join('\n');
+}
+
+function chatCssPromptText() {
+  return [
+    '请帮我写一段只作用于聊天窗口的 CSS，风格是：______（例如：日系清新 / 极简黑白 / 奶油风）。',
+    '',
+    '约束：',
+    '1. 只使用这些类名：.chat-messages、.msg-row、.msg-row.user、.msg-row.assistant、.msg-cont、.msg-avatar、.msg-stack、.msg-bubble、.user-bubble、.assistant-bubble、.sticker-img、.chat-voice-note、.msg-time。',
+    '2. 不要改 HTML 结构，不要用 JavaScript。',
+    '3. 不要写 #view-chat 前缀，系统会自动把 CSS 限定在聊天页内。',
+    '4. 气泡文字要清晰可读，长文本自动换行，不遮挡头像和输入栏。',
+    '5. 如需设置整页背景，可以用 :scope 选择器。',
+    '6. 只输出 CSS 代码，不要解释。',
+  ].join('\n');
+}
+
+function renderChatCssPage(cfg) {
+  const current = String((cfg && cfg.chatCss) || '');
+  const trimmed = current.trim();
+  const input = $('chat-css-input');
+  if (input) input.value = current;
+
+  document.querySelectorAll('#chat-css-presets .chat-css-preset').forEach((btn) => {
+    const preset = btn.dataset.cssPreset;
+    const active = preset === 'current'
+      ? !trimmed
+      : trimmed === CHAT_CSS_PRESET_IMESSAGE.trim();
+    btn.classList.toggle('active', active);
+  });
+
+  const color = $('input-chat-bg-color');
+  if (color) color.value = (cfg && cfg.chatBgColor) || '#f5f2f4';
+
+  const bgStatus = $('chat-bg-status');
+  if (bgStatus) {
+    if (cfg && cfg.chatBgImageId) bgStatus.textContent = '已设置背景图，点「清除背景」可恢复。';
+    else if (cfg && cfg.chatBgColor) bgStatus.textContent = '背景色：' + cfg.chatBgColor;
+    else bgStatus.textContent = '还没设置背景。';
+  }
+
+  const status = $('chat-css-status');
+  if (status) {
+    status.textContent = trimmed ? '自定义 CSS 已生效，写坏了就一键清空。' : '写坏了就一键清空，不会卡住。';
+  }
+
+  const framework = $('chat-css-framework');
+  if (framework) framework.textContent = chatCssFrameworkText();
+  const prompt = $('chat-css-prompt');
+  if (prompt) prompt.textContent = chatCssPromptText();
 }
 
 // 本机字体文件：用 blob URL 注册 @font-face，再挂到聊天窗口

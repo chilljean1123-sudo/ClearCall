@@ -1663,7 +1663,7 @@ async function sendCallMessage() {
   if (!characterId) return;
 
   stopCallAudio();
-  await mutateHistory((arr) => arr.push({ role: 'user', content: msg }), characterId);
+  await mutateHistory((arr) => arr.push({ role: 'user', content: msg, at: Date.now() }), characterId);
   input.value = '';
   await renderCallMessages();
   // 通话模式忽略触发设置：发一条就立即请求回复
@@ -2175,7 +2175,7 @@ async function submitMessage(text) {
   const msg = (text || '').trim();
   if (!msg) return;
 
-  const entry = { role: 'user', content: msg };
+  const entry = { role: 'user', content: msg, at: Date.now() };
   if (pendingQuote) entry.quote = pendingQuote;
   await mutateHistory((arr) => arr.push(entry));
   setPendingQuote(null);
@@ -2270,7 +2270,7 @@ async function flushQueue() {
     });
     return;
   }
-  const replyMsg = { role: 'assistant', content: result.reply };
+  const replyMsg = { role: 'assistant', content: result.reply, at: Date.now() };
   // 角色可能在等待回复期间被删除：这时丢弃回复，避免重建数据
   const stillExists = !!(await getCharacter(characterId));
   if (stillExists) {
@@ -2338,11 +2338,12 @@ async function retryReply(index) {
   removeTyping();
   if (result && result.aborted) { setChatSending(false); return; }
   const replyMsg = (result && result.ok)
-    ? { role: 'assistant', content: result.reply }
+    ? { role: 'assistant', content: result.reply, at: Date.now() }
     : {
       role: 'assistant',
       content: '',
       error: true,
+      at: Date.now(),
       errorReason: (result && result.reason) || '请求没有成功，请稍后重试。',
       errorHints: (result && result.hints) || [],
     };
@@ -2579,7 +2580,7 @@ async function rerollAssistantMessage(index) {
     await mutateHistory((arr) => {
       // 先删掉角色这条旧回复，再把新回复放回同一位置；用户消息不受影响
       if (arr[index] && arr[index].role === 'assistant') arr.splice(index, 1);
-      arr.splice(Math.min(index, arr.length), 0, { role: 'assistant', content: result.reply });
+      arr.splice(Math.min(index, arr.length), 0, { role: 'assistant', content: result.reply, at: Date.now() });
     }, characterId);
     try {
       const pending = await getPendingDirective(characterId);
@@ -4104,7 +4105,7 @@ const NPC_SYSTEM = [
 
 let npcCount = 1;
 let npcBusy = false;
-let npcDraftOnly = false;
+let npcPending = [];
 
 function setNpcCount(n) {
   npcCount = Math.min(5, Math.max(1, Number(n) || 1));
@@ -4115,27 +4116,65 @@ function setNpcCount(n) {
 
 function setNpcBusy(busy, status) {
   npcBusy = busy;
+  ['btn-npc-generate', 'btn-npc-retry', 'btn-npc-add'].forEach((id) => {
+    const btn = $(id);
+    if (btn) btn.disabled = busy;
+  });
   const btn = $('btn-npc-generate');
-  if (btn) {
-    btn.disabled = busy;
-    btn.textContent = busy ? '正在生成…' : '生成';
-  }
+  if (btn) btn.textContent = busy ? '正在生成…' : '生成';
   if ($('npc-status') && status != null) $('npc-status').textContent = status;
 }
 
-async function openNpcDialog(preferDraft) {
+function resetNpcResult() {
+  npcPending = [];
+  if ($('npc-result')) $('npc-result').hidden = true;
+  if ($('npc-result-list')) $('npc-result-list').innerHTML = '';
+  if ($('npc-result-count')) $('npc-result-count').textContent = '';
+  if ($('npc-config-actions')) $('npc-config-actions').hidden = false;
+  if ($('npc-result-actions')) $('npc-result-actions').hidden = true;
+}
+
+function renderNpcPreview(npcs) {
+  const listEl = $('npc-result-list');
+  if (!listEl) return;
+  listEl.innerHTML = '';
+  npcs.forEach((npc) => {
+    const item = document.createElement('div');
+    item.className = 'npc-result-item';
+
+    const head = document.createElement('div');
+    head.className = 'npc-result-headline';
+    const name = document.createElement('span');
+    name.className = 'npc-result-name';
+    name.textContent = npc.name;
+    head.appendChild(name);
+    if (npc.relation) {
+      const rel = document.createElement('span');
+      rel.className = 'npc-result-rel';
+      rel.textContent = npc.relation;
+      head.appendChild(rel);
+    }
+
+    const persona = document.createElement('div');
+    persona.className = 'npc-result-persona';
+    persona.textContent = npc.persona;
+
+    item.appendChild(head);
+    item.appendChild(persona);
+    listEl.appendChild(item);
+  });
+  if ($('npc-result-count')) $('npc-result-count').textContent = '（' + npcs.length + ' 个）';
+  if ($('npc-result')) $('npc-result').hidden = false;
+  if ($('npc-config-actions')) $('npc-config-actions').hidden = true;
+  if ($('npc-result-actions')) $('npc-result-actions').hidden = false;
+}
+
+async function openNpcDialog(options) {
+  const opts = options || {};
   const { list, activeId } = await getCharacters();
   const sel = $('npc-character-select');
   if (!sel) return;
   sel.innerHTML = '';
-
-  npcDraftOnly = !!(preferDraft && pinieDraft && pinieDraft.name && !list.some((c) => c.name === pinieDraft.name));
-  if (npcDraftOnly) {
-    const opt = document.createElement('option');
-    opt.value = '__draft__';
-    opt.textContent = '当前人设：' + pinieDraft.name + '（未保存）';
-    sel.appendChild(opt);
-  }
   list.forEach((c) => {
     const opt = document.createElement('option');
     opt.value = c.id;
@@ -4146,11 +4185,20 @@ async function openNpcDialog(preferDraft) {
     toast('先去通讯录捏一个角色，再生成配角');
     return;
   }
-  sel.value = npcDraftOnly ? '__draft__' : (activeId && list.some((c) => c.id === activeId) ? activeId : list[0].id);
+  const preferId = opts.characterId;
+  sel.value = (preferId && list.some((c) => c.id === preferId))
+    ? preferId
+    : (activeId && list.some((c) => c.id === activeId) ? activeId : list[0].id);
   if ($('npc-extra')) $('npc-extra').value = '';
   setNpcCount(1);
+  resetNpcResult();
   setNpcBusy(false, '');
   $('npc-modal').hidden = false;
+}
+
+// 角色卡里的「生成 NPC」入口
+function openCharacterNpcGenerator(characterId) {
+  openNpcDialog({ characterId }).catch(() => toast('打不开生成窗口'));
 }
 
 function closeNpcDialog() {
@@ -4204,26 +4252,18 @@ async function generateNpcs() {
   const pick = sel && sel.value;
   if (!pick) { setNpcBusy(false, '先选一个角色'); return; }
 
-  let mainName = '';
-  let persona = '';
+  const c = await getCharacter(pick);
+  if (!c) { setNpcBusy(false, '找不到这个角色'); return; }
+  const mainName = c.name;
+  const persona = c.persona || '';
   let coreText = '';
   let longText = '';
-  if (pick === '__draft__') {
-    collectPinieDraft();
-    mainName = String(pinieDraft.name || '').trim();
-    persona = piniePersonaText();
-  } else {
-    const c = await getCharacter(pick);
-    if (!c) { setNpcBusy(false, '找不到这个角色'); return; }
-    mainName = c.name;
-    persona = c.persona || '';
-    try {
-      const mem = await getMemory(pick);
-      const pickText = (e) => String((e && (e.text || e.content)) || '').trim();
-      coreText = (mem.core || []).map(pickText).filter(Boolean).slice(0, 8).join('\n');
-      longText = (mem.longTerm || []).map(pickText).filter(Boolean).slice(0, 12).join('\n');
-    } catch (_) {}
-  }
+  try {
+    const mem = await getMemory(pick);
+    const pickText = (e) => String((e && (e.text || e.content)) || '').trim();
+    coreText = (mem.core || []).map(pickText).filter(Boolean).slice(0, 8).join('\n');
+    longText = (mem.longTerm || []).map(pickText).filter(Boolean).slice(0, 12).join('\n');
+  } catch (_) {}
   if (!mainName) { setNpcBusy(false, '这个角色还没有名字'); return; }
 
   const extra = ($('npc-extra') && $('npc-extra').value.trim()) || '';
@@ -4264,12 +4304,20 @@ async function generateNpcs() {
     return;
   }
 
+  npcPending = npcs.slice(0, npcCount);
+  renderNpcPreview(npcPending);
+  setNpcBusy(false, '满意就加入角色卡，想换一批就点「重刷」。');
+}
+
+async function addPendingNpcs() {
+  if (npcBusy || !npcPending.length) return;
   const { list } = await getCharacters();
   const names = new Set(list.map((c) => c.name));
   let created = 0;
   let skipped = 0;
+  setNpcBusy(true, '正在加入角色卡…');
   try {
-    for (const npc of npcs.slice(0, npcCount)) {
+    for (const npc of npcPending) {
       if (names.has(npc.name)) { skipped += 1; continue; }
       await addCharacter({
         name: npc.name,
@@ -4284,19 +4332,21 @@ async function generateNpcs() {
     return;
   }
 
-  closeNpcDialog();
-  if (viewCharacters.classList.contains('active')) await renderCharactersUI();
   if (!created) {
-    toast('这几个名字通讯录里都有了，换点要求再生成');
+    setNpcBusy(false, '这几个名字通讯录里都有了，点「重刷」换一批');
     return;
   }
-  toast('生成了 ' + created + ' 个配角' + (skipped ? '，' + skipped + ' 个重名跳过' : ''));
+
+  closeNpcDialog();
+  if (viewCharacters.classList.contains('active')) await renderCharactersUI();
+  toast('加入 ' + created + ' 个角色卡' + (skipped ? '，' + skipped + ' 个重名跳过' : ''));
 }
 
-$('btn-pinie-npc').addEventListener('click', () => { openNpcDialog(true).catch(() => toast('打不开生成窗口')); });
-$('btn-wb-npc').addEventListener('click', () => { openNpcDialog(false).catch(() => toast('打不开生成窗口')); });
+$('btn-wb-npc').addEventListener('click', () => { openNpcDialog().catch(() => toast('打不开生成窗口')); });
 $('btn-npc-cancel').addEventListener('click', closeNpcDialog);
 $('btn-npc-generate').addEventListener('click', () => { generateNpcs(); });
+$('btn-npc-retry').addEventListener('click', () => { generateNpcs(); });
+$('btn-npc-add').addEventListener('click', () => { addPendingNpcs(); });
 $('npc-count-row').addEventListener('click', (e) => {
   const btn = e.target.closest('.npc-count-btn');
   if (btn) setNpcCount(btn.dataset.count);
@@ -6690,7 +6740,7 @@ async function generateReplyForCharacter(characterId) {
     });
     return;
   }
-  const replyMsg = { role: 'assistant', content: result.reply };
+  const replyMsg = { role: 'assistant', content: result.reply, at: Date.now() };
   if (await getCharacter(characterId)) {
     await mutateHistory((arr) => arr.push(replyMsg), characterId);
     if (inChat) {
@@ -7636,7 +7686,7 @@ async function pollAutopush(force) {
     setAutopushLastAt(data.message.at || Date.now());
     const cid = await getActiveCharacterId();
     await mutateHistory((arr) => {
-      arr.push({ role: 'assistant', content: text, autopush: true });
+      arr.push({ role: 'assistant', content: text, autopush: true, at: Date.now() });
     }, cid);
 
     if (viewChat.classList.contains('active')) {
@@ -9298,6 +9348,11 @@ $('chat-sheet-body').addEventListener('click', async (e) => {
       await openChatStylePage();
       return;
     }
+    if (tool.dataset.tool === 'chatCss' || tool.dataset.tool === 'chatBg') {
+      closeChatSheet();
+      await openChatCssPage(tool.dataset.tool === 'chatBg' ? 'bg' : 'css');
+      return;
+    }
     await openChatSheet(tool.dataset.tool);
     return;
   }
@@ -10493,14 +10548,14 @@ async function copyErrorToUncle() {
 }
 
 // ===== 更新公告 =====
-const WHATS_NEW_VERSION = '2026.11.21.1';
+const WHATS_NEW_VERSION = '2026.11.22.1';
 const WHATS_NEW_KEY = 'clearcall_whatsnew_seen';
 const WHATS_NEW_ITEMS = [
-  '角色回复会一条一条往外冒了，中间还带「正在输入」的停顿，像真在微信那头打字；嫌慢去设置里关掉。',
-  '首页小组件不再把应用图标挤到屏幕外：一屏固定 4×4，摆不下就翻页，横滑也顺手了。',
-  '通知可以选「原生通知」或「WxPusher」了，SPT 能保存、删除、测试；选了 WxPusher 就不用再跟浏览器权限较劲。',
-  '备份多了「云端备份（GitHub）」：填 token 和仓库，就能上传或从云端恢复。token 只留在本机。',
-  '捏捏能生配角了：人设卡写好后点「生成 NPC」，选角色、1 到 5 个、补点要求，带着记忆写出来的 NPC 直接进通讯录。',
+  '生成 NPC 挪到角色卡里了：角色资料结尾就有「生成 NPC」，生成后能选「加入角色卡」还是「重刷」。',
+  '通知设置里的文字不再被挤成一团，长说明也能好好换行。',
+  '聊天功能栏新增「聊天背景」和「自定义 CSS」：能选颜色、传图，也内置了「现在的样式」和「iMessage 风格」。',
+  'iMessage 风格：悬浮透明头像、隐藏我方头像、对方连续消息只留一个头像、蓝灰毛玻璃气泡，时间挂在气泡下方。',
+  'CSS 编辑窗口能粘贴导入，底下附了容器框架和发给 AI 的提示词；写坏了点「一键清空」，不会卡住。',
 ];
 
 function maybeShowWhatsNew() {
@@ -10544,4 +10599,148 @@ $('btn-error-retry').addEventListener('click', () => {
 $('btn-whatsnew-ok').addEventListener('click', () => {
   localStorage.setItem(WHATS_NEW_KEY, WHATS_NEW_VERSION);
   $('whatsnew-modal').hidden = true;
+});
+
+// ===== 聊天外观：自定义 CSS / 聊天背景 =====
+async function openChatCssPage(focus) {
+  const cfg = await getAppearance();
+  renderChatCssPage(cfg);
+  showView(viewChatCss);
+  if (focus === 'bg') {
+    const section = $('chat-bg-section');
+    if (section && section.scrollIntoView) section.scrollIntoView({ block: 'start' });
+  }
+}
+
+async function saveChatCssFromEditor() {
+  const input = $('chat-css-input');
+  const css = (input && input.value) || '';
+  if (css.length > 20000) {
+    toast('CSS 太长了，先精简到 2 万字符以内');
+    return;
+  }
+  await setAppearance({ chatCss: css });
+  await refreshAppearance();
+  await renderChatCssPage(await getAppearance());
+  toast(css.trim() ? 'CSS 已应用' : '已恢复现在的样式');
+}
+
+async function clearChatCssAll() {
+  await setAppearance({ chatCss: '' });
+  const input = $('chat-css-input');
+  if (input) input.value = '';
+  await refreshAppearance();
+  await renderChatCssPage(await getAppearance());
+  toast('已清空自定义 CSS');
+}
+
+async function applyChatCssPreset(name) {
+  const css = chatCssPresetText(name);
+  await setAppearance({ chatCss: css });
+  const input = $('chat-css-input');
+  if (input) input.value = css;
+  await refreshAppearance();
+  await renderChatCssPage(await getAppearance());
+  toast(name === 'imessage' ? '已切到 iMessage 风格' : '已恢复现在的样式');
+}
+
+async function copyPlainText(text) {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (_) {}
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok;
+  } catch (_) {
+    return false;
+  }
+}
+
+$('btn-chat-css-back').addEventListener('click', () => showView(viewChat));
+
+$('chat-css-presets').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-css-preset]');
+  if (!btn) return;
+  applyChatCssPreset(btn.dataset.cssPreset).catch(() => toast('切换失败，稍后再试'));
+});
+
+$('btn-chat-css-apply').addEventListener('click', () => {
+  saveChatCssFromEditor().catch(() => toast('应用失败，先一键清空试试'));
+});
+$('btn-chat-css-apply-inline').addEventListener('click', () => {
+  saveChatCssFromEditor().catch(() => toast('应用失败，先一键清空试试'));
+});
+$('btn-chat-css-clear').addEventListener('click', () => {
+  clearChatCssAll().catch(() => toast('清空失败，请重试'));
+});
+
+$('btn-chat-css-paste').addEventListener('click', async () => {
+  try {
+    if (!navigator.clipboard || !navigator.clipboard.readText) throw new Error('no clipboard');
+    const text = await navigator.clipboard.readText();
+    if (!text || !text.trim()) { toast('剪贴板里没有 CSS'); return; }
+    const input = $('chat-css-input');
+    if (input) input.value = text;
+    toast('已粘贴，记得点「应用 CSS」');
+  } catch (_) {
+    toast('读不到剪贴板，长按输入框手动粘贴吧');
+  }
+});
+
+$('btn-chat-css-copy-framework').addEventListener('click', async () => {
+  const ok = await copyPlainText(chatCssFrameworkText());
+  toast(ok ? '容器框架已复制' : '复制失败，长按文字手动复制');
+});
+$('btn-chat-css-copy-prompt').addEventListener('click', async () => {
+  const ok = await copyPlainText(chatCssPromptText());
+  toast(ok ? '提示词已复制' : '复制失败，长按文字手动复制');
+});
+
+$('input-chat-bg-color').addEventListener('change', async (e) => {
+  try {
+    await setAppearance({ chatBgColor: e.target.value || '' });
+    await refreshAppearance();
+    await renderChatCssPage(await getAppearance());
+  } catch (_) {
+    toast('背景色保存失败');
+  }
+});
+
+$('btn-chat-bg-upload').addEventListener('click', () => $('file-chat-bg').click());
+
+$('file-chat-bg').addEventListener('change', async (e) => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  try {
+    const blob = await fileToImage(f, 1600);
+    await setAppearanceChatBgBlob(blob, 'image/jpeg', f.name || 'chat-bg');
+    await refreshAppearance();
+    await renderChatCssPage(await getAppearance());
+    toast('聊天背景已更新');
+  } catch (err) {
+    toast(err && err.message ? err.message : '背景图保存失败');
+  }
+});
+
+$('btn-chat-bg-clear').addEventListener('click', async () => {
+  try {
+    await clearAppearanceChatBgImage();
+    await setAppearance({ chatBgColor: '' });
+    await refreshAppearance();
+    await renderChatCssPage(await getAppearance());
+    toast('聊天背景已清除');
+  } catch (_) {
+    toast('清除失败，请重试');
+  }
 });
