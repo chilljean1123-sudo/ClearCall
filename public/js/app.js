@@ -400,7 +400,6 @@ async function autoSummarizeIfNeeded() {
 }
 
 // ===== Cloudflare Worker 一键部署 =====
-const WORKER_SCRIPT = `// ClearCall Autopush Worker - 前端自部署\n` + `// 路径：/config(POST) /pull(GET) /generate(POST) /status(GET)\n` + WORKER_SOURCE;
 
 async function deployCfWorker() {
   const token = $('input-cf-token').value.trim();
@@ -737,10 +736,6 @@ $('btn-fetch-models').addEventListener('click', async () => {
       title.className = 'result-title';
       title.textContent = '已获取 ' + list.length + ' 个模型';
       result.appendChild(title);
-      const hint = document.createElement('div');
-      hint.className = 'result-meta';
-      hint.textContent = '请在下方「模型名」下拉框里选择。';
-      result.appendChild(hint);
     } else {
       renderResult(data);
     }
