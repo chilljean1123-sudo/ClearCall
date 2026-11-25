@@ -268,3 +268,84 @@ async function requestMemorySummary(payload) {
   } catch (_) { /* 无后端 */ }
   return directSummarizeMemory(payload.baseUrl, payload.apiKey, payload.model, payload.content, payload.existing);
 }
+
+// 从模型返回文本里解析出台词数组（容忍 markdown 代码块与编号）
+function parseStandbyLines(text, count) {
+  const t = String(text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+  const start = t.indexOf('[');
+  const end = t.lastIndexOf(']');
+  let arr = [];
+  if (start !== -1 && end > start) {
+    try { arr = JSON.parse(t.slice(start, end + 1)); } catch (_) { arr = []; }
+  }
+  if (!Array.isArray(arr) || !arr.length) arr = t.split('\n');
+  return arr
+    .map((it) => (typeof it === 'string' ? it : (it && typeof it.text === 'string' ? it.text : '')))
+    .map((s) => String(s).replace(/^\s*(?:\d+[.、)]|[-*])\s*/, '').replace(/^["“”']+|["“”']+$/g, '').trim())
+    .filter(Boolean)
+    .slice(0, count || 5);
+}
+
+// 待机台词（直连服务商，无后端时用）
+async function directStandbyLines(baseUrl, apiKey, model, persona, count, avoid) {
+  const url = directChatUrl(baseUrl);
+  if (!url) return { ok: false, reason: '接口地址不能为空', hints: ['填写服务商提供的 Base URL'] };
+  const n = Math.min(Math.max(parseInt(count, 10) || 5, 1), 5);
+  const system = [
+    persona && String(persona).trim() ? String(persona).trim() : '你是一个温柔、有陪伴感的角色。',
+    '请生成待机台词：角色安静待在用户身边时，随口说出的短句。',
+    '要求：每句 6~20 个字，口语化、自然、有画面感；不要编号、引号、解释或动作描写。',
+    '只输出 JSON 字符串数组，例如 ["今天过得怎么样？","我一直都在。"]',
+  ].join('\n\n');
+  const avoidList = Array.isArray(avoid) ? avoid.filter(Boolean).slice(0, 10) : [];
+  const user = '现在生成 ' + n + ' 句互不重复的待机台词。'
+    + (avoidList.length ? '\n不要与这些重复：' + avoidList.join(' / ') : '');
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DIRECT_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+        max_tokens: 400,
+        temperature: 0.9,
+        stream: false,
+      }),
+      signal: controller.signal,
+    });
+    const text = await res.text();
+    let data = null; try { data = text ? JSON.parse(text) : null; } catch (_) { data = null; }
+    if (res.ok) {
+      const reply = (data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+      const lines = parseStandbyLines(reply, n);
+      if (!lines.length) return { ok: false, reason: '模型没有返回可用台词', hints: ['换一个模型试试', '稍后重试'] };
+      return { ok: true, status: res.status, lines };
+    }
+    const errMsg = (data && (data.error && (data.error.message || data.error.code))) || (data && data.message) || text || ('HTTP ' + res.status);
+    return { ok: false, status: res.status, reason: '服务商返回错误（HTTP ' + res.status + '）', message: String(errMsg).slice(0, 500), hints: ['检查接口地址、API Key、模型名是否正确'] };
+  } catch (err) {
+    if (err && err.name === 'AbortError') return { ok: false, reason: '请求超时（30 秒未响应）', hints: ['服务商可能较慢，稍后重试'] };
+    return { ok: false, reason: '直连失败（可能是浏览器跨域 CORS 被拦截）：' + (err && err.message ? err.message : err), hints: ['纯静态托管要求服务商允许浏览器跨域 CORS', '建议改用 Vercel 部署（自带代理，无跨域问题）'] };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// 待机台词（走后端 /api/standby，无后端则直连）
+async function requestStandbyLines(payload) {
+  try {
+    const res = await fetch('/api/standby', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const text = await res.text();
+    if (isBackendResponse(res, text)) {
+      try { return JSON.parse(text); } catch (_) {}
+    }
+  } catch (_) { /* 无后端 */ }
+  return directStandbyLines(payload.baseUrl, payload.apiKey, payload.model, payload.persona, payload.count, payload.avoid);
+}

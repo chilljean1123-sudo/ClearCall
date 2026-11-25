@@ -4,8 +4,10 @@
 
 const $ = (id) => document.getElementById(id);
 
+const viewStandby = $('view-standby');
 const viewHome = $('view-home');
 const viewSettings = $('view-settings');
+const viewStandbySettings = $('view-standby-settings');
 const viewChat = $('view-chat');
 const viewMemory = $('view-memory');
 const viewCharSettings = $('view-char-settings');
@@ -13,6 +15,18 @@ const viewCharSettings = $('view-char-settings');
 function showView(view) {
   document.querySelectorAll('.app-view').forEach((el) => el.classList.remove('active'));
   view.classList.add('active');
+}
+
+// 页面导航：记住来路，返回时回到上一页
+const navStack = [];
+function navigate(view) {
+  const cur = document.querySelector('.app-view.active');
+  if (cur && cur !== view) navStack.push(cur);
+  showView(view);
+}
+
+function navigateBack(fallback) {
+  showView(navStack.pop() || fallback || viewStandby);
 }
 
 function toast(msg) {
@@ -23,12 +37,21 @@ function toast(msg) {
   t._timer = setTimeout(() => { t.hidden = true; }, 2200);
 }
 
-// 状态栏时间
+// 状态栏与待机页时间
 function updateTime() {
   const d = new Date();
   const hh = String(d.getHours()).padStart(2, '0');
   const mm = String(d.getMinutes()).padStart(2, '0');
-  document.querySelector('.status-time').textContent = hh + ':' + mm;
+  const time = hh + ':' + mm;
+  const el = document.querySelector('.status-time');
+  if (el) el.textContent = time;
+  const st = $('standby-time');
+  if (st) st.textContent = time;
+  const sd = $('standby-date');
+  if (sd) {
+    const week = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][d.getDay()];
+    sd.textContent = (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + week;
+  }
 }
 updateTime();
 setInterval(updateTime, 30000);
@@ -280,6 +303,151 @@ function fileToAvatar(file) {
     };
     reader.onerror = () => reject(new Error('文件读取失败'));
     reader.readAsDataURL(file);
+  });
+}
+
+// ===== 通用图片处理（返回 Blob，交给 store.js 存入 IndexedDB） =====
+// keepAlpha 时保留 PNG/WebP 透明通道，供待机立绘使用
+function fileToImageBlob(file, { max = 1600, keepAlpha = false } = {}) {
+  return new Promise((resolve, reject) => {
+    if (!file || !file.type.startsWith('image/')) { reject(new Error('请选择图片文件')); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        let w = img.width;
+        let h = img.height;
+        if (w > max || h > max) {
+          const s = Math.min(max / w, max / h);
+          w = Math.round(w * s);
+          h = Math.round(h * s);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        const png = keepAlpha && /png|webp/i.test(file.type);
+        canvas.toBlob((blob) => {
+          if (blob) resolve(blob);
+          else reject(new Error('图片处理失败'));
+        }, png ? 'image/png' : 'image/jpeg', 0.9);
+      };
+      img.onerror = () => reject(new Error('图片读取失败'));
+      img.src = reader.result;
+    };
+    reader.onerror = () => reject(new Error('文件读取失败'));
+    reader.readAsDataURL(file);
+  });
+}
+
+// ===== 待机页渲染 =====
+function setStandbyBackground(url) {
+  const img = $('standby-bg');
+  if (!img) return;
+  if (url) { img.src = url; img.hidden = false; }
+  else { img.removeAttribute('src'); img.hidden = true; }
+}
+
+function setStandbyPortrait(url) {
+  const img = $('standby-portrait-img');
+  const empty = $('standby-portrait-empty');
+  if (!img || !empty) return;
+  if (url) { img.src = url; img.hidden = false; empty.hidden = true; }
+  else { img.removeAttribute('src'); img.hidden = true; empty.hidden = false; }
+}
+
+function setStandbyName(name) {
+  const el = $('standby-name');
+  if (el) el.textContent = name || '';
+}
+
+function setStandbySpeechText(text) {
+  const box = $('standby-speech');
+  const el = $('standby-speech-text');
+  if (!box || !el) return;
+  if (text) { el.textContent = text; box.hidden = false; }
+  else { el.textContent = ''; box.hidden = true; }
+}
+
+// 设置页小预览框
+function setStandbyMediaPreview(id, url, emptyText) {
+  const box = $(id);
+  if (!box) return;
+  box.innerHTML = '';
+  if (url) {
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = '';
+    box.appendChild(img);
+  } else {
+    box.textContent = emptyText || '';
+  }
+}
+
+function renderStandbyRoleList(list, activeId) {
+  const box = $('standby-role-list');
+  if (!box) return;
+  box.innerHTML = '';
+  (list || []).forEach((c) => {
+    const row = document.createElement('div');
+    row.className = 'standby-role-item' + (c.id === activeId ? ' active' : '');
+    row.dataset.id = c.id;
+    row.dataset.act = 'switch';
+
+    const dot = document.createElement('span');
+    dot.className = 'standby-role-dot';
+    row.appendChild(dot);
+
+    const name = document.createElement('span');
+    name.className = 'standby-role-name';
+    name.textContent = c.name || '未命名角色';
+    row.appendChild(name);
+
+    const actions = document.createElement('span');
+    actions.className = 'standby-role-actions';
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.className = 'memory-link';
+    edit.dataset.act = 'edit';
+    edit.textContent = '编辑';
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'memory-link danger';
+    del.dataset.act = 'delete';
+    del.textContent = '删除';
+    actions.appendChild(edit);
+    actions.appendChild(del);
+    row.appendChild(actions);
+
+    box.appendChild(row);
+  });
+}
+
+function renderStandbyLinesList(lines) {
+  const box = $('standby-lines-list');
+  if (!box) return;
+  box.innerHTML = '';
+  if (!lines || !lines.length) {
+    const empty = document.createElement('div');
+    empty.className = 'memory-empty';
+    empty.textContent = '还没有台词，点「重新生成」试试。';
+    box.appendChild(empty);
+    return;
+  }
+  lines.forEach((text, index) => {
+    const row = document.createElement('div');
+    row.className = 'standby-line-item';
+    const t = document.createElement('span');
+    t.className = 'standby-line-text';
+    t.textContent = text;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'memory-link';
+    btn.dataset.index = String(index);
+    btn.textContent = '重 roll';
+    row.appendChild(t);
+    row.appendChild(btn);
+    box.appendChild(row);
   });
 }
 

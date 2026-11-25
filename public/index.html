@@ -21,8 +21,62 @@
         </span>
       </div>
 
+      <!-- 待机锁屏首页 -->
+      <div class="app-view active" id="view-standby">
+        <img class="standby-bg" id="standby-bg" alt="" hidden />
+        <div class="standby-dim"></div>
+
+        <div class="standby-top">
+          <button class="standby-pill" type="button" id="btn-standby-home">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+            <span>首页</span>
+          </button>
+          <div class="standby-clock">
+            <span class="standby-time" id="standby-time">--:--</span>
+            <span class="standby-date" id="standby-date"></span>
+          </div>
+          <button class="standby-pill icon" type="button" id="btn-standby-settings" title="设置">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </button>
+        </div>
+
+        <div class="standby-stage" id="standby-stage">
+          <button class="standby-portrait" type="button" id="standby-portrait">
+            <img id="standby-portrait-img" alt="" hidden />
+            <span class="standby-portrait-empty" id="standby-portrait-empty">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            </span>
+          </button>
+
+          <div class="standby-speech" id="standby-speech" hidden>
+            <div class="standby-speech-text" id="standby-speech-text"></div>
+            <div class="standby-speech-actions">
+              <button class="standby-speech-btn" type="button" id="btn-standby-lines">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                <span>台词</span>
+              </button>
+              <button class="standby-speech-btn" type="button" id="btn-standby-reroll">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M20.49 15A9 9 0 0 1 5.64 18.36L1 14"/></svg>
+                <span>换一句</span>
+              </button>
+              <button class="standby-speech-btn" type="button" id="btn-standby-close"><span>收起</span></button>
+            </div>
+          </div>
+
+          <div class="standby-name" id="standby-name"></div>
+          <div class="standby-status">在你身边</div>
+        </div>
+
+        <button class="standby-chat-btn" type="button" id="btn-standby-chat">
+          <span>和 ta 聊天</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+        </button>
+        <div class="standby-hint">轻点立绘说话 · 左右滑动换人 · 上滑回桌面</div>
+      </div>
+
       <!-- 主屏幕 -->
-      <div class="app-view active" id="view-home">
+      <div class="app-view" id="view-home">
+        <button class="home-standby-btn" type="button" id="btn-home-standby">待机</button>
         <div class="wallpaper">
           <div class="wallpaper-brand">ClearCall</div>
           <div class="wallpaper-slogan">你的虚拟手机</div>
@@ -64,6 +118,12 @@
         </header>
 
         <div class="settings-body">
+          <button class="settings-entry" type="button" id="btn-open-standby-settings">
+            <span class="settings-entry-title">待机界面</span>
+            <span class="settings-entry-desc">背景、立绘与角色</span>
+            <span class="settings-entry-arrow">›</span>
+          </button>
+
           <h2 class="settings-title">AI 接口设置</h2>
           <p class="settings-note">配置只保存在你本机浏览器里，不会上传到服务器，也不会写进日志。</p>
 
@@ -212,6 +272,59 @@
         </div>
       </div>
 
+      <!-- 待机界面设置 -->
+      <div class="app-view" id="view-standby-settings">
+        <header class="app-header">
+          <button class="back-btn" id="btn-standby-settings-back" type="button">返回</button>
+          <span class="app-title">待机</span>
+          <span class="app-header-spacer"></span>
+        </header>
+
+        <div class="settings-body">
+          <h2 class="settings-title">背景</h2>
+          <div class="standby-media-row">
+            <div class="standby-media-preview" id="standby-bg-preview"></div>
+            <div class="standby-media-actions">
+              <button type="button" class="fetch-btn" id="btn-upload-standby-bg">上传背景</button>
+              <button type="button" class="fetch-btn" id="btn-clear-standby-bg">清除</button>
+            </div>
+            <input type="file" id="file-standby-bg" accept="image/*" hidden />
+          </div>
+
+          <div class="divider"></div>
+
+          <h2 class="settings-title">待机角色</h2>
+          <div class="standby-role-list" id="standby-role-list"></div>
+          <div class="standby-role-add">
+            <input id="input-new-role" type="text" placeholder="新角色名字" autocomplete="off" />
+            <button type="button" class="fetch-btn" id="btn-add-role">新增</button>
+          </div>
+
+          <div class="divider"></div>
+
+          <h2 class="settings-title" id="standby-char-title">角色立绘</h2>
+          <div class="standby-media-row">
+            <div class="standby-media-preview tall" id="standby-idle-preview"></div>
+            <div class="standby-media-actions">
+              <button type="button" class="fetch-btn" id="btn-upload-idle">上传待机立绘</button>
+              <button type="button" class="fetch-btn" id="btn-clear-idle">清除</button>
+            </div>
+            <input type="file" id="file-idle" accept="image/*" hidden />
+          </div>
+          <div class="standby-media-row">
+            <div class="standby-media-preview tall" id="standby-speak-preview"></div>
+            <div class="standby-media-actions">
+              <button type="button" class="fetch-btn" id="btn-upload-speak">上传说话立绘</button>
+              <button type="button" class="fetch-btn" id="btn-clear-speak">清除</button>
+            </div>
+            <input type="file" id="file-speak" accept="image/*" hidden />
+          </div>
+          <span class="field-hint">PNG 透明背景效果最好；说话立绘留空则沿用待机立绘。</span>
+
+          <button type="button" class="test-btn" id="btn-edit-char-profile">编辑角色资料</button>
+        </div>
+      </div>
+
       <!-- 角色设置 -->
       <div class="app-view" id="view-char-settings">
         <header class="app-header">
@@ -260,6 +373,22 @@
               <input type="number" id="input-countdown-sec" min="1" max="60" value="3" />
             </div>
             <span class="field-hint">可多选；同时开启时优先级：即时 &gt; 倒计时 &gt; 批量。全关则等同「即时」。</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 待机台词面板 -->
+      <div class="modal-backdrop" id="modal-standby-lines" hidden>
+        <div class="modal-card">
+          <div class="modal-header">
+            <span class="modal-title" id="standby-lines-title">今日台词</span>
+            <button type="button" class="modal-close" id="btn-standby-lines-close">×</button>
+          </div>
+          <div class="modal-body">
+            <div class="standby-lines-list" id="standby-lines-list"></div>
+            <div class="modal-actions">
+              <button type="button" class="fetch-btn" id="btn-standby-lines-refresh">重新生成</button>
+            </div>
           </div>
         </div>
       </div>

@@ -89,15 +89,345 @@ function saveTriggerSettings() {
 }
 
 async function openChat() {
+  hideStandbySpeech();
   await loadCharConfig();
   await renderChat();
-  showView(viewChat);
+  navigate(viewChat);
 }
 
 async function openCharSettings() {
   await loadCharConfig();
   loadTriggerSettings();
-  showView(viewCharSettings);
+  navigate(viewCharSettings);
+}
+
+function openSettings() {
+  hideStandbySpeech();
+  closeStandbyLinesPanel();
+  loadSaved();
+  $('result').hidden = true;
+  navigate(viewSettings);
+}
+
+// ===== 待机锁屏 =====
+// 启动后先停在待机页：点立绘说话、左右滑动换人、上滑或点「首页」进桌面。
+const STANDBY_FALLBACK = [
+  '我一直在等你。',
+  '今天过得怎么样？',
+  '外面天气不错，要一起走走吗？',
+  '别太累了，记得休息。',
+  '你回来啦。',
+];
+
+let standbyCharId = null;
+let standbyIdleUrl = '';
+let standbySpeakUrl = '';
+let standbyLines = [];
+let standbyLineIndex = 0;
+let standbySpeaking = false;
+let standbyLinesPanelOpen = false;
+let standbyTouch = null;
+let standbySkipClick = false;
+
+function standbyApiConfig() {
+  return {
+    baseUrl: $('input-baseurl').value.trim(),
+    apiKey: $('input-apikey').value.trim(),
+    model: getCurrentModel(),
+  };
+}
+
+function updateStandbyPortrait() {
+  const speakingUrl = standbySpeaking && standbySpeakUrl ? standbySpeakUrl : standbyIdleUrl;
+  setStandbyPortrait(speakingUrl);
+}
+
+function showStandbyLine() {
+  if (!standbyLines.length) { setStandbySpeechText('…'); return; }
+  standbyLineIndex = ((standbyLineIndex % standbyLines.length) + standbyLines.length) % standbyLines.length;
+  setStandbySpeechText(standbyLines[standbyLineIndex]);
+}
+
+function hideStandbySpeech() {
+  standbySpeaking = false;
+  setStandbySpeechText('');
+  updateStandbyPortrait();
+}
+
+async function refreshStandby() {
+  const doc = await getCharacters();
+  const ch = doc.list.find((c) => c.id === doc.activeId) || doc.list[0];
+  if (!ch) return;
+  if (standbyCharId !== ch.id) {
+    standbyCharId = ch.id;
+    standbyLineIndex = 0;
+    standbyLines = [];
+  }
+  const [bg, idle, speak] = await Promise.all([
+    getStandbyBackgroundUrl(),
+    ch.idleImageId ? getImageUrl(ch.idleImageId) : Promise.resolve(''),
+    ch.speakImageId ? getImageUrl(ch.speakImageId) : Promise.resolve(''),
+  ]);
+  standbyIdleUrl = idle;
+  standbySpeakUrl = speak;
+  setStandbyBackground(bg);
+  setStandbyName(ch.name || '未命名角色');
+  updateStandbyPortrait();
+
+  const rec = await getStandbyLines(ch.id);
+  standbyLines = rec.lines;
+  if (standbySpeaking) showStandbyLine();
+
+  const lines = await ensureStandbyLines(ch.id);
+  if (standbyCharId !== ch.id) return;
+  standbyLines = lines;
+  if (standbySpeaking) showStandbyLine();
+  if (standbyLinesPanelOpen) {
+    renderStandbyLinesList(standbyLines);
+    renderStandbyLinesTitle();
+  }
+}
+
+async function ensureStandbyLines(charId, opts = {}) {
+  const rec = await getStandbyLines(charId);
+  if (!opts.force && rec.date === todayKey() && rec.lines.length >= 5) return rec.lines;
+
+  let lines = rec.lines.slice();
+  const cfg = standbyApiConfig();
+  if (!cfg.baseUrl || !cfg.apiKey || !cfg.model) {
+    if (!lines.length) {
+      lines = STANDBY_FALLBACK.slice();
+      // 日期留空：之后配置好接口还会再尝试生成
+      await setStandbyLines(charId, '', lines);
+    }
+    if (opts.notify) toast('先在「设置」配置 AI 接口，才能自动刷新台词');
+    return lines;
+  }
+
+  const doc = await getCharacters();
+  const ch = doc.list.find((c) => c.id === charId) || {};
+  const data = await requestStandbyLines({
+    ...cfg,
+    persona: ch.persona || '',
+    count: 5,
+    avoid: lines,
+  });
+
+  if (data && data.ok && Array.isArray(data.lines) && data.lines.length) {
+    lines = data.lines.slice(0, 5);
+    await setStandbyLines(charId, todayKey(), lines);
+    return lines;
+  }
+
+  if (!lines.length) {
+    lines = STANDBY_FALLBACK.slice();
+    await setStandbyLines(charId, '', lines);
+  }
+  if (opts.notify) toast('台词生成失败：' + ((data && (data.reason || data.message)) || '未知错误'));
+  return lines;
+}
+
+async function openStandbySpeech() {
+  standbySpeaking = true;
+  updateStandbyPortrait();
+  if (!standbyLines.length) {
+    setStandbySpeechText('…');
+    const ch = await getActiveCharDoc();
+    standbyLines = await ensureStandbyLines(ch.id, { notify: true });
+  }
+  showStandbyLine();
+}
+
+function nextStandbyLine() {
+  if (!standbyLines.length) { openStandbySpeech(); return; }
+  standbySpeaking = true;
+  standbyLineIndex = (standbyLineIndex + 1) % standbyLines.length;
+  updateStandbyPortrait();
+  showStandbyLine();
+}
+
+async function openStandbyLinesPanel() {
+  standbySpeaking = true;
+  standbyLinesPanelOpen = true;
+  updateStandbyPortrait();
+  const ch = await getActiveCharDoc();
+  standbyLines = await ensureStandbyLines(ch.id, { notify: true });
+  renderStandbyLinesList(standbyLines);
+  renderStandbyLinesTitle();
+  $('modal-standby-lines').hidden = false;
+}
+
+function closeStandbyLinesPanel() {
+  standbyLinesPanelOpen = false;
+  $('modal-standby-lines').hidden = true;
+}
+
+function renderStandbyLinesTitle() {
+  const d = new Date();
+  const el = $('standby-lines-title');
+  if (el) el.textContent = '今日台词 · ' + (d.getMonth() + 1) + '月' + d.getDate() + '日';
+}
+
+async function rerollStandbyLine(index) {
+  const cfg = standbyApiConfig();
+  if (!cfg.baseUrl || !cfg.apiKey || !cfg.model) {
+    toast('先在「设置」配置 AI 接口');
+    return;
+  }
+  const ch = await getActiveCharDoc();
+  const avoid = standbyLines.filter((_, i) => i !== index);
+  const data = await requestStandbyLines({ ...cfg, persona: ch.persona || '', count: 1, avoid });
+  if (data && data.ok && Array.isArray(data.lines) && data.lines.length) {
+    await setStandbyLine(ch.id, index, data.lines[0]);
+    const rec = await getStandbyLines(ch.id);
+    standbyLines = rec.lines;
+    renderStandbyLinesList(standbyLines);
+    if (standbySpeaking) showStandbyLine();
+    toast('已重 roll');
+  } else {
+    toast('重 roll 失败：' + ((data && (data.reason || data.message)) || '未知错误'));
+  }
+}
+
+async function regenerateStandbyLines() {
+  const ch = await getActiveCharDoc();
+  const lines = await ensureStandbyLines(ch.id, { force: true, notify: true });
+  standbyLines = lines;
+  renderStandbyLinesList(standbyLines);
+  if (standbySpeaking) showStandbyLine();
+}
+
+async function switchStandbyChar(dir) {
+  const doc = await getCharacters();
+  if (doc.list.length < 2) {
+    toast('只有一个角色，可在「设置 → 待机界面」添加');
+    return;
+  }
+  let i = doc.list.findIndex((c) => c.id === doc.activeId);
+  if (i < 0) i = 0;
+  i = (i + dir + doc.list.length) % doc.list.length;
+  await setActiveCharacter(doc.list[i].id);
+  hideStandbySpeech();
+  closeStandbyLinesPanel();
+  standbyCharId = null;
+  standbyLines = [];
+  standbyLineIndex = 0;
+  await refreshStandby();
+  toast('已切换到 ' + (doc.list[i].name || '角色'));
+}
+
+function onStandbyPointerDown(e) {
+  if (e.target.closest('.standby-speech, .modal-card, input, textarea')) { standbyTouch = null; return; }
+  const btn = e.target.closest('button');
+  if (btn && !e.target.closest('#standby-portrait')) { standbyTouch = null; return; }
+  standbyTouch = { x: e.clientX, y: e.clientY };
+}
+
+function onStandbyPointerUp(e) {
+  if (!standbyTouch) return;
+  const dx = e.clientX - standbyTouch.x;
+  const dy = e.clientY - standbyTouch.y;
+  standbyTouch = null;
+  if (Math.abs(dx) < 40 && Math.abs(dy) < 40) return;
+  if (Math.abs(dy) > Math.abs(dx)) {
+    if (dy < -50) {
+      standbySkipClick = true;
+      setTimeout(() => { standbySkipClick = false; }, 0);
+      hideStandbySpeech();
+      closeStandbyLinesPanel();
+      navigate(viewHome);
+    }
+    return;
+  }
+  standbySkipClick = true;
+  setTimeout(() => { standbySkipClick = false; }, 0);
+  switchStandbyChar(dx < 0 ? 1 : -1);
+}
+
+// ===== 待机设置 =====
+async function openStandbySettings() {
+  await renderStandbySettings();
+  navigate(viewStandbySettings);
+}
+
+async function renderStandbySettings() {
+  const { list, activeId } = await getCharacters();
+  const ch = list.find((c) => c.id === activeId) || list[0];
+  const [bg, idle, speak] = await Promise.all([
+    getStandbyBackgroundUrl(),
+    ch && ch.idleImageId ? getImageUrl(ch.idleImageId) : Promise.resolve(''),
+    ch && ch.speakImageId ? getImageUrl(ch.speakImageId) : Promise.resolve(''),
+  ]);
+  setStandbyMediaPreview('standby-bg-preview', bg, '未设置');
+  setStandbyMediaPreview('standby-idle-preview', idle, '未上传');
+  setStandbyMediaPreview('standby-speak-preview', speak, '未上传');
+  const title = $('standby-char-title');
+  if (title) title.textContent = '角色立绘 · ' + (ch && ch.name ? ch.name : '未命名角色');
+  renderStandbyRoleList(list, activeId);
+}
+
+async function uploadStandbyImage(file, kind) {
+  if (!file) return;
+  try {
+    if (kind === 'bg') {
+      const blob = await fileToImageBlob(file, { max: 1600, keepAlpha: false });
+      await setStandbyBackgroundBlob(blob, blob.type, file.name);
+    } else {
+      const blob = await fileToImageBlob(file, { max: 1600, keepAlpha: true });
+      await setCharImage(kind, blob, blob.type, file.name);
+    }
+    await renderStandbySettings();
+    await refreshStandby();
+    toast('已保存');
+  } catch (err) {
+    toast('图片处理失败：' + (err && err.message ? err.message : err));
+  }
+}
+
+async function onStandbyRoleListClick(e) {
+  const row = e.target.closest('.standby-role-item');
+  if (!row) return;
+  const id = row.dataset.id;
+  const btn = e.target.closest('button');
+  const act = btn ? btn.dataset.act : 'switch';
+
+  if (act === 'edit') {
+    await setActiveCharacter(id);
+    await renderStandbySettings();
+    await openCharSettings();
+    return;
+  }
+
+  if (act === 'delete') {
+    const { list } = await getCharacters();
+    const target = list.find((c) => c.id === id);
+    if (!target) return;
+    if (!window.confirm('删除角色「' + (target.name || '未命名') + '」？该角色的聊天记录也会一起删除。')) return;
+    try {
+      await deleteCharacter(id);
+      await renderStandbySettings();
+      await refreshStandby();
+      toast('角色已删除');
+    } catch (err) {
+      toast('删除失败：' + (err && err.message ? err.message : err));
+    }
+    return;
+  }
+
+  await setActiveCharacter(id);
+  await renderStandbySettings();
+  await refreshStandby();
+}
+
+async function addStandbyRole() {
+  const input = $('input-new-role');
+  const name = input.value.trim();
+  if (!name) { toast('先填写角色名字'); return; }
+  await addCharacter(name);
+  input.value = '';
+  await renderStandbySettings();
+  await refreshStandby();
+  toast('已添加角色');
 }
 
 // ---- 聊天编排 ----
@@ -287,7 +617,7 @@ async function retryReply(index) {
 async function openMemory() {
   await renderMemory();
   cancelMemoryForm();
-  showView(viewMemory);
+  navigate(viewMemory);
 }
 
 function openMemoryAdd() {
@@ -688,9 +1018,7 @@ document.querySelectorAll('.app-icon').forEach((btn) => {
   btn.addEventListener('click', () => {
     const app = btn.dataset.app;
     if (app === 'settings') {
-      loadSaved();
-      $('result').hidden = true;
-      showView(viewSettings);
+      openSettings();
     } else if (app === 'chat') {
       openChat();
     } else if (app === 'memory') {
@@ -702,7 +1030,103 @@ document.querySelectorAll('.app-icon').forEach((btn) => {
   });
 });
 
-$('btn-back').addEventListener('click', () => showView(viewHome));
+$('btn-back').addEventListener('click', () => navigateBack(viewHome));
+
+// ===== 待机页事件 =====
+$('btn-standby-home').addEventListener('click', () => {
+  hideStandbySpeech();
+  navigate(viewHome);
+});
+$('btn-standby-settings').addEventListener('click', openSettings);
+$('btn-standby-chat').addEventListener('click', openChat);
+$('btn-home-standby').addEventListener('click', async () => {
+  await refreshStandby();
+  navigate(viewStandby);
+});
+$('standby-portrait').addEventListener('click', () => {
+  if (standbySkipClick) { standbySkipClick = false; return; }
+  openStandbySpeech();
+});
+$('btn-standby-close').addEventListener('click', hideStandbySpeech);
+$('btn-standby-reroll').addEventListener('click', nextStandbyLine);
+$('btn-standby-lines').addEventListener('click', openStandbyLinesPanel);
+
+$('view-standby').addEventListener('pointerdown', onStandbyPointerDown);
+$('view-standby').addEventListener('pointerup', onStandbyPointerUp);
+$('view-standby').addEventListener('pointercancel', () => { standbyTouch = null; });
+
+// 台词面板
+$('btn-standby-lines-close').addEventListener('click', closeStandbyLinesPanel);
+$('btn-standby-lines-refresh').addEventListener('click', regenerateStandbyLines);
+$('modal-standby-lines').addEventListener('click', (e) => {
+  if (e.target.id === 'modal-standby-lines') closeStandbyLinesPanel();
+});
+$('standby-lines-list').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-index]');
+  if (!btn) return;
+  rerollStandbyLine(parseInt(btn.dataset.index, 10));
+});
+
+// 待机设置页
+$('btn-standby-settings-back').addEventListener('click', () => navigateBack(viewSettings));
+$('btn-open-standby-settings').addEventListener('click', openStandbySettings);
+$('standby-role-list').addEventListener('click', onStandbyRoleListClick);
+$('btn-add-role').addEventListener('click', addStandbyRole);
+$('input-new-role').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); addStandbyRole(); }
+});
+$('btn-edit-char-profile').addEventListener('click', openCharSettings);
+
+$('btn-upload-standby-bg').addEventListener('click', () => $('file-standby-bg').click());
+$('file-standby-bg').addEventListener('change', (e) => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  uploadStandbyImage(f, 'bg');
+});
+$('btn-clear-standby-bg').addEventListener('click', async () => {
+  try {
+    await clearStandbyBackground();
+    await renderStandbySettings();
+    await refreshStandby();
+    toast('背景已清除');
+  } catch (err) {
+    toast('清除失败：' + (err && err.message ? err.message : err));
+  }
+});
+
+$('btn-upload-idle').addEventListener('click', () => $('file-idle').click());
+$('file-idle').addEventListener('change', (e) => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  uploadStandbyImage(f, 'idle');
+});
+$('btn-clear-idle').addEventListener('click', async () => {
+  try {
+    await clearCharImage('idle');
+    await renderStandbySettings();
+    await refreshStandby();
+    toast('立绘已清除');
+  } catch (err) {
+    toast('清除失败：' + (err && err.message ? err.message : err));
+  }
+});
+
+$('btn-upload-speak').addEventListener('click', () => $('file-speak').click());
+$('file-speak').addEventListener('change', (e) => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  uploadStandbyImage(f, 'speak');
+});
+$('btn-clear-speak').addEventListener('click', async () => {
+  try {
+    await clearCharImage('speak');
+    await renderStandbySettings();
+    await refreshStandby();
+    toast('说话立绘已清除');
+  } catch (err) {
+    toast('清除失败：' + (err && err.message ? err.message : err));
+  }
+});
 
 $('btn-toggle-key').addEventListener('click', () => {
   const inp = $('input-apikey');
@@ -793,14 +1217,14 @@ $('btn-test').addEventListener('click', async () => {
 });
 
 // 角色聊天导航
-$('btn-chat-back').addEventListener('click', () => showView(viewHome));
+$('btn-chat-back').addEventListener('click', () => navigateBack(viewHome));
 $('btn-chat-config').addEventListener('click', openCharSettings);
-$('btn-char-settings-back').addEventListener('click', () => showView(viewChat));
+$('btn-char-settings-back').addEventListener('click', () => navigateBack(viewChat));
 $('input-char-name').addEventListener('input', saveCharConfig);
 $('input-char-persona').addEventListener('input', saveCharConfig);
 
 // 记忆应用
-$('btn-memory-back').addEventListener('click', () => showView(viewHome));
+$('btn-memory-back').addEventListener('click', () => navigateBack(viewHome));
 $('btn-memory-summarize').addEventListener('click', summarizeChatToMemory);
 $('btn-memory-add').addEventListener('click', openMemoryAdd);
 $('btn-toggle-memory-key').addEventListener('click', () => {
@@ -865,6 +1289,7 @@ $('file-import').addEventListener('change', async (e) => {
     await applyBackup(data);
     loadSaved();
     await loadCharConfig();
+    await refreshStandby();
     toast('备份已导入');
   } catch (err) {
     toast('导入失败：' + (err && err.message ? err.message : err));
@@ -948,6 +1373,7 @@ $('btn-autopush-disable').addEventListener('click', disableAutopush);
   }
   loadSaved();
   try { await loadCharConfig(); } catch (_) {}
+  try { await refreshStandby(); } catch (_) {}
   // 如果 Worker URL 已配，启动轮询
   const cf = getCfSettings();
   if (cf.workerUrl) startAutopushPolling();
