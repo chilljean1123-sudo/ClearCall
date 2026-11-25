@@ -70,6 +70,22 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // 待机台词生成接口
+  if (req.method === 'POST' && url.pathname === '/api/standby') {
+    const payload = await ai.readJsonBody(req, 1e6);
+    const result = await ai.standbyLines({
+      baseUrl: payload.baseUrl,
+      apiKey: payload.apiKey,
+      model: payload.model,
+      persona: payload.persona,
+      count: payload.count,
+      avoid: payload.avoid,
+    });
+    console.log('[api/standby]', result.ok ? 'success (' + (result.lines ? result.lines.length : 0) + ' 句)' : 'failed', result.reason || '');
+    ai.sendJson(res, result);
+    return;
+  }
+
   // 静态文件
   let pathname = url.pathname;
   if (pathname === '/') pathname = '/index.html';

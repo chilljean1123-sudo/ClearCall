@@ -121,9 +121,12 @@ const DB_NAME = 'clearcall';
 const DB_VERSION = 1;
 const STORE_DOCS = 'documents';   // 各类结构化文档：角色、聊天记录、未来记忆/各 App 存档
 const STORE_FILES = 'files';      // 图片等二进制 Blob，用稳定 id 引用
-const DOC_CHARACTER = 'character';
-const DOC_CHAT = 'chatHistory';
+const DOC_CHARACTER = 'character';       // 旧版单角色文档，仅用于迁移
+const DOC_CHARACTERS = 'characters';     // 多角色列表：{ activeId, list: [...] }
+const DOC_CHAT = 'chatHistory';          // 旧版聊天文档，仅用于迁移
+const DOC_CHAT_PREFIX = 'chatHistory:';  // 每个角色各自的聊天记录
 const DOC_MEMORY = 'memory';
+const DOC_STANDBY = 'standby';           // 待机页背景与每日台词
 
 let _dbPromise = null;
 
@@ -189,6 +192,13 @@ async function putDoc(doc) {
   await txComplete(tx);
 }
 
+async function deleteDoc(id) {
+  const db = await openDB();
+  const tx = db.transaction(STORE_DOCS, 'readwrite');
+  tx.objectStore(STORE_DOCS).delete(id);
+  await txComplete(tx);
+}
+
 async function getFile(id) {
   const db = await openDB();
   const tx = db.transaction(STORE_FILES, 'readonly');
@@ -241,82 +251,274 @@ function mutateDoc(id, mutator) {
   });
 }
 
-function updateCharacter(patch) {
-  return mutateDoc(DOC_CHARACTER, (doc) => {
-    if (doc.name === undefined) doc.name = '';
-    if (doc.persona === undefined) doc.persona = '';
-    if (doc.avatarId === undefined) doc.avatarId = null;
-    Object.assign(doc, patch);
-  });
-}
+// ---------- 角色（IndexedDB，多角色） ----------
+// 角色列表存在 characters 文档；聊天记录按 role 各自存 chatHistory:<id>。
+// 头像 / 待机立绘 / 说话立绘都以 Blob 存在 files，角色文档只存图片 id。
 
-// ---------- 角色（IndexedDB） ----------
-// 头像图片以 Blob 存在 files，角色文档只存 avatarId 引用；显示时再转对象 URL。
-let _avatarCache = { id: null, url: '' };
+let _charsCache = null;
+const _imageUrlCache = new Map(); // 图片 id -> objectURL
 
-function revokeAvatarCache() {
-  if (_avatarCache.url) { URL.revokeObjectURL(_avatarCache.url); _avatarCache.url = ''; }
-  _avatarCache.id = null;
-}
-
-async function getAvatarUrl() {
-  const doc = await getDoc(DOC_CHARACTER);
-  const id = (doc && doc.avatarId) || null;
-  if (!id) { revokeAvatarCache(); return ''; }
-  if (_avatarCache.id === id && _avatarCache.url) return _avatarCache.url;
+async function getImageUrl(id) {
+  if (!id) return '';
+  if (_imageUrlCache.has(id)) return _imageUrlCache.get(id);
   const f = await getFile(id);
-  if (!f || !f.blob) { revokeAvatarCache(); return ''; }
-  revokeAvatarCache();
-  _avatarCache.id = id;
-  _avatarCache.url = URL.createObjectURL(f.blob);
-  return _avatarCache.url;
+  if (!f || !f.blob) return '';
+  const url = URL.createObjectURL(f.blob);
+  _imageUrlCache.set(id, url);
+  return url;
 }
 
-async function getChar() {
-  const doc = await getDoc(DOC_CHARACTER);
+function revokeImageUrl(id) {
+  if (id && _imageUrlCache.has(id)) {
+    URL.revokeObjectURL(_imageUrlCache.get(id));
+    _imageUrlCache.delete(id);
+  }
+}
+
+function revokeAllImageUrls() {
+  _imageUrlCache.forEach((u) => URL.revokeObjectURL(u));
+  _imageUrlCache.clear();
+}
+
+function normalizeChar(c) {
   return {
-    name: (doc && doc.name) || '',
-    persona: (doc && doc.persona) || '',
-    avatar: await getAvatarUrl(),
+    id: c.id || genId(),
+    name: typeof c.name === 'string' ? c.name : '',
+    persona: typeof c.persona === 'string' ? c.persona : '',
+    avatarId: c.avatarId || null,
+    idleImageId: c.idleImageId || null,
+    speakImageId: c.speakImageId || null,
   };
 }
 
-async function setChar(patch) {
-  await updateCharacter(patch || {});
+async function loadCharacters() {
+  if (_charsCache) return _charsCache;
+  let doc = await getDoc(DOC_CHARACTERS);
+  if (!doc || !Array.isArray(doc.list) || !doc.list.length) {
+    // 从旧版单角色文档迁移出第一个角色
+    const old = (await getDoc(DOC_CHARACTER)) || {};
+    const id = genId();
+    doc = {
+      id: DOC_CHARACTERS,
+      activeId: id,
+      list: [normalizeChar({ id, name: old.name, persona: old.persona, avatarId: old.avatarId })],
+    };
+    await putDoc(doc);
+    // 旧版聊天记录归到第一个角色
+    const oldChat = await getDoc(DOC_CHAT);
+    if (oldChat && Array.isArray(oldChat.messages) && oldChat.messages.length) {
+      await putDoc({ id: DOC_CHAT_PREFIX + id, messages: oldChat.messages });
+    }
+  }
+  doc.list = doc.list.map(normalizeChar);
+  if (!doc.list.some((c) => c.id === doc.activeId)) doc.activeId = doc.list[0].id;
+  _charsCache = doc;
+  return doc;
 }
 
-async function setCharAvatarBlob(blob, type, name) {
+async function saveCharacters(doc) {
+  _charsCache = doc;
+  await putDoc(doc);
+}
+
+async function getCharacters() {
+  const doc = await loadCharacters();
+  return { list: doc.list.map((c) => ({ ...c })), activeId: doc.activeId };
+}
+
+async function getActiveCharDoc() {
+  const doc = await loadCharacters();
+  return doc.list.find((c) => c.id === doc.activeId) || doc.list[0];
+}
+
+async function getChar() {
+  const c = await getActiveCharDoc();
+  return { id: c.id, name: c.name, persona: c.persona, avatar: await getImageUrl(c.avatarId) };
+}
+
+async function setChar(patch) {
+  const doc = await loadCharacters();
+  const c = doc.list.find((x) => x.id === doc.activeId);
+  if (!c) return;
+  if (patch && patch.name !== undefined) c.name = patch.name;
+  if (patch && patch.persona !== undefined) c.persona = patch.persona;
+  await saveCharacters(doc);
+}
+
+async function setActiveCharacter(id) {
+  const doc = await loadCharacters();
+  if (!doc.list.some((c) => c.id === id)) return false;
+  doc.activeId = id;
+  await saveCharacters(doc);
+  return true;
+}
+
+async function addCharacter(name) {
+  const doc = await loadCharacters();
+  const c = normalizeChar({ id: genId(), name: name || '' });
+  doc.list.push(c);
+  doc.activeId = c.id;
+  await saveCharacters(doc);
+  return c.id;
+}
+
+async function deleteCharacter(id) {
+  const doc = await loadCharacters();
+  if (doc.list.length <= 1) throw new Error('至少保留一个角色');
+  const target = doc.list.find((c) => c.id === id);
+  if (!target) return;
+  doc.list = doc.list.filter((c) => c.id !== id);
+  if (doc.activeId === id) doc.activeId = doc.list[0].id;
+  await saveCharacters(doc);
+  await deleteDoc(DOC_CHAT_PREFIX + id);
+  for (const key of ['avatarId', 'idleImageId', 'speakImageId']) {
+    if (target[key]) {
+      try { await deleteFile(target[key]); } catch (_) {}
+      revokeImageUrl(target[key]);
+    }
+  }
+  await clearStandbyLines(id);
+}
+
+// kind: 'avatar' 头像 | 'idle' 待机立绘 | 'speak' 说话立绘
+const CHAR_IMAGE_FIELDS = { avatar: 'avatarId', idle: 'idleImageId', speak: 'speakImageId' };
+
+async function setCharImage(kind, blob, type, name) {
+  const field = CHAR_IMAGE_FIELDS[kind];
+  if (!field) throw new Error('未知图片类型');
+  const doc = await loadCharacters();
+  const c = doc.list.find((x) => x.id === doc.activeId);
+  if (!c) throw new Error('没有可用的角色');
   const id = genId();
-  await putFile({ id, name: name || 'avatar', type: type || (blob && blob.type) || 'image/jpeg', blob });
-  const old = await getDoc(DOC_CHARACTER);
-  const oldId = old && old.avatarId;
-  await updateCharacter({ avatarId: id });
-  if (oldId) { try { await deleteFile(oldId); } catch (_) {} }
-  revokeAvatarCache();
+  await putFile({ id, name: name || kind, type: type || (blob && blob.type) || 'image/png', blob });
+  const oldId = c[field];
+  c[field] = id;
+  await saveCharacters(doc);
+  if (oldId) {
+    try { await deleteFile(oldId); } catch (_) {}
+    revokeImageUrl(oldId);
+  }
   return id;
 }
 
-async function clearCharAvatar() {
-  const old = await getDoc(DOC_CHARACTER);
-  const oldId = old && old.avatarId;
-  await updateCharacter({ avatarId: null });
-  if (oldId) { try { await deleteFile(oldId); } catch (_) {} }
-  revokeAvatarCache();
+async function clearCharImage(kind) {
+  const field = CHAR_IMAGE_FIELDS[kind];
+  if (!field) throw new Error('未知图片类型');
+  const doc = await loadCharacters();
+  const c = doc.list.find((x) => x.id === doc.activeId);
+  if (!c) return;
+  const oldId = c[field];
+  c[field] = null;
+  await saveCharacters(doc);
+  if (oldId) {
+    try { await deleteFile(oldId); } catch (_) {}
+    revokeImageUrl(oldId);
+  }
 }
 
-// ---------- 聊天记录（IndexedDB） ----------
+async function setCharAvatarBlob(blob, type, name) {
+  return setCharImage('avatar', blob, type, name);
+}
+
+async function clearCharAvatar() {
+  return clearCharImage('avatar');
+}
+
+// ---------- 角色聊天记录（IndexedDB，按角色隔离） ----------
+async function getActiveCharId() {
+  return (await loadCharacters()).activeId;
+}
+
 async function getHistory() {
-  const doc = await getDoc(DOC_CHAT);
+  const id = await getActiveCharId();
+  const doc = await getDoc(DOC_CHAT_PREFIX + id);
   const arr = doc && doc.messages;
   return Array.isArray(arr) ? arr : [];
 }
 
 // 原子地修改聊天记录，避免并发写入丢消息
 function mutateHistory(mutator) {
-  return mutateDoc(DOC_CHAT, (doc) => {
+  return getActiveCharId().then((id) => mutateDoc(DOC_CHAT_PREFIX + id, (doc) => {
     if (!Array.isArray(doc.messages)) doc.messages = [];
     mutator(doc.messages);
+  }));
+}
+
+// ---------- 待机页：背景与每日台词 ----------
+function todayKey() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
+
+async function getStandby() {
+  const doc = (await getDoc(DOC_STANDBY)) || {};
+  return {
+    backgroundId: doc.backgroundId || null,
+    linesByChar: (doc.linesByChar && typeof doc.linesByChar === 'object') ? doc.linesByChar : {},
+  };
+}
+
+function mutateStandby(mutator) {
+  return mutateDoc(DOC_STANDBY, (doc) => {
+    if (!doc.backgroundId) doc.backgroundId = null;
+    if (!doc.linesByChar || typeof doc.linesByChar !== 'object') doc.linesByChar = {};
+    mutator(doc);
   });
+}
+
+async function getStandbyLines(charId) {
+  const s = await getStandby();
+  const rec = s.linesByChar[charId];
+  if (!rec || !Array.isArray(rec.lines)) return { date: '', lines: [] };
+  return { date: rec.date || '', lines: rec.lines.filter((x) => typeof x === 'string' && x.trim()) };
+}
+
+async function setStandbyLines(charId, date, lines) {
+  await mutateStandby((doc) => {
+    doc.linesByChar[charId] = { date, lines: (lines || []).filter(Boolean).slice(0, 5) };
+  });
+}
+
+async function setStandbyLine(charId, index, text) {
+  const clean = String(text || '').trim();
+  if (!clean) return;
+  await mutateStandby((doc) => {
+    const rec = doc.linesByChar[charId];
+    if (!rec || !Array.isArray(rec.lines)) return;
+    if (index < 0 || index >= rec.lines.length) return;
+    rec.lines[index] = clean;
+  });
+}
+
+async function clearStandbyLines(charId) {
+  await mutateStandby((doc) => { delete doc.linesByChar[charId]; });
+}
+
+async function getStandbyBackgroundUrl() {
+  const s = await getStandby();
+  return getImageUrl(s.backgroundId);
+}
+
+async function setStandbyBackgroundBlob(blob, type, name) {
+  const s = await getStandby();
+  const id = genId();
+  await putFile({ id, name: name || 'standby-bg', type: type || (blob && blob.type) || 'image/jpeg', blob });
+  await mutateStandby((doc) => { doc.backgroundId = id; });
+  if (s.backgroundId) {
+    try { await deleteFile(s.backgroundId); } catch (_) {}
+    revokeImageUrl(s.backgroundId);
+  }
+  return id;
+}
+
+async function clearStandbyBackground() {
+  const s = await getStandby();
+  await mutateStandby((doc) => { doc.backgroundId = null; });
+  if (s.backgroundId) {
+    try { await deleteFile(s.backgroundId); } catch (_) {}
+    revokeImageUrl(s.backgroundId);
+  }
 }
 
 // ---------- 记忆（IndexedDB） ----------
@@ -409,27 +611,40 @@ async function buildBackup() {
   const trigger = getTriggerModes();
   const memorySettings = getMemorySettings();
   const cfSettings = getCfSettings();
-  const charDoc = (await getDoc(DOC_CHARACTER)) || {};
-  const chatDoc = (await getDoc(DOC_CHAT)) || {};
+  const charsDoc = await loadCharacters();
+  const standby = await getStandby();
   const memDoc = (await getDoc(DOC_MEMORY)) || {};
+
+  const characters = charsDoc.list.map((c) => ({ ...c }));
+  const imageIds = new Set();
+  characters.forEach((c) => [c.avatarId, c.idleImageId, c.speakImageId].forEach((id) => { if (id) imageIds.add(id); }));
+  if (standby.backgroundId) imageIds.add(standby.backgroundId);
+
   const files = {};
-  const avatarId = charDoc.avatarId || null;
-  if (avatarId) {
-    const f = await getFile(avatarId);
+  for (const id of imageIds) {
+    const f = await getFile(id);
     if (f && f.blob) {
-      files[avatarId] = { name: f.name || 'avatar', type: f.type || 'image/jpeg', data: await blobToDataUrl(f.blob) };
+      files[id] = { name: f.name || 'image', type: f.type || 'image/jpeg', data: await blobToDataUrl(f.blob) };
     }
   }
+
+  const chats = {};
+  for (const c of characters) {
+    const d = await getDoc(DOC_CHAT_PREFIX + c.id);
+    chats[c.id] = (d && Array.isArray(d.messages)) ? d.messages : [];
+  }
+
   return {
     app: 'clearcall',
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     settings,
     trigger,
     memorySettings,
     cfSettings,
-    character: { name: charDoc.name || '', persona: charDoc.persona || '', avatarId },
-    chatHistory: Array.isArray(chatDoc.messages) ? chatDoc.messages : [],
+    characters: { activeId: charsDoc.activeId, list: characters },
+    chats,
+    standby,
     memory: {
       entries: Array.isArray(memDoc.entries) ? memDoc.entries : [],
       lastSummarizedCount: memDoc.lastSummarizedCount || 0,
@@ -455,14 +670,37 @@ async function applyBackup(data) {
     if (blob) await putFile({ id, name: f.name || 'image', type: f.type || blob.type, blob });
   }
 
-  const c = data.character || {};
-  await putDoc({ id: DOC_CHARACTER, name: c.name || '', persona: c.persona || '', avatarId: c.avatarId || null });
-  await putDoc({ id: DOC_CHAT, messages: Array.isArray(data.chatHistory) ? data.chatHistory : [] });
+  if (data.version >= 2 && data.characters && Array.isArray(data.characters.list) && data.characters.list.length) {
+    const list = data.characters.list.map(normalizeChar);
+    let activeId = data.characters.activeId;
+    if (!list.some((c) => c.id === activeId)) activeId = list[0].id;
+    _charsCache = null;
+    await putDoc({ id: DOC_CHARACTERS, activeId, list });
+    for (const c of list) {
+      const msgs = (data.chats && data.chats[c.id]) || [];
+      await putDoc({ id: DOC_CHAT_PREFIX + c.id, messages: Array.isArray(msgs) ? msgs : [] });
+    }
+    const sb = data.standby || {};
+    await putDoc({
+      id: DOC_STANDBY,
+      backgroundId: sb.backgroundId || null,
+      linesByChar: (sb.linesByChar && typeof sb.linesByChar === 'object') ? sb.linesByChar : {},
+    });
+  } else {
+    // 兼容旧版 v1 备份：单角色 + 单份聊天记录
+    const c = data.character || {};
+    const id = genId();
+    _charsCache = null;
+    await putDoc({ id: DOC_CHARACTERS, activeId: id, list: [normalizeChar({ id, name: c.name, persona: c.persona, avatarId: c.avatarId })] });
+    await putDoc({ id: DOC_CHAT_PREFIX + id, messages: Array.isArray(data.chatHistory) ? data.chatHistory : [] });
+    await putDoc({ id: DOC_STANDBY, backgroundId: null, linesByChar: {} });
+  }
 
   const mem = data.memory || {};
   await putDoc({ id: DOC_MEMORY, entries: Array.isArray(mem.entries) ? mem.entries : [], lastSummarizedCount: mem.lastSummarizedCount || 0 });
 
-  revokeAvatarCache();
+  _charsCache = null;
+  revokeAllImageUrls();
 }
 
 // ---------- 旧数据迁移 ----------
